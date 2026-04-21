@@ -71,7 +71,7 @@ cp .ai-system.json.example .ai-system.json
 ai --chat
 ```
 
-Use 9router as the backend:
+Use 9router as the backend with a config file:
 
 ```bash
 cp .ai-system.9router.json.example .ai-system.json
@@ -87,6 +87,20 @@ AI_SYSTEM_OPENAI_MODEL=if/kimi-k2-thinking \
 ai --dry-run "Refactor the auth flow"
 ```
 
+Or use the built-in preset:
+
+```bash
+ai --9router --chat
+ai --provider 9router --dry-run "Refactor the auth flow"
+```
+
+Use a repo-local `.env` instead of exporting variables every time:
+
+```bash
+cp .env.example .env
+ai --9router --chat
+```
+
 Inside interactive mode:
 
 ```text
@@ -94,6 +108,10 @@ Inside interactive mode:
 /status
 /dry-run
 /dry-run off
+/interactive
+/interactive off
+/provider 9router
+/provider clear
 /cwd ../another-project
 /config .ai-system.json
 /config clear
@@ -114,6 +132,12 @@ AI_SYSTEM_GENERATOR_TIMEOUT_MS=0 AI_SYSTEM_FIXER_TIMEOUT_MS=0 pnpm run ai -- "T�
 AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000 \
 AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS=60000 \
 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+```
+
+Review the AI plan before it generates code:
+
+```bash
+ai --interactive "Refactor the auth flow"
 ```
 
 ## Docker and Server Usage
@@ -260,6 +284,7 @@ Optional environment variables:
 - `AI_SYSTEM_9ROUTER_BASE_URL`
 - `AI_SYSTEM_9ROUTER_API_KEY`
 - `AI_SYSTEM_9ROUTER_MODEL`
+- `.env` is auto-loaded from the target repository root when present
 
 ## Container Notes
 

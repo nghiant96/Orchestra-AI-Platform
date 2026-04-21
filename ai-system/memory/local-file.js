@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { generateEmbedding, cosineSimilarity } from "../utils/embeddings.js";
 
 export class LocalFileMemoryAdapter {
   constructor({ repoRoot, config, logger }) {
@@ -18,9 +19,14 @@ export class LocalFileMemoryAdapter {
     }
 
     const query = buildQuery(task, stage, plan);
+    const queryEmbedding = await generateEmbedding(query);
     const queryTokens = tokenize(query);
+
     const scored = entries
-      .map((entry) => ({ entry, score: scoreEntry(entry, queryTokens, stage) }))
+      .map((entry) => ({ 
+        entry, 
+        score: scoreEntry(entry, queryTokens, queryEmbedding, stage) 
+      }))
       .filter((item) => item.score > 0)
       .sort((left, right) => right.score - left.score)
       .slice(0, this.config.max_results ?? 4)
@@ -62,13 +68,17 @@ export class LocalFileMemoryAdapter {
   }
 
   async storeRunSummary({ task, plan, result, iterations, issueCounts, providers, success, dryRun }) {
+    const summary = summarizeRun(result, iterations);
+    const embedding = await generateEmbedding(`${task} ${summary}`);
+
     const entry = {
       id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAt: new Date().toISOString(),
       kind: "run-summary",
       outcome: dryRun ? "dry-run" : success ? "success" : "failure",
       task,
-      summary: summarizeRun(result, iterations),
+      summary,
+      embedding,
       changedFiles: result?.files?.map((file) => file.path) ?? [],
       readFiles: plan?.readFiles ?? [],
       writeTargets: plan?.writeTargets ?? [],
@@ -124,7 +134,7 @@ function buildQuery(task, stage, plan) {
     .join(" ");
 }
 
-function scoreEntry(entry, queryTokens, stage) {
+function scoreEntry(entry, queryTokens, queryEmbedding, stage) {
   const entryTokens = tokenize(
     [
       entry.task,
@@ -137,16 +147,25 @@ function scoreEntry(entry, queryTokens, stage) {
       .join(" ")
   );
 
-  let overlap = 0;
+  let keywordScore = 0;
   for (const token of queryTokens) {
     if (entryTokens.has(token)) {
-      overlap += 1;
+      keywordScore += 1;
     }
+  }
+
+  // Semantic similarity score (normalized to roughly match keyword impact)
+  let semanticScore = 0;
+  if (queryEmbedding && entry.embedding) {
+    const similarity = cosineSimilarity(queryEmbedding, entry.embedding);
+    // Weight semantic similarity higher if it's a strong match
+    semanticScore = similarity > 0.7 ? similarity * 10 : similarity * 5;
   }
 
   const recencyBonus = computeRecencyBonus(entry.createdAt);
   const stageBonus = entry.kind === "run-summary" ? 0.5 : 0;
-  return overlap + recencyBonus + stageBonus + (stage ? 0.1 : 0);
+  
+  return keywordScore + semanticScore + recencyBonus + stageBonus + (stage ? 0.1 : 0);
 }
 
 function tokenize(text) {

@@ -2,20 +2,27 @@
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { Orchestrator } from "./core/orchestrator.js";
 import { createLogger } from "./utils/logger.js";
 
-async function main() {
-  const args = process.argv.slice(2);
+const PRESET_ENV_KEYS = [
+  "AI_SYSTEM_PLANNER_PROVIDER",
+  "AI_SYSTEM_REVIEWER_PROVIDER",
+  "AI_SYSTEM_GENERATOR_PROVIDER",
+  "AI_SYSTEM_FIXER_PROVIDER",
+  "AI_SYSTEM_OPENAI_BASE_URL",
+  "AI_SYSTEM_OPENAI_MODEL"
+];
+const PRESET_ENV_BASELINE = new Map(PRESET_ENV_KEYS.map((key) => [key, process.env[key]]));
 
-  if (args.includes("--help") || args.includes("-h")) {
+async function main() {
+  const options = await parseArgs(process.argv.slice(2));
+
+  if (options.help) {
     printHelp();
     process.exit(0);
   }
 
-  const options = await parseArgs(args);
-
-  if (options.interactive) {
+  if (options.chat) {
     await runInteractiveSession(options);
     process.exit(0);
   }
@@ -33,13 +40,21 @@ async function main() {
 async function parseArgs(args) {
   let cwd = process.cwd();
   let dryRun = false;
-  let interactive = false;
+  let chat = false;
+  let confirmPlan = false;
+  let help = false;
   let configPath = null;
+  let providerPreset = null;
   const taskParts = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+
     if (arg === "--") {
+      continue;
+    }
+    if (arg === "--help" || arg === "-h") {
+      help = true;
       continue;
     }
     if (arg === "--cwd") {
@@ -60,34 +75,58 @@ async function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--provider") {
+      const nextArg = args[index + 1];
+      if (!nextArg) {
+        throw new Error("Missing value for --provider.");
+      }
+      providerPreset = nextArg;
+      index += 1;
+      continue;
+    }
+    if (arg === "--9router") {
+      providerPreset = "9router";
+      continue;
+    }
     if (arg === "--dry-run") {
       dryRun = true;
       continue;
     }
-    if (arg === "--chat" || arg === "--interactive") {
-      interactive = true;
+    if (arg === "--chat") {
+      chat = true;
       continue;
     }
+    if (arg === "--interactive" || arg === "--approve-plan") {
+      confirmPlan = true;
+      continue;
+    }
+
     taskParts.push(arg);
   }
 
   const pipedTask = await readTaskFromStdin();
   const task = taskParts.join(" ").trim() || pipedTask;
 
-  if (!task && !interactive && process.stdin.isTTY && process.stdout.isTTY) {
-    interactive = true;
+  if (!task && !chat && process.stdin.isTTY && process.stdout.isTTY) {
+    chat = true;
   }
 
   return {
     cwd,
     dryRun,
-    interactive,
+    chat,
+    interactive: confirmPlan,
+    help,
     configPath,
+    providerPreset,
     task
   };
 }
 
-async function runTask({ cwd, dryRun, configPath, task }) {
+async function runTask({ cwd, dryRun, interactive, configPath, providerPreset, task }) {
+  applyProviderPreset(providerPreset);
+
+  const { Orchestrator } = await import("./core/orchestrator.js");
   const logger = createLogger();
   const orchestrator = new Orchestrator({
     repoRoot: cwd,
@@ -95,15 +134,19 @@ async function runTask({ cwd, dryRun, configPath, task }) {
     configPath
   });
 
-  return orchestrator.run(task, { dryRun });
+  return orchestrator.run(task, { dryRun, interactive });
 }
 
 async function runInteractiveSession(initialOptions) {
   const state = {
     cwd: initialOptions.cwd,
     dryRun: initialOptions.dryRun,
-    configPath: initialOptions.configPath
+    interactive: initialOptions.interactive,
+    configPath: initialOptions.configPath,
+    providerPreset: initialOptions.providerPreset
   };
+
+  applyProviderPreset(state.providerPreset);
 
   const rl = readline.createInterface({ input, output });
   printInteractiveBanner(state);
@@ -129,7 +172,9 @@ async function runInteractiveSession(initialOptions) {
         const result = await runTask({
           cwd: state.cwd,
           dryRun: state.dryRun,
+          interactive: state.interactive,
           configPath: state.configPath,
+          providerPreset: state.providerPreset,
           task: line
         });
         printResult(result);
@@ -169,6 +214,18 @@ async function handleInteractiveCommand(line, state) {
     return "handled";
   }
 
+  if (line === "/interactive" || line === "/interactive on") {
+    state.interactive = true;
+    console.log("[info] plan approval enabled");
+    return "handled";
+  }
+
+  if (line === "/interactive off") {
+    state.interactive = false;
+    console.log("[info] plan approval disabled");
+    return "handled";
+  }
+
   if (line.startsWith("/cwd ")) {
     state.cwd = path.resolve(line.slice(5).trim());
     console.log(`[info] cwd set to ${state.cwd}`);
@@ -188,13 +245,82 @@ async function handleInteractiveCommand(line, state) {
     return "handled";
   }
 
+  if (line === "/provider clear") {
+    state.providerPreset = null;
+    console.log("[info] provider preset cleared");
+    return "handled";
+  }
+
+  if (line.startsWith("/provider ")) {
+    const value = line.slice(10).trim();
+    state.providerPreset = value || null;
+    applyProviderPreset(state.providerPreset);
+    console.log(`[info] provider preset set to ${state.providerPreset ?? "(default)"}`);
+    return "handled";
+  }
+
   return null;
+}
+
+function applyProviderPreset(preset) {
+  resetPresetEnv();
+
+  if (!preset) {
+    return;
+  }
+
+  const normalized = String(preset).trim().toLowerCase();
+  if (!normalized || normalized === "default") {
+    return;
+  }
+
+  if (normalized === "9router") {
+    setAllRoleProviders("openai-compatible");
+    if (!process.env.AI_SYSTEM_OPENAI_BASE_URL && !process.env.AI_SYSTEM_9ROUTER_BASE_URL) {
+      setManagedEnv("AI_SYSTEM_OPENAI_BASE_URL", "http://127.0.0.1:20128/v1");
+    }
+    if (!process.env.AI_SYSTEM_OPENAI_MODEL && !process.env.AI_SYSTEM_9ROUTER_MODEL) {
+      setManagedEnv("AI_SYSTEM_OPENAI_MODEL", "if/kimi-k2-thinking");
+    }
+    return;
+  }
+
+  if (["openai-compatible", "gemini-cli", "claude-cli", "codex-cli"].includes(normalized)) {
+    setAllRoleProviders(normalized);
+    return;
+  }
+
+  throw new Error(`Unsupported provider preset "${preset}".`);
+}
+
+function setAllRoleProviders(providerType) {
+  setManagedEnv("AI_SYSTEM_PLANNER_PROVIDER", providerType);
+  setManagedEnv("AI_SYSTEM_REVIEWER_PROVIDER", providerType);
+  setManagedEnv("AI_SYSTEM_GENERATOR_PROVIDER", providerType);
+  setManagedEnv("AI_SYSTEM_FIXER_PROVIDER", providerType);
+}
+
+function resetPresetEnv() {
+  for (const key of PRESET_ENV_KEYS) {
+    const baseline = PRESET_ENV_BASELINE.get(key);
+    if (typeof baseline === "undefined") {
+      delete process.env[key];
+    } else {
+      process.env[key] = baseline;
+    }
+  }
+}
+
+function setManagedEnv(key, value) {
+  process.env[key] = value;
 }
 
 function printInteractiveBanner(state) {
   console.log("AI Coding System");
   console.log(`- cwd: ${state.cwd}`);
   console.log(`- dry-run: ${state.dryRun}`);
+  console.log(`- plan approval: ${state.interactive}`);
+  console.log(`- provider preset: ${state.providerPreset ?? "(default)"}`);
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
   console.log("Type a task and press Enter. Use /help for session commands.");
 }
@@ -206,6 +332,10 @@ function printInteractiveHelp() {
   console.log("- /status");
   console.log("- /dry-run");
   console.log("- /dry-run off");
+  console.log("- /interactive");
+  console.log("- /interactive off");
+  console.log("- /provider 9router|openai-compatible|gemini-cli|claude-cli|codex-cli");
+  console.log("- /provider clear");
   console.log("- /cwd /absolute/or/relative/path");
   console.log("- /config /absolute/or/relative/path/to/config.json");
   console.log("- /config clear");
@@ -217,29 +347,52 @@ function printSessionStatus(state) {
   console.log("Session");
   console.log(`- cwd: ${state.cwd}`);
   console.log(`- dry-run: ${state.dryRun}`);
+  console.log(`- plan approval: ${state.interactive}`);
+  console.log(`- provider preset: ${state.providerPreset ?? "(default)"}`);
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
 }
 
 function buildPrompt(state) {
-  return `ai:${path.basename(state.cwd)}${state.dryRun ? " [dry-run]" : ""}> `;
+  const mode = [
+    state.dryRun ? "dry-run" : null,
+    state.interactive ? "confirm-plan" : null,
+    state.providerPreset ? state.providerPreset : null
+  ]
+    .filter(Boolean)
+    .join(",");
+  return `ai:${path.basename(state.cwd)}${mode ? ` [${mode}]` : ""}> `;
 }
 
 function printHelp() {
   console.log(`Usage:
   ai "task description"
   ai --cwd /path/to/repo --dry-run "task description"
+  ai --interactive "task description"
+  ai --provider 9router "task description"
+  ai --9router --chat
   ai --chat
 
 Examples:
   ai "Refactor the auth flow"
   ai --dry-run "Add a reusable loading state component"
+  ai --interactive "Review the plan before changing files"
+  ai --provider 9router --dry-run "Refactor the auth flow"
   ai --cwd /absolute/path/to/repo "Implement retry handling"
   ai --config .ai-system.json --chat
   echo "Fix retry handling in api client" | ai
 
 Interactive mode:
   Run \`ai\` with no task to open a session, similar to Gemini CLI.
-  Use /help inside the session for commands.
+  Use --chat explicitly if you want chat mode.
+  Use --interactive to confirm the AI plan before changes are generated.
+
+Provider presets:
+  --provider 9router
+  --provider openai-compatible
+  --provider gemini-cli
+  --provider claude-cli
+  --provider codex-cli
+  --9router is a shortcut for --provider 9router
 
 Project config:
   The CLI auto-loads .ai-system.json from the current repo when present.

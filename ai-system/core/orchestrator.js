@@ -1,9 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import readline from "node:readline/promises";
 import { PlannerAgent } from "../agents/planner.js";
-import { ReviewerAgent } from "../agents/reviewer.js";
 import { GeneratorAgent } from "../agents/generator.js";
 import { FixerAgent } from "../agents/fixer.js";
+import { ReviewerAgent } from "../agents/reviewer.js";
 import {
   buildProjectTree,
   filterExistingSafeReadFiles,
@@ -21,10 +22,11 @@ import {
   summarizeIssueCounts,
   validateCandidateFiles
 } from "./reviewer.js";
-import { loadEnvironment } from "../utils/api.js";
-import { loadJsonIfExists, mergeConfig, resolveProjectConfigPath } from "../utils/config.js";
 import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
+import { loadJsonIfExists, mergeConfig, resolveProjectConfigPath } from "../utils/config.js";
+import { loadEnvironment } from "../utils/api.js";
+import { runStaticAnalysis } from "../utils/linter.js";
 
 export class Orchestrator {
   constructor({ repoRoot, logger, configPath = null }) {
@@ -33,13 +35,13 @@ export class Orchestrator {
     this.configPath = configPath;
   }
 
-  async run(task, { dryRun = false } = {}) {
+  async run(task, { dryRun = false, interactive = false } = {}) {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
     const { rules, configPath } = await loadRules(repoRoot, this.configPath);
     applyEnvOverrides(rules);
-    const memory = createMemoryAdapter({ repoRoot, rules, logger: this.logger });
+
     const plannerProvider = createProvider("planner", rules, this.logger);
     const reviewerProvider = createProvider("reviewer", rules, this.logger);
     const generatorProvider = createProvider("generator", rules, this.logger);
@@ -49,6 +51,8 @@ export class Orchestrator {
     const reviewer = new ReviewerAgent({ provider: reviewerProvider, rules });
     const generator = new GeneratorAgent({ provider: generatorProvider, rules });
     const fixer = new FixerAgent({ provider: fixerProvider, rules });
+    const memory = createMemoryAdapter({ repoRoot, rules, logger: this.logger });
+
     const memoryStats = {
       backend: memory.id,
       planningMatches: 0,
@@ -59,10 +63,11 @@ export class Orchestrator {
     this.logger.step(`Building project tree for ${repoRoot}`);
     const treeString = await buildProjectTree(repoRoot, rules);
 
-    const planningMemories = await safelySearchMemory(memory, {
-      task,
-      stage: "planning"
-    }, this.logger);
+    const planningMemories = await safelySearchMemory(
+      memory,
+      { task, stage: "planning" },
+      this.logger
+    );
     memoryStats.planningMatches = planningMemories.length;
     const planningMemoryContext = memory.formatForPrompt(planningMemories, "planning");
 
@@ -77,11 +82,34 @@ export class Orchestrator {
       notes: Array.isArray(rawPlan.notes) ? rawPlan.notes : []
     };
 
-    const implementationMemories = await safelySearchMemory(memory, {
-      task,
-      stage: "implementation",
-      plan
-    }, this.logger);
+    if (interactive) {
+      const confirmed = await this.confirmPlan(plan);
+      if (!confirmed) {
+        this.logger.warn("Task cancelled by user.");
+        return {
+          ok: false,
+          status: "cancelled",
+          dryRun,
+          repoRoot,
+          configPath,
+          plan,
+          result: null,
+          iterations: [],
+          issueCounts: { high: 0, medium: 0, low: 0 },
+          skippedContextFiles: [],
+          finalIssues: [],
+          providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+          memory: memoryStats,
+          wroteFiles: false
+        };
+      }
+    }
+
+    const implementationMemories = await safelySearchMemory(
+      memory,
+      { task, stage: "implementation", plan },
+      this.logger
+    );
     memoryStats.implementationMatches = implementationMemories.length;
     const implementationMemoryContext = memory.formatForPrompt(implementationMemories, "implementation");
 
@@ -117,7 +145,6 @@ export class Orchestrator {
         repoRoot,
         currentResult.files.map((file) => file.path)
       );
-
       const originalFiles = currentResult.files.map((file) => ({
         path: file.path,
         content: originals.get(file.path)
@@ -125,6 +152,8 @@ export class Orchestrator {
       const diffSummaries = buildDiffSummaries(originalFiles, currentResult.files);
 
       const validationIssues = validateCandidateFiles(currentResult.files);
+      const staticAnalysisIssues = await runStaticAnalysis(repoRoot, currentResult.files, this.logger);
+      const preReviewIssues = mergeIssues(staticAnalysisIssues, validationIssues);
 
       this.logger.step(`Reviewing generated files with ${reviewerProvider.id}`);
       const review = normalizeReviewResult(
@@ -132,7 +161,7 @@ export class Orchestrator {
           task,
           originalFiles,
           currentResult.files,
-          validationIssues,
+          preReviewIssues,
           diffSummaries,
           repoRoot,
           implementationMemoryContext
@@ -140,7 +169,7 @@ export class Orchestrator {
       );
 
       latestReviewSummary = review.summary;
-      acceptedIssues = mergeIssues(review.issues, validationIssues);
+      acceptedIssues = mergeIssues(review.issues, preReviewIssues);
       iterationResults.push({
         iteration,
         summary: review.summary,
@@ -153,16 +182,20 @@ export class Orchestrator {
           await writeFilesAtomically(repoRoot, currentResult.files, originals);
         }
 
-        memoryStats.stored = await safelyStoreMemory(memory, {
-          task,
-          plan,
-          result: currentResult,
-          iterations: iterationResults,
-          issueCounts: summarizeIssueCounts(acceptedIssues),
-          providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
-          success: true,
-          dryRun
-        }, this.logger);
+        memoryStats.stored = await safelyStoreMemory(
+          memory,
+          {
+            task,
+            plan,
+            result: currentResult,
+            iterations: iterationResults,
+            issueCounts: summarizeIssueCounts(acceptedIssues),
+            providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+            success: true,
+            dryRun
+          },
+          this.logger
+        );
 
         return {
           ok: true,
@@ -182,16 +215,20 @@ export class Orchestrator {
       }
     }
 
-    memoryStats.stored = await safelyStoreMemory(memory, {
-      task,
-      plan,
-      result: currentResult,
-      iterations: iterationResults,
-      issueCounts: summarizeIssueCounts(acceptedIssues),
-      providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
-      success: false,
-      dryRun
-    }, this.logger);
+    memoryStats.stored = await safelyStoreMemory(
+      memory,
+      {
+        task,
+        plan,
+        result: currentResult,
+        iterations: iterationResults,
+        issueCounts: summarizeIssueCounts(acceptedIssues),
+        providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+        success: false,
+        dryRun
+      },
+      this.logger
+    );
 
     return {
       ok: false,
@@ -208,6 +245,30 @@ export class Orchestrator {
       memory: memoryStats,
       wroteFiles: false
     };
+  }
+
+  async confirmPlan(plan) {
+    console.log("\n--- Proposed Plan ---");
+    console.log(`Prompt: ${plan.prompt}`);
+    console.log(`Files to read:   ${plan.readFiles.length > 0 ? plan.readFiles.join(", ") : "(none)"}`);
+    console.log(`Files to write:  ${plan.writeTargets.length > 0 ? plan.writeTargets.join(", ") : "(none)"}`);
+    if (plan.notes.length > 0) {
+      console.log("Notes:");
+      plan.notes.forEach((note) => console.log(`  - ${note}`));
+    }
+    console.log("---------------------\n");
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    try {
+      const answer = await rl.question("Proceed with this plan? (y/n): ");
+      return answer.toLowerCase().startsWith("y");
+    } finally {
+      rl.close();
+    }
   }
 }
 
@@ -261,14 +322,17 @@ function applyEnvOverrides(rules) {
   if (process.env.AI_SYSTEM_OPENMEMORY_API_KEY) {
     rules.memory.api_key = process.env.AI_SYSTEM_OPENMEMORY_API_KEY;
   }
+
   applyProviderOverride(rules.providers.planner, process.env.AI_SYSTEM_PLANNER_TIMEOUT_MS, process.env.AI_SYSTEM_PLANNER_RETRIES);
   applyProviderOverride(rules.providers.reviewer, process.env.AI_SYSTEM_REVIEWER_TIMEOUT_MS, process.env.AI_SYSTEM_REVIEWER_RETRIES);
   applyProviderOverride(rules.providers.generator, process.env.AI_SYSTEM_GENERATOR_TIMEOUT_MS, process.env.AI_SYSTEM_GENERATOR_RETRIES);
   applyProviderOverride(rules.providers.fixer, process.env.AI_SYSTEM_FIXER_TIMEOUT_MS, process.env.AI_SYSTEM_FIXER_RETRIES);
+
   applyMonitorOverride(rules.providers.planner, process.env.AI_SYSTEM_PLANNER_MONITOR_INTERVAL_MS);
   applyMonitorOverride(rules.providers.reviewer, process.env.AI_SYSTEM_REVIEWER_MONITOR_INTERVAL_MS);
   applyMonitorOverride(rules.providers.generator, process.env.AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS);
   applyMonitorOverride(rules.providers.fixer, process.env.AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS);
+
   applyOpenAICompatibleOverride(
     [rules.providers.planner, rules.providers.reviewer, rules.providers.generator, rules.providers.fixer],
     {
@@ -376,11 +440,9 @@ function applyOpenAICompatibleOverride(providerConfigs, { baseUrl, apiKey, model
     if (typeof baseUrl !== "undefined" && baseUrl !== "") {
       providerConfig.base_url = baseUrl;
     }
-
     if (typeof apiKey !== "undefined" && apiKey !== "") {
       providerConfig.api_key = apiKey;
     }
-
     if (typeof model !== "undefined" && model !== "") {
       providerConfig.model = model;
     }
