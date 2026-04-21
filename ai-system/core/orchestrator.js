@@ -269,6 +269,14 @@ function applyEnvOverrides(rules) {
   applyMonitorOverride(rules.providers.reviewer, process.env.AI_SYSTEM_REVIEWER_MONITOR_INTERVAL_MS);
   applyMonitorOverride(rules.providers.generator, process.env.AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS);
   applyMonitorOverride(rules.providers.fixer, process.env.AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS);
+  applyOpenAICompatibleOverride(
+    [rules.providers.planner, rules.providers.reviewer, rules.providers.generator, rules.providers.fixer],
+    {
+      baseUrl: process.env.AI_SYSTEM_OPENAI_BASE_URL || process.env.AI_SYSTEM_9ROUTER_BASE_URL,
+      apiKey: process.env.AI_SYSTEM_OPENAI_API_KEY || process.env.AI_SYSTEM_9ROUTER_API_KEY,
+      model: process.env.AI_SYSTEM_OPENAI_MODEL || process.env.AI_SYSTEM_9ROUTER_MODEL
+    }
+  );
 }
 
 function sanitizeGeneratedFiles(files, plan, rules, repoRoot) {
@@ -356,5 +364,25 @@ function applyMonitorOverride(providerConfig, monitorIntervalMs) {
 
   if (typeof monitorIntervalMs !== "undefined") {
     providerConfig.monitor_interval_ms = Number(monitorIntervalMs);
+  }
+}
+
+function applyOpenAICompatibleOverride(providerConfigs, { baseUrl, apiKey, model }) {
+  for (const providerConfig of providerConfigs) {
+    if (!providerConfig || providerConfig.type !== "openai-compatible") {
+      continue;
+    }
+
+    if (typeof baseUrl !== "undefined" && baseUrl !== "") {
+      providerConfig.base_url = baseUrl;
+    }
+
+    if (typeof apiKey !== "undefined" && apiKey !== "") {
+      providerConfig.api_key = apiKey;
+    }
+
+    if (typeof model !== "undefined" && model !== "") {
+      providerConfig.model = model;
+    }
   }
 }

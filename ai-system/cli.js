@@ -246,10 +246,10 @@ Project config:
   You can override it with --config /path/to/config.json
 
 Environment overrides:
-  AI_SYSTEM_PLANNER_PROVIDER=gemini-cli|claude-cli
-  AI_SYSTEM_REVIEWER_PROVIDER=gemini-cli|claude-cli
-  AI_SYSTEM_GENERATOR_PROVIDER=codex-cli|claude-cli
-  AI_SYSTEM_FIXER_PROVIDER=codex-cli|claude-cli
+  AI_SYSTEM_PLANNER_PROVIDER=gemini-cli|claude-cli|openai-compatible
+  AI_SYSTEM_REVIEWER_PROVIDER=gemini-cli|claude-cli|openai-compatible
+  AI_SYSTEM_GENERATOR_PROVIDER=codex-cli|claude-cli|openai-compatible
+  AI_SYSTEM_FIXER_PROVIDER=codex-cli|claude-cli|openai-compatible
   AI_SYSTEM_GENERATOR_TIMEOUT_MS=0    # disable timeout
   AI_SYSTEM_FIXER_TIMEOUT_MS=0        # disable timeout
   AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000
@@ -260,6 +260,12 @@ Environment overrides:
   AI_SYSTEM_MEMORY_BACKEND=local-file|openmemory
   AI_SYSTEM_MEMORY_TRANSPORT=http|cli
   AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080
+  AI_SYSTEM_OPENAI_BASE_URL=http://127.0.0.1:20128/v1
+  AI_SYSTEM_OPENAI_API_KEY=...
+  AI_SYSTEM_OPENAI_MODEL=if/kimi-k2-thinking
+  AI_SYSTEM_9ROUTER_BASE_URL=http://127.0.0.1:20128/v1
+  AI_SYSTEM_9ROUTER_API_KEY=...
+  AI_SYSTEM_9ROUTER_MODEL=if/kimi-k2-thinking
 `);
 }
 

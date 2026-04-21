@@ -58,6 +58,15 @@
       "timeout_ms": 0,
       "retries": 1,
       "monitor_interval_ms": 60000
+    },
+    "openai_compatible_example": {
+      "type": "openai-compatible",
+      "base_url": "http://127.0.0.1:20128/v1",
+      "api_key": "",
+      "model": "if/kimi-k2-thinking",
+      "timeout_ms": 120000,
+      "retries": 2,
+      "monitor_interval_ms": 0
     }
   },
   "excluded_directories": [

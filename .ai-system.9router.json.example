@@ -1,0 +1,36 @@
+{
+  "providers": {
+    "planner": {
+      "type": "openai-compatible",
+      "base_url": "http://127.0.0.1:20128/v1",
+      "api_key": "sk-1ecb55f2fba5ea47-qcgzm4-d89a4cdc",
+      "model": "if/kimi-k2-thinking",
+      "timeout_ms": 120000,
+      "retries": 2
+    },
+    "reviewer": {
+      "type": "openai-compatible",
+      "base_url": "http://127.0.0.1:20128/v1",
+      "api_key": "copy-from-9router-dashboard",
+      "model": "if/kimi-k2-thinking",
+      "timeout_ms": 120000,
+      "retries": 2
+    },
+    "generator": {
+      "type": "openai-compatible",
+      "base_url": "http://127.0.0.1:20128/v1",
+      "api_key": "copy-from-9router-dashboard",
+      "model": "if/kimi-k2-thinking",
+      "timeout_ms": 0,
+      "retries": 1
+    },
+    "fixer": {
+      "type": "openai-compatible",
+      "base_url": "http://127.0.0.1:20128/v1",
+      "api_key": "copy-from-9router-dashboard",
+      "model": "if/kimi-k2-thinking",
+      "timeout_ms": 0,
+      "retries": 1
+    }
+  }
+}

@@ -71,6 +71,22 @@ cp .ai-system.json.example .ai-system.json
 ai --chat
 ```
 
+Use 9router as the backend:
+
+```bash
+cp .ai-system.9router.json.example .ai-system.json
+ai --chat
+```
+
+Or keep your project config generic and inject 9router by env:
+
+```bash
+AI_SYSTEM_OPENAI_BASE_URL=http://127.0.0.1:20128/v1 \
+AI_SYSTEM_OPENAI_API_KEY=copy-from-9router-dashboard \
+AI_SYSTEM_OPENAI_MODEL=if/kimi-k2-thinking \
+ai --dry-run "Refactor the auth flow"
+```
+
 Inside interactive mode:
 
 ```text
@@ -238,6 +254,12 @@ Optional environment variables:
 - `AI_SYSTEM_MEMORY_TRANSPORT`
 - `AI_SYSTEM_OPENMEMORY_BASE_URL`
 - `AI_SYSTEM_OPENMEMORY_API_KEY`
+- `AI_SYSTEM_OPENAI_BASE_URL`
+- `AI_SYSTEM_OPENAI_API_KEY`
+- `AI_SYSTEM_OPENAI_MODEL`
+- `AI_SYSTEM_9ROUTER_BASE_URL`
+- `AI_SYSTEM_9ROUTER_API_KEY`
+- `AI_SYSTEM_9ROUTER_MODEL`
 
 ## Container Notes
 
@@ -264,6 +286,7 @@ Optional environment variables:
 - Project-scoped memory is stored locally under `.ai-system-memory/` by default.
 - The default memory backend is vendor-neutral and local-first, so you can add OpenMemory later without changing the orchestrator.
 - The OpenMemory backend supports both HTTP and `opm` CLI transports. HTTP is the better default when OpenMemory is already running in Docker.
+- A generic `openai-compatible` provider is available, which lets you use 9router and other OpenAI-style routers without changing agent code.
 - `claude-mem` can run alongside this project, but it is not the active backend unless you add a dedicated adapter for its worker API.
 - Local validation is intentionally lightweight. The tool validates path safety and JSON syntax, but it does not guarantee project-level semantic correctness unless you add stronger validators.
 - Default provider mapping is:
