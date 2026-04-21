@@ -63,7 +63,7 @@ export class OpenAICompatibleProvider {
         messages: buildMessages(systemPrompt, prompt, schema),
         response_format: this.config.response_format ?? { type: "json_object" }
       }),
-      signal: AbortSignal.timeout(timeoutMs)
+      signal: buildAbortSignal(timeoutMs)
     });
 
     const raw = await response.text();
@@ -74,6 +74,10 @@ export class OpenAICompatibleProvider {
     const parsed = JSON.parse(raw);
     return extractMessageContent(parsed);
   }
+}
+
+function buildAbortSignal(timeoutMs) {
+  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
 }
 
 function buildMessages(systemPrompt, prompt, schema) {

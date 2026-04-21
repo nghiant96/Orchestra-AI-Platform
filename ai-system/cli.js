@@ -5,11 +5,16 @@ import { stdin as input, stdout as output } from "node:process";
 import { createLogger } from "./utils/logger.js";
 
 const PRESET_ENV_KEYS = [
+  "AI_SYSTEM_PROVIDER",
   "AI_SYSTEM_PLANNER_PROVIDER",
   "AI_SYSTEM_REVIEWER_PROVIDER",
   "AI_SYSTEM_GENERATOR_PROVIDER",
   "AI_SYSTEM_FIXER_PROVIDER",
+  "AI_SYSTEM_BASE_URL",
+  "AI_SYSTEM_API_KEY",
+  "AI_SYSTEM_MODEL",
   "AI_SYSTEM_OPENAI_BASE_URL",
+  "AI_SYSTEM_OPENAI_API_KEY",
   "AI_SYSTEM_OPENAI_MODEL"
 ];
 const PRESET_ENV_BASELINE = new Map(PRESET_ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -274,19 +279,18 @@ function applyProviderPreset(preset) {
     return;
   }
 
+  if (normalized === "local" || normalized === "local-cli") {
+    setManagedEnv("AI_SYSTEM_PROVIDER", "local-cli");
+    return;
+  }
+
   if (normalized === "9router") {
-    setAllRoleProviders("openai-compatible");
-    if (!process.env.AI_SYSTEM_OPENAI_BASE_URL && !process.env.AI_SYSTEM_9ROUTER_BASE_URL) {
-      setManagedEnv("AI_SYSTEM_OPENAI_BASE_URL", "http://127.0.0.1:20128/v1");
-    }
-    if (!process.env.AI_SYSTEM_OPENAI_MODEL && !process.env.AI_SYSTEM_9ROUTER_MODEL) {
-      setManagedEnv("AI_SYSTEM_OPENAI_MODEL", "if/kimi-k2-thinking");
-    }
+    setManagedEnv("AI_SYSTEM_PROVIDER", "9router");
     return;
   }
 
   if (["openai-compatible", "gemini-cli", "claude-cli", "codex-cli"].includes(normalized)) {
-    setAllRoleProviders(normalized);
+    setManagedEnv("AI_SYSTEM_PROVIDER", normalized);
     return;
   }
 
@@ -334,7 +338,7 @@ function printInteractiveHelp() {
   console.log("- /dry-run off");
   console.log("- /interactive");
   console.log("- /interactive off");
-  console.log("- /provider 9router|openai-compatible|gemini-cli|claude-cli|codex-cli");
+  console.log("- /provider local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli");
   console.log("- /provider clear");
   console.log("- /cwd /absolute/or/relative/path");
   console.log("- /config /absolute/or/relative/path/to/config.json");
@@ -387,6 +391,7 @@ Interactive mode:
   Use --interactive to confirm the AI plan before changes are generated.
 
 Provider presets:
+  --provider local-cli
   --provider 9router
   --provider openai-compatible
   --provider gemini-cli
@@ -399,6 +404,8 @@ Project config:
   You can override it with --config /path/to/config.json
 
 Environment overrides:
+  AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli
+  AI_SYSTEM_MEMORY=local|openmemory|off
   AI_SYSTEM_PLANNER_PROVIDER=gemini-cli|claude-cli|openai-compatible
   AI_SYSTEM_REVIEWER_PROVIDER=gemini-cli|claude-cli|openai-compatible
   AI_SYSTEM_GENERATOR_PROVIDER=codex-cli|claude-cli|openai-compatible
@@ -413,12 +420,15 @@ Environment overrides:
   AI_SYSTEM_MEMORY_BACKEND=local-file|openmemory
   AI_SYSTEM_MEMORY_TRANSPORT=http|cli
   AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080
+  AI_SYSTEM_BASE_URL=http://127.0.0.1:20128/v1
+  AI_SYSTEM_API_KEY=...
+  AI_SYSTEM_MODEL=model-from-your-9router-dashboard
   AI_SYSTEM_OPENAI_BASE_URL=http://127.0.0.1:20128/v1
   AI_SYSTEM_OPENAI_API_KEY=...
-  AI_SYSTEM_OPENAI_MODEL=if/kimi-k2-thinking
+  AI_SYSTEM_OPENAI_MODEL=model-from-your-9router-dashboard
   AI_SYSTEM_9ROUTER_BASE_URL=http://127.0.0.1:20128/v1
   AI_SYSTEM_9ROUTER_API_KEY=...
-  AI_SYSTEM_9ROUTER_MODEL=if/kimi-k2-thinking
+  AI_SYSTEM_9ROUTER_MODEL=model-from-your-9router-dashboard
 `);
 }
 

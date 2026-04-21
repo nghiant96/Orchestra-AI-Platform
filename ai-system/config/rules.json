@@ -27,14 +27,14 @@
     "planner": {
       "type": "gemini-cli",
       "command": "gemini",
-      "timeout_ms": 90000,
+      "timeout_ms": 0,
       "retries": 2,
       "monitor_interval_ms": 0
     },
     "reviewer": {
       "type": "gemini-cli",
       "command": "gemini",
-      "timeout_ms": 90000,
+      "timeout_ms": 0,
       "retries": 2,
       "monitor_interval_ms": 0
     },
@@ -63,8 +63,8 @@
       "type": "openai-compatible",
       "base_url": "http://127.0.0.1:20128/v1",
       "api_key": "",
-      "model": "if/kimi-k2-thinking",
-      "timeout_ms": 120000,
+      "model": "model-from-your-9router-dashboard",
+      "timeout_ms": 0,
       "retries": 2,
       "monitor_interval_ms": 0
     }

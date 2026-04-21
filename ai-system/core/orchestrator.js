@@ -286,6 +286,9 @@ async function loadRules(repoRoot, explicitConfigPath) {
 }
 
 function applyEnvOverrides(rules) {
+  applySimpleProviderEnv(rules, process.env.AI_SYSTEM_PROVIDER);
+  applySimpleMemoryEnv(rules, process.env.AI_SYSTEM_MEMORY);
+
   if (process.env.AI_SYSTEM_MAX_ITERATIONS) {
     rules.max_iterations = Number(process.env.AI_SYSTEM_MAX_ITERATIONS);
   }
@@ -336,11 +339,84 @@ function applyEnvOverrides(rules) {
   applyOpenAICompatibleOverride(
     [rules.providers.planner, rules.providers.reviewer, rules.providers.generator, rules.providers.fixer],
     {
-      baseUrl: process.env.AI_SYSTEM_OPENAI_BASE_URL || process.env.AI_SYSTEM_9ROUTER_BASE_URL,
-      apiKey: process.env.AI_SYSTEM_OPENAI_API_KEY || process.env.AI_SYSTEM_9ROUTER_API_KEY,
-      model: process.env.AI_SYSTEM_OPENAI_MODEL || process.env.AI_SYSTEM_9ROUTER_MODEL
+      baseUrl:
+        process.env.AI_SYSTEM_BASE_URL ||
+        process.env.AI_SYSTEM_OPENAI_BASE_URL ||
+        process.env.AI_SYSTEM_9ROUTER_BASE_URL,
+      apiKey:
+        process.env.AI_SYSTEM_API_KEY ||
+        process.env.AI_SYSTEM_OPENAI_API_KEY ||
+        process.env.AI_SYSTEM_9ROUTER_API_KEY,
+      model:
+        process.env.AI_SYSTEM_MODEL ||
+        process.env.AI_SYSTEM_OPENAI_MODEL ||
+        process.env.AI_SYSTEM_9ROUTER_MODEL
     }
   );
+}
+
+function applySimpleProviderEnv(rules, provider) {
+  const normalized = String(provider || "").trim().toLowerCase();
+  if (!normalized) {
+    return;
+  }
+
+  switch (normalized) {
+    case "default":
+    case "local":
+    case "local-cli":
+      rules.providers.planner.type = "gemini-cli";
+      rules.providers.reviewer.type = "gemini-cli";
+      rules.providers.generator.type = "codex-cli";
+      rules.providers.fixer.type = "codex-cli";
+      return;
+    case "9router":
+      rules.providers.planner.type = "openai-compatible";
+      rules.providers.reviewer.type = "openai-compatible";
+      rules.providers.generator.type = "openai-compatible";
+      rules.providers.fixer.type = "openai-compatible";
+      if (!process.env.AI_SYSTEM_BASE_URL && !process.env.AI_SYSTEM_OPENAI_BASE_URL && !process.env.AI_SYSTEM_9ROUTER_BASE_URL) {
+        process.env.AI_SYSTEM_BASE_URL = "http://127.0.0.1:20128/v1";
+      }
+      return;
+    case "openai-compatible":
+    case "gemini-cli":
+    case "claude-cli":
+    case "codex-cli":
+      rules.providers.planner.type = normalized;
+      rules.providers.reviewer.type = normalized;
+      rules.providers.generator.type = normalized;
+      rules.providers.fixer.type = normalized;
+      return;
+    default:
+      return;
+  }
+}
+
+function applySimpleMemoryEnv(rules, memoryValue) {
+  const normalized = String(memoryValue || "").trim().toLowerCase();
+  if (!normalized) {
+    return;
+  }
+
+  switch (normalized) {
+    case "off":
+    case "false":
+    case "disabled":
+      rules.memory.enabled = false;
+      return;
+    case "local":
+    case "local-file":
+      rules.memory.enabled = true;
+      rules.memory.backend = "local-file";
+      return;
+    case "openmemory":
+      rules.memory.enabled = true;
+      rules.memory.backend = "openmemory";
+      return;
+    default:
+      return;
+  }
 }
 
 function sanitizeGeneratedFiles(files, plan, rules, repoRoot) {

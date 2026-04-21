@@ -34,6 +34,39 @@ codex login
 claude
 ```
 
+## Quick Start
+
+There are now two recommended local setup modes:
+
+### Option 1: Local CLI mode
+
+Use installed CLIs directly. No `.env` is required.
+
+```bash
+ai "Refactor the auth flow"
+# or
+pnpm run ai:local -- "Refactor the auth flow"
+```
+
+### Option 2: 9router mode
+
+Copy the env file once, set your API key, then run the tool normally.
+
+```bash
+cp .env.example .env
+ai "Refactor the auth flow"
+# or
+pnpm run ai:9router -- "Refactor the auth flow"
+```
+
+The minimal `.env` is:
+
+```bash
+AI_SYSTEM_PROVIDER=9router
+AI_SYSTEM_API_KEY=copy-from-9router-dashboard
+AI_SYSTEM_MODEL=model-from-your-9router-dashboard
+```
+
 ## CLI-First Local Usage
 
 This is the default workflow. Use it when you are coding locally and want a terminal experience similar to Gemini CLI.
@@ -71,19 +104,18 @@ cp .ai-system.json.example .ai-system.json
 ai --chat
 ```
 
-Use 9router as the backend with a config file:
+Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
 
 ```bash
-cp .ai-system.9router.json.example .ai-system.json
+cp .ai-system.hybrid.json.example .ai-system.json
 ai --chat
 ```
 
-Or keep your project config generic and inject 9router by env:
+Use 9router with env:
 
 ```bash
-AI_SYSTEM_OPENAI_BASE_URL=http://127.0.0.1:20128/v1 \
-AI_SYSTEM_OPENAI_API_KEY=copy-from-9router-dashboard \
-AI_SYSTEM_OPENAI_MODEL=if/kimi-k2-thinking \
+AI_SYSTEM_PROVIDER=9router \
+AI_SYSTEM_API_KEY=copy-from-9router-dashboard \
 ai --dry-run "Refactor the auth flow"
 ```
 
@@ -98,7 +130,7 @@ Use a repo-local `.env` instead of exporting variables every time:
 
 ```bash
 cp .env.example .env
-ai --9router --chat
+ai --chat
 ```
 
 Inside interactive mode:
@@ -122,9 +154,8 @@ Useful local overrides:
 
 ```bash
 AI_SYSTEM_REVIEWER_PROVIDER=claude-cli npm run ai -- --dry-run "Review the generated hook changes"
-AI_SYSTEM_MEMORY_ENABLED=false npm run ai -- --dry-run "Refactor the auth flow"
-AI_SYSTEM_MEMORY_BACKEND=openmemory \
-AI_SYSTEM_MEMORY_TRANSPORT=http \
+AI_SYSTEM_MEMORY=off npm run ai -- --dry-run "Refactor the auth flow"
+AI_SYSTEM_MEMORY=openmemory \
 AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080 \
 npm run ai -- --dry-run "Refactor the auth flow"
 AI_SYSTEM_GENERATOR_TIMEOUT_MS=480000 AI_SYSTEM_FIXER_TIMEOUT_MS=300000 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
@@ -254,6 +285,8 @@ curl -X POST http://127.0.0.1:3927/run \
 
 Optional environment variables:
 
+- `AI_SYSTEM_PROVIDER`
+- `AI_SYSTEM_MEMORY`
 - `AI_SYSTEM_MAX_ITERATIONS`
 - `AI_SYSTEM_MAX_FILES`
 - `AI_SYSTEM_TOKEN_LIMIT_HINT`
@@ -278,6 +311,9 @@ Optional environment variables:
 - `AI_SYSTEM_MEMORY_TRANSPORT`
 - `AI_SYSTEM_OPENMEMORY_BASE_URL`
 - `AI_SYSTEM_OPENMEMORY_API_KEY`
+- `AI_SYSTEM_BASE_URL`
+- `AI_SYSTEM_API_KEY`
+- `AI_SYSTEM_MODEL`
 - `AI_SYSTEM_OPENAI_BASE_URL`
 - `AI_SYSTEM_OPENAI_API_KEY`
 - `AI_SYSTEM_OPENAI_MODEL`
