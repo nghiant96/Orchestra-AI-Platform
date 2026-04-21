@@ -1,0 +1,63 @@
+{
+  "max_iterations": 3,
+  "max_files": 5,
+  "max_write_files": 8,
+  "token_limit_hint": 12000,
+  "max_tree_entries": 400,
+  "max_context_bytes": 60000,
+  "request_timeout_ms": 60000,
+  "request_retries": 3,
+  "retry_base_delay_ms": 500,
+  "memory": {
+    "enabled": true,
+    "backend": "local-file",
+    "data_dir": ".ai-system-memory",
+    "max_results": 4,
+    "max_prompt_chars": 1600,
+    "max_entries": 500,
+    "command": "opm",
+    "health_timeout_ms": 10000,
+    "query_timeout_ms": 15000,
+    "store_timeout_ms": 15000
+  },
+  "providers": {
+    "planner": {
+      "type": "gemini-cli",
+      "command": "gemini"
+    },
+    "reviewer": {
+      "type": "gemini-cli",
+      "command": "gemini"
+    },
+    "generator": {
+      "type": "codex-cli",
+      "command": "codex"
+    },
+    "fixer": {
+      "type": "codex-cli",
+      "command": "codex"
+    },
+    "claude_fallback": {
+      "type": "claude-cli",
+      "command": "claude"
+    }
+  },
+  "excluded_directories": [
+    ".git",
+    ".ai-system-memory",
+    "node_modules",
+    "ios/Pods",
+    "android/build",
+    "dist",
+    "build",
+    "coverage"
+  ],
+  "sensitive_file_names": [
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.development",
+    "id_rsa",
+    "id_ed25519"
+  ]
+}

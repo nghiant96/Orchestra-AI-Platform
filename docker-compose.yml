@@ -1,0 +1,22 @@
+services:
+  ai-coding-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ai-coding-system:local
+    working_dir: /workspace
+    environment:
+      AI_SYSTEM_WORKDIR: /workspace
+      AI_SYSTEM_MEMORY_ENABLED: ${AI_SYSTEM_MEMORY_ENABLED:-true}
+      AI_SYSTEM_MEMORY_BACKEND: ${AI_SYSTEM_MEMORY_BACKEND:-local-file}
+      AI_SYSTEM_PLANNER_PROVIDER: ${AI_SYSTEM_PLANNER_PROVIDER:-gemini-cli}
+      AI_SYSTEM_REVIEWER_PROVIDER: ${AI_SYSTEM_REVIEWER_PROVIDER:-gemini-cli}
+      AI_SYSTEM_GENERATOR_PROVIDER: ${AI_SYSTEM_GENERATOR_PROVIDER:-codex-cli}
+      AI_SYSTEM_FIXER_PROVIDER: ${AI_SYSTEM_FIXER_PROVIDER:-codex-cli}
+    volumes:
+      - .:/workspace
+      - ${HOME}/.gemini:/root/.gemini
+      - ${HOME}/.codex:/root/.codex
+      - ${HOME}/.claude:/root/.claude
+    stdin_open: true
+    tty: true

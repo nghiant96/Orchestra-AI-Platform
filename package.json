@@ -1,0 +1,11 @@
+{
+  "name": "ai-coding-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node ai-system/cli.js",
+    "ai": "node ai-system/cli.js",
+    "ai:help": "node ai-system/cli.js --help"
+  }
+}
