@@ -27,15 +27,55 @@ import { createMemoryAdapter } from "../memory/registry.js";
 import { loadJsonIfExists, mergeConfig, resolveProjectConfigPath } from "../utils/config.js";
 import { loadEnvironment } from "../utils/api.js";
 import { runStaticAnalysis } from "../utils/linter.js";
+import type {
+  ContextFile,
+  FileGenerationResult,
+  GeneratedFile,
+  Logger,
+  MemoryAdapter,
+  PlanResult,
+  ProviderConfig,
+  ReviewIssue,
+  ReviewResult,
+  RulesConfig
+} from "../types.js";
+
+interface IterationResult {
+  iteration: number;
+  summary: string;
+  issues: ReviewIssue[];
+  artifactPath?: string | null;
+}
+
+interface ArtifactState {
+  enabled: boolean;
+  repoRoot: string;
+  baseDir: string;
+  runDir: string | null;
+  latestIterationPath: string | null;
+  stepPaths: Record<string, string>;
+}
 
 export class Orchestrator {
-  constructor({ repoRoot, logger, configPath = null }) {
+  repoRoot: string;
+  logger: Logger;
+  configPath: string | null;
+
+  constructor({ repoRoot, logger, configPath = null }: { repoRoot: string; logger: Logger; configPath?: string | null }) {
     this.repoRoot = repoRoot;
     this.logger = logger;
     this.configPath = configPath;
   }
 
-  async run(task, { dryRun = false, interactive = false, pauseAfterPlan = false, pauseAfterGenerate = false } = {}) {
+  async run(
+    task: string,
+    {
+      dryRun = false,
+      interactive = false,
+      pauseAfterPlan = false,
+      pauseAfterGenerate = false
+    }: { dryRun?: boolean; interactive?: boolean; pauseAfterPlan?: boolean; pauseAfterGenerate?: boolean } = {}
+  ) {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
@@ -73,10 +113,12 @@ export class Orchestrator {
     const planningMemoryContext = memory.formatForPrompt(planningMemories, "planning");
 
     this.logger.step(`Planning relevant files with ${plannerProvider.id}`);
+    let latestReviewSummary = "";
+
     const rawPlan = await planner.planTask(task, treeString, repoRoot, planningMemoryContext);
     const readFiles = await filterExistingSafeReadFiles(repoRoot, rawPlan.readFiles ?? [], rules, this.logger);
     const writeTargets = filterSafeWriteTargets(rawPlan.writeTargets ?? [], rules, this.logger);
-    const plan = {
+    const plan: PlanResult = {
       prompt: typeof rawPlan.prompt === "string" ? rawPlan.prompt : task,
       readFiles,
       writeTargets,
@@ -100,7 +142,7 @@ export class Orchestrator {
       );
       if (!confirmed) {
         this.logger.warn("Task paused by user after planner checkpoint.");
-        return buildStoppedResult({
+        const result = buildStoppedResult({
           status: "paused_after_plan",
           dryRun,
           repoRoot,
@@ -110,6 +152,18 @@ export class Orchestrator {
           memoryStats,
           artifactState
         });
+        await persistRunState(
+          artifactState,
+          {
+            ...result,
+            task,
+            pauseAfterPlan,
+            pauseAfterGenerate,
+            latestReviewSummary
+          },
+          this.logger
+        );
+        return result;
       }
     }
 
@@ -157,10 +211,9 @@ export class Orchestrator {
       this.logger
     );
 
-    const iterationResults = [];
-    let currentResult = null;
-    let acceptedIssues = [];
-    let latestReviewSummary = "";
+    const iterationResults: IterationResult[] = [];
+    let currentResult: FileGenerationResult | null = null;
+    let acceptedIssues: ReviewIssue[] = [];
 
     for (let iteration = 1; iteration <= rules.max_iterations; iteration += 1) {
       this.logger.step(`Generation loop ${iteration}/${rules.max_iterations}`);
@@ -229,15 +282,21 @@ export class Orchestrator {
         },
         this.logger
       );
+      iterationResults.push({
+        iteration,
+        summary: review.summary,
+        issues: acceptedIssues,
+        artifactPath: artifactInfo?.iterationPath ?? null
+      });
 
       if (pauseAfterGenerate) {
         const confirmed = await this.confirmCheckpoint(
-          `Generation checkpoint saved for iteration ${iteration}. Review the candidate files before continuing to AI review?`,
+          `Generation checkpoint saved for iteration ${iteration}. Review the candidate files before continuing?`,
           artifactInfo?.iterationPath ?? artifactState.latestIterationPath
         );
         if (!confirmed) {
           this.logger.warn("Task paused by user after generation checkpoint.");
-          return buildStoppedResult({
+          const result = buildStoppedResult({
             status: "paused_after_generate",
             dryRun,
             repoRoot,
@@ -251,15 +310,20 @@ export class Orchestrator {
             memoryStats,
             artifactState
           });
+          await persistRunState(
+            artifactState,
+            {
+              ...result,
+              task,
+              pauseAfterPlan,
+              pauseAfterGenerate,
+              latestReviewSummary
+            },
+            this.logger
+          );
+          return result;
         }
       }
-
-      iterationResults.push({
-        iteration,
-        summary: review.summary,
-        issues: acceptedIssues,
-        artifactPath: artifactInfo?.iterationPath ?? null
-      });
 
       if (!hasBlockingIssues(acceptedIssues)) {
         if (!dryRun) {
@@ -282,7 +346,7 @@ export class Orchestrator {
           this.logger
         );
 
-        return {
+        const result = {
           ok: true,
           dryRun,
           repoRoot,
@@ -298,6 +362,19 @@ export class Orchestrator {
           artifacts: finalizeArtifactState(artifactState, currentResult, true),
           wroteFiles: !dryRun
         };
+        await persistRunState(
+          artifactState,
+          {
+            ...result,
+            status: "completed",
+            task,
+            pauseAfterPlan,
+            pauseAfterGenerate,
+            latestReviewSummary
+          },
+          this.logger
+        );
+        return result;
       }
     }
 
@@ -316,7 +393,7 @@ export class Orchestrator {
       this.logger
     );
 
-    return {
+    const result = {
       ok: false,
       dryRun,
       repoRoot,
@@ -332,9 +409,359 @@ export class Orchestrator {
       artifacts: finalizeArtifactState(artifactState, currentResult, false),
       wroteFiles: false
     };
+    await persistRunState(
+      artifactState,
+      {
+        ...result,
+        status: "failed",
+        task,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        latestReviewSummary
+      },
+      this.logger
+    );
+    return result;
   }
 
-  async confirmPlan(plan) {
+  async resume(resumeTarget: string) {
+    const repoRoot = await fs.realpath(this.repoRoot);
+    await loadEnvironment(repoRoot);
+
+    const { rules, configPath } = await loadRules(repoRoot, this.configPath);
+    applyEnvOverrides(rules);
+
+    const statePath = await resolveResumeStatePath(repoRoot, rules, resumeTarget);
+    const saved = JSON.parse(await fs.readFile(statePath, "utf8"));
+    if (!saved?.status || !String(saved.status).startsWith("paused_")) {
+      throw new Error(`Resume target is not a paused run state: ${statePath}`);
+    }
+
+    const plannerProvider = createProvider("planner", rules, this.logger);
+    const reviewerProvider = createProvider("reviewer", rules, this.logger);
+    const generatorProvider = createProvider("generator", rules, this.logger);
+    const fixerProvider = createProvider("fixer", rules, this.logger);
+
+    const reviewer = new ReviewerAgent({ provider: reviewerProvider, rules });
+    const generator = new GeneratorAgent({ provider: generatorProvider, rules });
+    const fixer = new FixerAgent({ provider: fixerProvider, rules });
+    const memory = createMemoryAdapter({ repoRoot, rules, logger: this.logger });
+
+    const task = saved.task;
+    const dryRun = saved.dryRun ?? false;
+    const plan = saved.plan;
+    let skippedFiles: string[] = saved.skippedContextFiles ?? [];
+    let iterationResults: IterationResult[] = Array.isArray(saved.iterations) ? [...saved.iterations] : [];
+    let currentResult: FileGenerationResult | null = saved.result ?? null;
+    let acceptedIssues: ReviewIssue[] = Array.isArray(saved.finalIssues) ? saved.finalIssues : [];
+    let latestReviewSummary = typeof saved.latestReviewSummary === "string" ? saved.latestReviewSummary : "";
+    const pauseAfterGenerate = saved.pauseAfterGenerate === true;
+    const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
+
+    const memoryStats = {
+      backend: memory.id,
+      planningMatches: saved.memory?.planningMatches ?? 0,
+      implementationMatches: saved.memory?.implementationMatches ?? 0,
+      stored: false
+    };
+
+    const implementationMemories = await safelySearchMemory(
+      memory,
+      { task, stage: "implementation", plan },
+      this.logger
+    );
+    memoryStats.implementationMatches = implementationMemories.length;
+    const implementationMemoryContext = memory.formatForPrompt(implementationMemories, "implementation");
+
+    let contextFiles: ContextFile[] = await loadSavedContextArtifacts(artifactState, plan.readFiles ?? []);
+    if (saved.status === "paused_after_plan" && contextFiles.length === 0) {
+      this.logger.step(`Reading ${plan.readFiles.length} file(s) of context`);
+      const contextResult = await readContextFiles(repoRoot, plan.readFiles, rules, this.logger);
+      contextFiles = contextResult.contexts;
+      skippedFiles = contextResult.skippedFiles;
+      await persistContextArtifacts(
+        artifactState,
+        {
+          readFiles: plan.readFiles,
+          skippedFiles,
+          contexts: contextFiles
+        },
+        this.logger
+      );
+      currentResult = null;
+      acceptedIssues = [];
+      latestReviewSummary = "";
+      iterationResults = [];
+    }
+
+    if (saved.status === "paused_after_generate" && currentResult && !hasBlockingIssues(acceptedIssues)) {
+      const originals = await readOriginalFiles(
+        repoRoot,
+        currentResult.files.map((file) => file.path)
+      );
+
+      if (!dryRun) {
+        this.logger.step("Writing files atomically");
+        await writeFilesAtomically(repoRoot, currentResult.files, originals);
+      }
+
+      memoryStats.stored = await safelyStoreMemory(
+        memory,
+        {
+          task,
+          plan,
+          result: currentResult,
+          iterations: iterationResults,
+          issueCounts: summarizeIssueCounts(acceptedIssues),
+          providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+          success: true,
+          dryRun
+        },
+        this.logger
+      );
+
+      const result = {
+        ok: true,
+        status: "resumed_completed",
+        dryRun,
+        repoRoot,
+        configPath,
+        plan,
+        result: currentResult,
+        iterations: iterationResults,
+        issueCounts: summarizeIssueCounts(acceptedIssues),
+        skippedContextFiles: skippedFiles,
+        finalIssues: acceptedIssues,
+        providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+        memory: memoryStats,
+        artifacts: finalizeArtifactState(artifactState, currentResult, true),
+        wroteFiles: !dryRun
+      };
+      await persistRunState(
+        artifactState,
+        {
+          ...result,
+          task,
+          pauseAfterPlan: false,
+          pauseAfterGenerate,
+          latestReviewSummary
+        },
+        this.logger
+      );
+      return result;
+    }
+
+    const startIteration = currentResult ? iterationResults.length + 1 : 1;
+
+    for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
+      this.logger.step(`Generation loop ${iteration}/${rules.max_iterations} (resumed)`);
+      currentResult =
+        iteration === 1 && !currentResult
+          ? await generator.generateCode(task, plan, contextFiles, repoRoot, implementationMemoryContext)
+          : await fixer.fixCode(
+              task,
+              plan,
+              currentResult.files,
+              latestReviewSummary,
+              acceptedIssues,
+              repoRoot,
+              implementationMemoryContext
+            );
+
+      currentResult.files = sanitizeGeneratedFiles(currentResult.files, plan, rules, repoRoot);
+      if (currentResult.files.length === 0) {
+        throw new Error("Generator returned no safe files to write.");
+      }
+
+      const originals = await readOriginalFiles(
+        repoRoot,
+        currentResult.files.map((file) => file.path)
+      );
+      const originalFiles = currentResult.files.map((file) => ({
+        path: file.path,
+        content: originals.get(file.path)
+      }));
+      const diffSummaries = buildDiffSummaries(originalFiles, currentResult.files);
+      const validationIssues = validateCandidateFiles(currentResult.files);
+      const staticAnalysisIssues = await runStaticAnalysis(repoRoot, currentResult.files, this.logger);
+      const preReviewIssues = mergeIssues(staticAnalysisIssues, validationIssues);
+
+      this.logger.step(`Reviewing generated files with ${reviewerProvider.id}`);
+      const review = normalizeReviewResult(
+        await reviewer.reviewCode(
+          task,
+          originalFiles,
+          currentResult.files,
+          preReviewIssues,
+          diffSummaries,
+          repoRoot,
+          implementationMemoryContext
+        )
+      );
+
+      latestReviewSummary = review.summary;
+      acceptedIssues = mergeIssues(review.issues, preReviewIssues);
+      const artifactInfo = await persistIterationArtifacts(
+        artifactState,
+        {
+          iteration,
+          task,
+          dryRun,
+          plan,
+          provider: iteration === 1 ? generatorProvider.id : fixerProvider.id,
+          resultSummary: currentResult.summary ?? "",
+          candidateFiles: currentResult.files,
+          originalFiles,
+          diffSummaries,
+          preReviewIssues,
+          reviewSummary: review.summary,
+          issues: acceptedIssues
+        },
+        this.logger
+      );
+      iterationResults.push({
+        iteration,
+        summary: review.summary,
+        issues: acceptedIssues,
+        artifactPath: artifactInfo?.iterationPath ?? null
+      });
+
+      if (pauseAfterGenerate) {
+        const confirmed = await this.confirmCheckpoint(
+          `Generation checkpoint saved for iteration ${iteration}. Review the candidate files before continuing?`,
+          artifactInfo?.iterationPath ?? artifactState.latestIterationPath
+        );
+        if (!confirmed) {
+          this.logger.warn("Task paused by user after generation checkpoint.");
+          const result = buildStoppedResult({
+            status: "paused_after_generate",
+            dryRun,
+            repoRoot,
+            configPath,
+            plan,
+            result: currentResult,
+            iterations: iterationResults,
+            skippedContextFiles: skippedFiles,
+            finalIssues: acceptedIssues,
+            providers: { plannerProvider, reviewerProvider, generatorProvider, fixerProvider },
+            memoryStats,
+            artifactState
+          });
+          await persistRunState(
+            artifactState,
+            {
+              ...result,
+              task,
+              pauseAfterPlan: false,
+              pauseAfterGenerate,
+              latestReviewSummary
+            },
+            this.logger
+          );
+          return result;
+        }
+      }
+
+      if (!hasBlockingIssues(acceptedIssues)) {
+        if (!dryRun) {
+          this.logger.step("Writing files atomically");
+          await writeFilesAtomically(repoRoot, currentResult.files, originals);
+        }
+
+        memoryStats.stored = await safelyStoreMemory(
+          memory,
+          {
+            task,
+            plan,
+            result: currentResult,
+            iterations: iterationResults,
+            issueCounts: summarizeIssueCounts(acceptedIssues),
+            providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+            success: true,
+            dryRun
+          },
+          this.logger
+        );
+
+        const result = {
+          ok: true,
+          status: "resumed_completed",
+          dryRun,
+          repoRoot,
+          configPath,
+          plan,
+          result: currentResult,
+          iterations: iterationResults,
+          issueCounts: summarizeIssueCounts(acceptedIssues),
+          skippedContextFiles: skippedFiles,
+          finalIssues: acceptedIssues,
+          providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+          memory: memoryStats,
+          artifacts: finalizeArtifactState(artifactState, currentResult, true),
+          wroteFiles: !dryRun
+        };
+        await persistRunState(
+          artifactState,
+          {
+            ...result,
+            task,
+            pauseAfterPlan: false,
+            pauseAfterGenerate,
+            latestReviewSummary
+          },
+          this.logger
+        );
+        return result;
+      }
+    }
+
+    memoryStats.stored = await safelyStoreMemory(
+      memory,
+      {
+        task,
+        plan,
+        result: currentResult,
+        iterations: iterationResults,
+        issueCounts: summarizeIssueCounts(acceptedIssues),
+        providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+        success: false,
+        dryRun
+      },
+      this.logger
+    );
+
+    const result = {
+      ok: false,
+      status: "failed",
+      dryRun,
+      repoRoot,
+      configPath,
+      plan,
+      result: currentResult,
+      iterations: iterationResults,
+      issueCounts: summarizeIssueCounts(acceptedIssues),
+      skippedContextFiles: skippedFiles,
+      finalIssues: acceptedIssues,
+      providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
+      memory: memoryStats,
+      artifacts: finalizeArtifactState(artifactState, currentResult, false),
+      wroteFiles: false
+    };
+    await persistRunState(
+      artifactState,
+      {
+        ...result,
+        task,
+        pauseAfterPlan: false,
+        pauseAfterGenerate,
+        latestReviewSummary
+      },
+      this.logger
+    );
+    return result;
+  }
+
+  async confirmPlan(plan: PlanResult): Promise<boolean> {
     console.log("\n--- Proposed Plan ---");
     console.log(`Prompt: ${plan.prompt}`);
     console.log(`Files to read:   ${plan.readFiles.length > 0 ? plan.readFiles.join(", ") : "(none)"}`);
@@ -358,7 +785,7 @@ export class Orchestrator {
     }
   }
 
-  async confirmCheckpoint(message, artifactPath) {
+  async confirmCheckpoint(message: string, artifactPath?: string | null): Promise<boolean> {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       this.logger.info(`Skipping interactive checkpoint prompt because no TTY is available. Artifact: ${artifactPath}`);
       return true;
@@ -385,12 +812,12 @@ export class Orchestrator {
   }
 }
 
-async function loadRules(repoRoot, explicitConfigPath) {
+async function loadRules(repoRoot: string, explicitConfigPath?: string | null): Promise<{ rules: RulesConfig; configPath: string | null }> {
   const rulesPath = new URL("../config/rules.json", import.meta.url);
   const raw = await fs.readFile(rulesPath, "utf8");
-  const baseRules = JSON.parse(raw);
+  const baseRules = JSON.parse(raw) as RulesConfig;
   const configPath = await resolveProjectConfigPath(repoRoot, explicitConfigPath);
-  const projectRules = configPath ? await loadJsonIfExists(configPath) : null;
+  const projectRules = configPath ? await loadJsonIfExists<Partial<RulesConfig>>(configPath) : null;
 
   return {
     rules: mergeConfig(baseRules, projectRules),
@@ -398,7 +825,7 @@ async function loadRules(repoRoot, explicitConfigPath) {
   };
 }
 
-function applyEnvOverrides(rules) {
+function applyEnvOverrides(rules: RulesConfig): void {
   applySimpleProviderEnv(rules, process.env.AI_SYSTEM_PROVIDER);
   applySimpleMemoryEnv(rules, process.env.AI_SYSTEM_MEMORY);
 
@@ -468,7 +895,7 @@ function applyEnvOverrides(rules) {
   );
 }
 
-function applySimpleProviderEnv(rules, provider) {
+function applySimpleProviderEnv(rules: RulesConfig, provider?: string): void {
   const normalized = String(provider || "").trim().toLowerCase();
   if (!normalized) {
     return;
@@ -506,7 +933,7 @@ function applySimpleProviderEnv(rules, provider) {
   }
 }
 
-function applySimpleMemoryEnv(rules, memoryValue) {
+function applySimpleMemoryEnv(rules: RulesConfig, memoryValue?: string): void {
   const normalized = String(memoryValue || "").trim().toLowerCase();
   if (!normalized) {
     return;
@@ -532,9 +959,9 @@ function applySimpleMemoryEnv(rules, memoryValue) {
   }
 }
 
-function sanitizeGeneratedFiles(files, plan, rules, repoRoot) {
+function sanitizeGeneratedFiles(files: unknown, plan: PlanResult, rules: RulesConfig, repoRoot: string): GeneratedFile[] {
   const allowedTargets = new Set(plan.writeTargets);
-  const safeFiles = [];
+  const safeFiles: GeneratedFile[] = [];
 
   for (const file of Array.isArray(files) ? files : []) {
     if (!file || typeof file.path !== "string" || typeof file.content !== "string") {
@@ -561,15 +988,25 @@ function sanitizeGeneratedFiles(files, plan, rules, repoRoot) {
   return dedupeByPath(safeFiles).slice(0, rules.max_write_files ?? 8);
 }
 
-function dedupeByPath(files) {
-  const map = new Map();
+function dedupeByPath(files: GeneratedFile[]): GeneratedFile[] {
+  const map = new Map<string, GeneratedFile>();
   for (const file of files) {
     map.set(file.path, file);
   }
   return [...map.values()];
 }
 
-function summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }) {
+function summarizeProviders({
+  plannerProvider,
+  reviewerProvider,
+  generatorProvider,
+  fixerProvider
+}: {
+  plannerProvider: { id: string };
+  reviewerProvider: { id: string };
+  generatorProvider: { id: string };
+  fixerProvider: { id: string };
+}) {
   return {
     planner: plannerProvider.id,
     reviewer: reviewerProvider.id,
@@ -578,7 +1015,7 @@ function summarizeProviders({ plannerProvider, reviewerProvider, generatorProvid
   };
 }
 
-async function safelySearchMemory(memory, payload, logger) {
+async function safelySearchMemory(memory: MemoryAdapter, payload: Parameters<MemoryAdapter["searchRelevant"]>[0], logger?: Logger) {
   try {
     return await memory.searchRelevant(payload);
   } catch (error) {
@@ -587,7 +1024,7 @@ async function safelySearchMemory(memory, payload, logger) {
   }
 }
 
-async function safelyStoreMemory(memory, payload, logger) {
+async function safelyStoreMemory(memory: MemoryAdapter, payload: Parameters<MemoryAdapter["storeRunSummary"]>[0], logger?: Logger) {
   try {
     return await memory.storeRunSummary(payload);
   } catch (error) {
@@ -596,7 +1033,7 @@ async function safelyStoreMemory(memory, payload, logger) {
   }
 }
 
-function applyProviderOverride(providerConfig, timeoutMs, retries) {
+function applyProviderOverride(providerConfig: ProviderConfig | undefined, timeoutMs?: string, retries?: string) {
   if (!providerConfig) {
     return;
   }
@@ -610,7 +1047,7 @@ function applyProviderOverride(providerConfig, timeoutMs, retries) {
   }
 }
 
-function applyMonitorOverride(providerConfig, monitorIntervalMs) {
+function applyMonitorOverride(providerConfig: ProviderConfig | undefined, monitorIntervalMs?: string) {
   if (!providerConfig) {
     return;
   }
@@ -620,7 +1057,10 @@ function applyMonitorOverride(providerConfig, monitorIntervalMs) {
   }
 }
 
-function applyOpenAICompatibleOverride(providerConfigs, { baseUrl, apiKey, model }) {
+function applyOpenAICompatibleOverride(
+  providerConfigs: Array<ProviderConfig | undefined>,
+  { baseUrl, apiKey, model }: { baseUrl?: string; apiKey?: string; model?: string }
+) {
   for (const providerConfig of providerConfigs) {
     if (!providerConfig || providerConfig.type !== "openai-compatible") {
       continue;
@@ -671,7 +1111,7 @@ function buildStoppedResult({
   };
 }
 
-function createArtifactState(repoRoot, rules) {
+function createArtifactState(repoRoot: string, rules: RulesConfig): ArtifactState {
   const config = rules.artifacts ?? {};
   return {
     enabled: config.enabled !== false,
@@ -683,7 +1123,21 @@ function createArtifactState(repoRoot, rules) {
   };
 }
 
-async function persistPlanArtifacts(state, payload, logger) {
+function restoreArtifactState(repoRoot: string, rules: RulesConfig, savedArtifacts: any, statePath: string): ArtifactState {
+  const state = createArtifactState(repoRoot, rules);
+  const runPath = savedArtifacts?.runPath
+    ? path.resolve(savedArtifacts.runPath)
+    : path.dirname(path.resolve(statePath));
+
+  state.runDir = runPath;
+  state.latestIterationPath = savedArtifacts?.latestIterationPath
+    ? path.resolve(savedArtifacts.latestIterationPath)
+    : null;
+  state.stepPaths = normalizeStepPaths(savedArtifacts?.stepPaths ?? {}, runPath);
+  return state;
+}
+
+async function persistPlanArtifacts(state: ArtifactState, payload: any, logger?: Logger) {
   if (!state?.enabled) {
     return null;
   }
@@ -702,7 +1156,11 @@ async function persistPlanArtifacts(state, payload, logger) {
   return stepPath;
 }
 
-async function persistContextArtifacts(state, payload, logger) {
+async function persistContextArtifacts(
+  state: ArtifactState,
+  payload: { readFiles: string[]; skippedFiles: string[]; contexts: ContextFile[] },
+  logger?: Logger
+) {
   if (!state?.enabled) {
     return null;
   }
@@ -729,7 +1187,7 @@ async function persistContextArtifacts(state, payload, logger) {
   return stepPath;
 }
 
-async function persistIterationArtifacts(state, payload, logger) {
+async function persistIterationArtifacts(state: ArtifactState, payload: any, logger?: Logger) {
   if (!state?.enabled) {
     return null;
   }
@@ -782,7 +1240,41 @@ async function persistIterationArtifacts(state, payload, logger) {
   return { iterationPath, manifestPath: path.join(iterationPath, "manifest.json") };
 }
 
-function finalizeArtifactState(state, currentResult, ok) {
+async function persistRunState(state: ArtifactState, payload: any, logger?: Logger) {
+  if (!state?.enabled || !state.runDir) {
+    return null;
+  }
+
+  const statePath = path.join(state.runDir, "run-state.json");
+  const serializable = {
+    version: 1,
+    status: payload.status ?? (payload.ok ? "completed" : "failed"),
+    task: payload.task,
+    dryRun: payload.dryRun,
+    repoRoot: payload.repoRoot,
+    configPath: payload.configPath,
+    plan: payload.plan,
+    result: payload.result,
+    iterations: payload.iterations ?? [],
+    skippedContextFiles: payload.skippedContextFiles ?? [],
+    finalIssues: payload.finalIssues ?? [],
+    issueCounts: payload.issueCounts ?? summarizeIssueCounts(payload.finalIssues ?? []),
+    providers: payload.providers,
+    memory: payload.memory,
+    artifacts: payload.artifacts ?? finalizeArtifactState(state, payload.result, payload.ok),
+    wroteFiles: payload.wroteFiles ?? false,
+    pauseAfterPlan: payload.pauseAfterPlan ?? false,
+    pauseAfterGenerate: payload.pauseAfterGenerate ?? false,
+    latestReviewSummary: payload.latestReviewSummary ?? ""
+  };
+
+  await fs.writeFile(statePath, JSON.stringify(serializable, null, 2), "utf8");
+  state.stepPaths.runState = statePath;
+  logger?.info(`Saved resumable run state at ${statePath}`);
+  return statePath;
+}
+
+function finalizeArtifactState(state: ArtifactState, currentResult: FileGenerationResult | null, ok: boolean) {
   if (!state?.enabled || !state.runDir) {
     return null;
   }
@@ -797,13 +1289,13 @@ function finalizeArtifactState(state, currentResult, ok) {
   };
 }
 
-function createRunDirectoryName() {
+function createRunDirectoryName(): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const random = Math.random().toString(36).slice(2, 8);
   return `run-${timestamp}-${random}`;
 }
 
-async function ensureArtifactStepDirectory(state, name) {
+async function ensureArtifactStepDirectory(state: ArtifactState, name: string): Promise<string> {
   if (!state.runDir) {
     state.runDir = path.join(state.baseDir, createRunDirectoryName());
   }
@@ -811,4 +1303,73 @@ async function ensureArtifactStepDirectory(state, name) {
   const stepPath = path.join(state.runDir, name);
   await fs.mkdir(stepPath, { recursive: true });
   return stepPath;
+}
+
+async function resolveResumeStatePath(repoRoot: string, rules: RulesConfig, resumeTarget: string): Promise<string> {
+  const target = String(resumeTarget || "").trim();
+  if (!target) {
+    throw new Error("Missing resume target.");
+  }
+
+  if (target === "last") {
+    const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+    const entries = await fs.readdir(artifactsDir, { withFileTypes: true });
+    const runDirs = entries
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith("run-"))
+      .map((entry) => path.join(artifactsDir, entry.name))
+      .sort((left, right) => right.localeCompare(left));
+
+    for (const runDir of runDirs) {
+      const statePath = path.join(runDir, "run-state.json");
+      try {
+        await fs.access(statePath);
+        return statePath;
+      } catch {
+        continue;
+      }
+    }
+
+    throw new Error(`No resumable runs found in ${artifactsDir}`);
+  }
+
+  const absoluteTarget = path.resolve(target);
+  const stat = await fs.stat(absoluteTarget);
+  if (stat.isDirectory()) {
+    const statePath = path.join(absoluteTarget, "run-state.json");
+    await fs.access(statePath);
+    return statePath;
+  }
+
+  return absoluteTarget;
+}
+
+async function loadSavedContextArtifacts(state: ArtifactState, expectedPaths: string[]): Promise<ContextFile[]> {
+  const contextDir = state?.stepPaths?.context ? path.join(state.stepPaths.context, "files") : null;
+  if (!contextDir) {
+    return [];
+  }
+
+  const contexts: ContextFile[] = [];
+  for (const relativePath of expectedPaths) {
+    const targetPath = path.join(contextDir, relativePath);
+    try {
+      const content = await fs.readFile(targetPath, "utf8");
+      contexts.push({ path: relativePath, content });
+    } catch {
+      continue;
+    }
+  }
+
+  return contexts;
+}
+
+function normalizeStepPaths(stepPaths: Record<string, unknown>, runPath: string): Record<string, string> {
+  const output: Record<string, string> = {};
+  for (const [key, value] of Object.entries(stepPaths)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    output[key] = path.isAbsolute(value) ? value : path.join(runPath, value);
+  }
+  return output;
 }

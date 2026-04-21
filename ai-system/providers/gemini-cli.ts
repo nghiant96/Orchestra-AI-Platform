@@ -1,8 +1,12 @@
 import { assertMatchesBasicSchema, extractStructuredData } from "../utils/schema.js";
 import { runCommandWithRetry } from "../utils/api.js";
+import type { CommandMonitorEvent, JsonProvider, Logger, ProviderConfig, RunJsonOptions } from "../types.js";
 
-export class ClaudeCliProvider {
-  constructor({ config, logger }) {
+export class GeminiCliProvider implements JsonProvider {
+  config: ProviderConfig;
+  logger?: Logger;
+
+  constructor({ config, logger }: { config: ProviderConfig; logger?: Logger }) {
     this.config = config;
     this.logger = logger;
   }
@@ -11,7 +15,16 @@ export class ClaudeCliProvider {
     return this.config.type;
   }
 
-  async runJson({ cwd, label, systemPrompt, prompt, schema, timeoutMs, retries, baseDelayMs }) {
+  async runJson<T = unknown>({
+    cwd,
+    label,
+    systemPrompt,
+    prompt,
+    schema,
+    timeoutMs,
+    retries,
+    baseDelayMs
+  }: RunJsonOptions): Promise<T> {
     const effectiveTimeoutMs = this.config.timeout_ms ?? timeoutMs;
     const effectiveRetries = this.config.retries ?? retries;
     const effectiveBaseDelayMs = this.config.base_delay_ms ?? baseDelayMs;
@@ -19,27 +32,19 @@ export class ClaudeCliProvider {
 
     const args = [
       "-p",
-      prompt,
-      "--output-format",
-      "json",
-      "--permission-mode",
+      buildCombinedPrompt(systemPrompt, prompt, schema),
+      "--approval-mode",
       "plan",
-      "--tools",
-      "",
-      "--json-schema",
-      JSON.stringify(schema)
+      "--output-format",
+      "json"
     ];
-
-    if (systemPrompt) {
-      args.push("--system-prompt", systemPrompt);
-    }
 
     if (this.config.model) {
       args.push("--model", this.config.model);
     }
 
     const result = await runCommandWithRetry({
-      command: this.config.command || "claude",
+      command: this.config.command || "gemini",
       args,
       cwd,
       timeoutMs: effectiveTimeoutMs,
@@ -52,23 +57,38 @@ export class ClaudeCliProvider {
 
     const parsed = extractStructuredData(result.stdout, schema, label);
     assertMatchesBasicSchema(parsed, schema, label);
-    return parsed;
+    return parsed as T;
   }
 }
 
-function buildMonitorHandler(logger, label, providerId) {
+function buildCombinedPrompt(systemPrompt, prompt, schema) {
+  return [
+    systemPrompt,
+    "",
+    "All model outputs must be valid JSON with no markdown, code fences, or extra text.",
+    "Return exactly one JSON object matching this schema.",
+    JSON.stringify(schema, null, 2),
+    "",
+    "Do not rename keys. Do not add wrapper objects. Do not add commentary.",
+    prompt
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function buildMonitorHandler(logger: Logger | undefined, label: string, providerId: string) {
   if (!logger?.info) {
     return undefined;
   }
 
-  return ({ elapsedMs, monitorId }) => {
+  return ({ elapsedMs, monitorId }: CommandMonitorEvent) => {
     logger.info(
       `${label} is still running via ${providerId} after ${formatDuration(elapsedMs)}${monitorId > 1 ? ` (heartbeat ${monitorId})` : ""}`
     );
   };
 }
 
-function formatDuration(ms) {
+function formatDuration(ms: number): string {
   const totalSeconds = Math.max(1, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;

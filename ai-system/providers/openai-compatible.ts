@@ -1,7 +1,24 @@
 import { assertMatchesBasicSchema, extractStructuredData } from "../utils/schema.js";
+import type { CliCommandError, JsonProvider, JsonSchema, Logger, ProviderConfig, RunJsonOptions } from "../types.js";
 
-export class OpenAICompatibleProvider {
-  constructor({ config, logger }) {
+type OpenAIMessageContent = string | Array<string | { type?: string; text?: string }>;
+
+interface OpenAIChoice {
+  message?: { content?: OpenAIMessageContent };
+  delta?: { content?: string };
+  text?: string;
+}
+
+interface OpenAICompatiblePayload {
+  choices?: OpenAIChoice[];
+  [key: string]: unknown;
+}
+
+export class OpenAICompatibleProvider implements JsonProvider {
+  config: ProviderConfig;
+  logger?: Logger;
+
+  constructor({ config, logger }: { config: ProviderConfig; logger?: Logger }) {
     this.config = config;
     this.logger = logger;
   }
@@ -10,7 +27,16 @@ export class OpenAICompatibleProvider {
     return this.config.type;
   }
 
-  async runJson({ cwd, label, systemPrompt, prompt, schema, timeoutMs, retries, baseDelayMs }) {
+  async runJson<T = unknown>({
+    cwd: _cwd,
+    label,
+    systemPrompt,
+    prompt,
+    schema,
+    timeoutMs,
+    retries,
+    baseDelayMs
+  }: RunJsonOptions): Promise<T> {
     const effectiveTimeoutMs = this.config.timeout_ms ?? timeoutMs ?? 60000;
     const effectiveRetries = this.config.retries ?? retries ?? 2;
     const effectiveBaseDelayMs = this.config.base_delay_ms ?? baseDelayMs ?? 500;
@@ -26,7 +52,7 @@ export class OpenAICompatibleProvider {
         });
         const parsed = extractStructuredData(responseText, schema, label);
         assertMatchesBasicSchema(parsed, schema, label);
-        return parsed;
+        return parsed as T;
       } catch (error) {
         lastError = error;
         if (attempt === effectiveRetries || !isRetryableHttpError(error)) {
@@ -39,7 +65,17 @@ export class OpenAICompatibleProvider {
     throw new Error(`${label} failed after ${effectiveRetries + 1} attempt(s): ${lastError?.message ?? "Unknown error"}`);
   }
 
-  async requestJson({ systemPrompt, prompt, schema, timeoutMs }) {
+  async requestJson({
+    systemPrompt,
+    prompt,
+    schema,
+    timeoutMs
+  }: {
+    systemPrompt: string;
+    prompt: string;
+    schema: JsonSchema;
+    timeoutMs?: number;
+  }): Promise<string> {
     const baseUrl = stripTrailingSlash(this.config.base_url);
     if (!baseUrl) {
       throw new Error("openai-compatible provider requires config.base_url");
@@ -77,11 +113,11 @@ export class OpenAICompatibleProvider {
   }
 }
 
-function buildAbortSignal(timeoutMs) {
+function buildAbortSignal(timeoutMs?: number): AbortSignal | undefined {
   return Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
 }
 
-function buildMessages(systemPrompt, prompt, schema) {
+function buildMessages(systemPrompt: string, prompt: string, schema: JsonSchema) {
   const instruction = [
     systemPrompt,
     "",
@@ -107,7 +143,7 @@ function buildMessages(systemPrompt, prompt, schema) {
   ];
 }
 
-function parseOpenAICompatiblePayload(raw) {
+function parseOpenAICompatiblePayload(raw: string): OpenAICompatiblePayload {
   try {
     return JSON.parse(raw);
   } catch {
@@ -115,8 +151,8 @@ function parseOpenAICompatiblePayload(raw) {
   }
 }
 
-function parseSsePayload(raw) {
-  const events = [];
+function parseSsePayload(raw: string): OpenAICompatiblePayload {
+  const events: OpenAICompatiblePayload[] = [];
 
   for (const line of String(raw).split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -142,7 +178,7 @@ function parseSsePayload(raw) {
 
   let finalMessageContent = "";
   let finalText = "";
-  let lastEvent = events.at(-1);
+  const lastEvent = events.at(-1) ?? {};
 
   for (const event of events) {
     const choice = Array.isArray(event?.choices) ? event.choices[0] : null;
@@ -188,7 +224,7 @@ function parseSsePayload(raw) {
   return lastEvent;
 }
 
-function extractMessageContent(payload) {
+function extractMessageContent(payload: OpenAICompatiblePayload): string {
   const choice = Array.isArray(payload?.choices) ? payload.choices[0] : null;
   const content = choice?.message?.content;
 
@@ -222,34 +258,35 @@ function extractMessageContent(payload) {
   throw new Error("openai-compatible provider returned no message content");
 }
 
-function buildHttpError(status, raw) {
-  const error = new Error(`HTTP ${status}: ${truncate(raw, 600)}`);
+function buildHttpError(status: number, raw: string): CliCommandError {
+  const error: CliCommandError = new Error(`HTTP ${status}: ${truncate(raw, 600)}`);
   error.status = status;
   error.responseText = raw;
   return error;
 }
 
-function isRetryableHttpError(error) {
-  const status = Number(error?.status);
+function isRetryableHttpError(error: unknown): boolean {
+  const normalized = error as CliCommandError | undefined;
+  const status = Number(normalized?.status);
   if (status === 429 || status >= 500) {
     return true;
   }
 
-  const message = `${error?.message ?? ""}`.toLowerCase();
+  const message = `${normalized?.message ?? ""}`.toLowerCase();
   return ["timeout", "temporarily unavailable", "rate limit", "try again", "overloaded", "503", "429"].some((needle) =>
     message.includes(needle)
   );
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function stripTrailingSlash(value) {
+function stripTrailingSlash(value: unknown): string {
   return String(value || "").replace(/\/+$/, "");
 }
 
-function truncate(value, maxChars) {
+function truncate(value: unknown, maxChars: number): string {
   const stringValue = String(value ?? "");
   return stringValue.length <= maxChars ? stringValue : `${stringValue.slice(0, maxChars - 3)}...`;
 }

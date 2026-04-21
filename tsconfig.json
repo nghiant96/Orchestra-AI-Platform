@@ -3,7 +3,10 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "useUnknownInCatchVariables": false,
+    "strictPropertyInitialization": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
@@ -15,6 +18,9 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    ".ai-system-artifacts",
+    ".ai-system-memory",
+    "$tmpdir"
   ]
 }

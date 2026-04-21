@@ -2,9 +2,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { assertMatchesBasicSchema, extractStructuredData } from "../utils/schema.js";
 import { runCommandWithRetry, withTempDir, writeJsonFile } from "../utils/api.js";
+import type { CommandMonitorEvent, JsonProvider, Logger, ProviderConfig, RunJsonOptions } from "../types.js";
 
-export class CodexCliProvider {
-  constructor({ config, logger }) {
+export class CodexCliProvider implements JsonProvider {
+  config: ProviderConfig;
+  logger?: Logger;
+
+  constructor({ config, logger }: { config: ProviderConfig; logger?: Logger }) {
     this.config = config;
     this.logger = logger;
   }
@@ -13,7 +17,16 @@ export class CodexCliProvider {
     return this.config.type;
   }
 
-  async runJson({ cwd, label, systemPrompt, prompt, schema, timeoutMs, retries, baseDelayMs }) {
+  async runJson<T = unknown>({
+    cwd,
+    label,
+    systemPrompt,
+    prompt,
+    schema,
+    timeoutMs,
+    retries,
+    baseDelayMs
+  }: RunJsonOptions): Promise<T> {
     const effectiveTimeoutMs = this.config.timeout_ms ?? timeoutMs;
     const effectiveRetries = this.config.retries ?? retries;
     const effectiveBaseDelayMs = this.config.base_delay_ms ?? baseDelayMs;
@@ -60,7 +73,7 @@ export class CodexCliProvider {
       const raw = await fs.readFile(outputPath, "utf8");
       const parsed = extractStructuredData(raw, schema, label);
       assertMatchesBasicSchema(parsed, schema, label);
-      return parsed;
+      return parsed as T;
     });
   }
 }
@@ -69,19 +82,19 @@ function buildCombinedPrompt(systemPrompt, prompt) {
   return [systemPrompt, "", prompt].filter(Boolean).join("\n\n");
 }
 
-function buildMonitorHandler(logger, label, providerId) {
+function buildMonitorHandler(logger: Logger | undefined, label: string, providerId: string) {
   if (!logger?.info) {
     return undefined;
   }
 
-  return ({ elapsedMs, monitorId }) => {
+  return ({ elapsedMs, monitorId }: CommandMonitorEvent) => {
     logger.info(
       `${label} is still running via ${providerId} after ${formatDuration(elapsedMs)}${monitorId > 1 ? ` (heartbeat ${monitorId})` : ""}`
     );
   };
 }
 
-function formatDuration(ms) {
+function formatDuration(ms: number): string {
   const totalSeconds = Math.max(1, Math.round(ms / 1000));
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;

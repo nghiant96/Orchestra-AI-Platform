@@ -24,12 +24,16 @@ WORKDIR /opt/ai-coding-system
 
 RUN mkdir -p /workspace
 
-COPY package.json README.md ./
+COPY package.json tsconfig.json README.md ./
+COPY bin ./bin
 COPY ai-system ./ai-system
 COPY docs ./docs
 COPY docker ./docker
 
+RUN npm install --include=dev
+
 RUN chmod +x /opt/ai-coding-system/docker/entrypoint.sh
+RUN chmod +x /opt/ai-coding-system/bin/ai.js /opt/ai-coding-system/bin/ai-system.js
 
 EXPOSE 3927
 

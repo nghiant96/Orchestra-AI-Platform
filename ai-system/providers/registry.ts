@@ -2,8 +2,9 @@ import { CodexCliProvider } from "./codex-cli.js";
 import { GeminiCliProvider } from "./gemini-cli.js";
 import { ClaudeCliProvider } from "./claude-cli.js";
 import { OpenAICompatibleProvider } from "./openai-compatible.js";
+import type { JsonProvider, Logger, RulesConfig } from "../types.js";
 
-export function createProvider(role, rules, logger) {
+export function createProvider(role: string, rules: RulesConfig, logger?: Logger): JsonProvider {
   const config = rules.providers?.[role];
   if (!config?.type) {
     throw new Error(`No provider configured for role "${role}".`);

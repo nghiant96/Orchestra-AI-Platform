@@ -1,8 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { toPosixPath } from "../utils/string.js";
+import type { CliCommandError, ContextFile, GeneratedFile, Logger, RulesConfig } from "../types.js";
 
-export async function buildProjectTree(repoRoot, rules) {
+export async function buildProjectTree(repoRoot: string, rules: RulesConfig): Promise<string> {
   const lines = ["."]; 
   const entries = [];
   const maxEntries = rules.max_tree_entries ?? 400;
@@ -19,7 +20,7 @@ export async function buildProjectTree(repoRoot, rules) {
 
   return lines.join("\n");
 
-  async function walk(absoluteDir, relativeDir, depth) {
+  async function walk(absoluteDir: string, relativeDir: string, depth: number): Promise<void> {
     if (depth > 8) {
       return;
     }
@@ -41,9 +42,14 @@ export async function buildProjectTree(repoRoot, rules) {
   }
 }
 
-export async function readContextFiles(repoRoot, readFiles, rules, logger) {
-  const contexts = [];
-  const skippedFiles = [];
+export async function readContextFiles(
+  repoRoot: string,
+  readFiles: string[],
+  rules: RulesConfig,
+  logger?: Logger
+): Promise<{ contexts: ContextFile[]; skippedFiles: string[] }> {
+  const contexts: ContextFile[] = [];
+  const skippedFiles: string[] = [];
   let totalBytes = 0;
 
   for (const relativePath of readFiles) {
@@ -76,15 +82,16 @@ export async function readContextFiles(repoRoot, readFiles, rules, logger) {
   return { contexts, skippedFiles };
 }
 
-export async function readOriginalFiles(repoRoot, filePaths) {
-  const originals = new Map();
+export async function readOriginalFiles(repoRoot: string, filePaths: string[]): Promise<Map<string, string | null>> {
+  const originals = new Map<string, string | null>();
 
   for (const relativePath of filePaths) {
     const absolutePath = resolveRepoPath(repoRoot, relativePath);
     try {
       originals.set(relativePath, await fs.readFile(absolutePath, "utf8"));
     } catch (error) {
-      if (error.code === "ENOENT") {
+      const normalized = error as CliCommandError | undefined;
+      if (normalized?.code === "ENOENT") {
         originals.set(relativePath, null);
       } else {
         throw error;
@@ -95,8 +102,12 @@ export async function readOriginalFiles(repoRoot, filePaths) {
   return originals;
 }
 
-export async function writeFilesAtomically(repoRoot, files, originals) {
-  const writtenPaths = [];
+export async function writeFilesAtomically(
+  repoRoot: string,
+  files: GeneratedFile[],
+  originals: Map<string, string | null>
+): Promise<void> {
+  const writtenPaths: string[] = [];
 
   try {
     for (const file of files) {
@@ -113,7 +124,7 @@ export async function writeFilesAtomically(repoRoot, files, originals) {
   }
 }
 
-export function resolveRepoPath(repoRoot, relativePath) {
+export function resolveRepoPath(repoRoot: string, relativePath: string): string {
   const normalized = toPosixPath(relativePath).replace(/^\.\/+/, "");
   const segments = normalized.split("/");
   if (!normalized || path.isAbsolute(normalized) || segments.includes("..")) {
@@ -129,8 +140,13 @@ export function resolveRepoPath(repoRoot, relativePath) {
   return absolutePath;
 }
 
-export async function filterExistingSafeReadFiles(repoRoot, requestedFiles, rules, logger) {
-  const allowed = [];
+export async function filterExistingSafeReadFiles(
+  repoRoot: string,
+  requestedFiles: string[],
+  rules: RulesConfig,
+  logger?: Logger
+): Promise<string[]> {
+  const allowed: string[] = [];
 
   for (const requestedPath of requestedFiles.slice(0, rules.max_files)) {
     try {
@@ -153,8 +169,8 @@ export async function filterExistingSafeReadFiles(repoRoot, requestedFiles, rule
   return dedupe(allowed);
 }
 
-export function filterSafeWriteTargets(targets, rules, logger) {
-  const safeTargets = [];
+export function filterSafeWriteTargets(targets: string[], rules: RulesConfig, logger?: Logger): string[] {
+  const safeTargets: string[] = [];
 
   for (const target of targets.slice(0, rules.max_write_files ?? 8)) {
     const safePath = toPosixPath(target).replace(/^\.\/+/, "");
@@ -178,7 +194,7 @@ export function filterSafeWriteTargets(targets, rules, logger) {
   return dedupe(safeTargets);
 }
 
-export function shouldSkipPath(relativePath, rules) {
+export function shouldSkipPath(relativePath: string, rules: RulesConfig): boolean {
   const normalized = toPosixPath(relativePath).replace(/\/+$/, "");
   const excluded = rules.excluded_directories ?? [];
   return (
@@ -187,17 +203,21 @@ export function shouldSkipPath(relativePath, rules) {
   );
 }
 
-function isSensitiveFile(relativePath, rules) {
+function isSensitiveFile(relativePath: string, rules: RulesConfig): boolean {
   const fileName = path.posix.basename(relativePath);
   const sensitive = rules.sensitive_file_names ?? [];
   return sensitive.includes(fileName) || fileName.endsWith(".pem") || fileName.endsWith(".key");
 }
 
-function dedupe(values) {
+function dedupe(values: string[]): string[] {
   return [...new Set(values)];
 }
 
-async function rollbackWrittenFiles(repoRoot, writtenPaths, originals) {
+async function rollbackWrittenFiles(
+  repoRoot: string,
+  writtenPaths: string[],
+  originals: Map<string, string | null>
+): Promise<void> {
   for (const relativePath of [...writtenPaths].reverse()) {
     const absolutePath = resolveRepoPath(repoRoot, relativePath);
     const original = originals.get(relativePath);

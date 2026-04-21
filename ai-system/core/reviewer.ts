@@ -1,16 +1,20 @@
+import type { DiffSummary, GeneratedFile, ReviewIssue, ReviewResult } from "../types.js";
+
 const BLOCKING = new Set(["high", "medium"]);
 const VALID_SEVERITIES = new Set(["high", "medium", "low"]);
 
-export function normalizeReviewResult(result) {
-  const issues = Array.isArray(result?.issues) ? result.issues.map(normalizeIssue).filter(Boolean) : [];
+export function normalizeReviewResult(result: unknown): ReviewResult {
+  const issues = Array.isArray((result as ReviewResult | undefined)?.issues)
+    ? (result as ReviewResult).issues.map(normalizeIssue).filter(Boolean) as ReviewIssue[]
+    : [];
   return {
-    summary: typeof result?.summary === "string" ? result.summary : "",
+    summary: typeof (result as ReviewResult | undefined)?.summary === "string" ? (result as ReviewResult).summary : "",
     issues
   };
 }
 
-export function mergeIssues(reviewIssues, validationIssues) {
-  const merged = [...validationIssues, ...reviewIssues].map(normalizeIssue).filter(Boolean);
+export function mergeIssues(reviewIssues: ReviewIssue[], validationIssues: ReviewIssue[]): ReviewIssue[] {
+  const merged = [...validationIssues, ...reviewIssues].map(normalizeIssue).filter(Boolean) as ReviewIssue[];
   const seen = new Set();
 
   return merged.filter((issue) => {
@@ -23,11 +27,11 @@ export function mergeIssues(reviewIssues, validationIssues) {
   });
 }
 
-export function hasBlockingIssues(issues) {
+export function hasBlockingIssues(issues: ReviewIssue[]): boolean {
   return issues.some((issue) => BLOCKING.has(issue.severity));
 }
 
-export function summarizeIssueCounts(issues) {
+export function summarizeIssueCounts(issues: ReviewIssue[]): Record<"high" | "medium" | "low", number> {
   return issues.reduce(
     (counts, issue) => {
       counts[issue.severity] = (counts[issue.severity] ?? 0) + 1;
@@ -37,8 +41,8 @@ export function summarizeIssueCounts(issues) {
   );
 }
 
-export function validateCandidateFiles(files) {
-  const issues = [];
+export function validateCandidateFiles(files: GeneratedFile[]): ReviewIssue[] {
+  const issues: ReviewIssue[] = [];
   const seen = new Set();
 
   for (const file of files) {
@@ -70,11 +74,14 @@ export function validateCandidateFiles(files) {
   return issues;
 }
 
-export function buildDiffSummaries(originalFiles, candidateFiles) {
+export function buildDiffSummaries(
+  originalFiles: Array<{ path: string; content?: string | null }>,
+  candidateFiles: GeneratedFile[]
+): DiffSummary[] {
   const originalByPath = new Map(originalFiles.map((file) => [file.path, file.content ?? ""]));
 
   return candidateFiles.map((file) => {
-    const before = originalByPath.get(file.path) ?? "";
+    const before = String(originalByPath.get(file.path) ?? "");
     const after = file.content ?? "";
     const beforeLines = before === "" ? [] : before.split(/\r?\n/);
     const afterLines = after === "" ? [] : after.split(/\r?\n/);
@@ -90,16 +97,19 @@ export function buildDiffSummaries(originalFiles, candidateFiles) {
   });
 }
 
-function normalizeIssue(issue) {
+function normalizeIssue(issue: unknown): ReviewIssue | null {
   if (!issue || typeof issue !== "object") {
     return null;
   }
 
-  const severity = VALID_SEVERITIES.has(issue.severity) ? issue.severity : "medium";
-  const category = typeof issue.category === "string" ? issue.category : "bug";
-  const path = typeof issue.path === "string" ? issue.path : "";
-  const description = typeof issue.description === "string" ? issue.description : "";
-  const suggestedFix = typeof issue.suggestedFix === "string" ? issue.suggestedFix : "";
+  const candidate = issue as Partial<ReviewIssue>;
+  const severity = VALID_SEVERITIES.has(String(candidate.severity))
+    ? (candidate.severity as ReviewIssue["severity"])
+    : "medium";
+  const category = typeof candidate.category === "string" ? candidate.category : "bug";
+  const path = typeof candidate.path === "string" ? candidate.path : "";
+  const description = typeof candidate.description === "string" ? candidate.description : "";
+  const suggestedFix = typeof candidate.suggestedFix === "string" ? candidate.suggestedFix : "";
 
   if (!description) {
     return null;
@@ -108,11 +118,16 @@ function normalizeIssue(issue) {
   return { severity, category, path, description, suggestedFix };
 }
 
-function validationIssue(severity, category, path, description) {
+function validationIssue(
+  severity: ReviewIssue["severity"],
+  category: string,
+  path: string,
+  description: string
+): ReviewIssue {
   return { severity, category, path, description, suggestedFix: "" };
 }
 
-function estimateChangedLines(beforeLines, afterLines) {
+function estimateChangedLines(beforeLines: string[], afterLines: string[]): number {
   const maxLength = Math.max(beforeLines.length, afterLines.length);
   let changed = 0;
 

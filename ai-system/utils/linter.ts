@@ -2,9 +2,10 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { runCommand } from "./api.js";
 import { truncate } from "./string.js";
+import type { CliCommandError, GeneratedFile, Logger, ReviewIssue } from "../types.js";
 
-export async function runStaticAnalysis(repoRoot, changedFiles, logger) {
-  const issues = [];
+export async function runStaticAnalysis(repoRoot: string, changedFiles: GeneratedFile[], logger?: Logger): Promise<ReviewIssue[]> {
+  const issues: ReviewIssue[] = [];
 
   for (const file of changedFiles) {
     if (!file?.path?.endsWith(".json")) {
@@ -14,11 +15,12 @@ export async function runStaticAnalysis(repoRoot, changedFiles, logger) {
     try {
       JSON.parse(file.content);
     } catch (error) {
+      const normalized = error as Error;
       issues.push({
         severity: "high",
         category: "syntax",
         path: file.path,
-        description: `Invalid JSON syntax: ${error.message}`,
+        description: `Invalid JSON syntax: ${normalized.message}`,
         suggestedFix: "Fix the JSON syntax before writing the file."
       });
     }
@@ -30,7 +32,7 @@ export async function runStaticAnalysis(repoRoot, changedFiles, logger) {
     return issues;
   }
 
-  const scripts = packageJson.scripts ?? {};
+  const scripts = (packageJson.scripts as Record<string, unknown> | undefined) ?? {};
   const packageManager = await detectPackageManager(repoRoot);
   const checks = await buildCheckCommands({ repoRoot, scripts, packageManager });
 
@@ -63,7 +65,7 @@ export async function runStaticAnalysis(repoRoot, changedFiles, logger) {
   return issues;
 }
 
-async function readPackageJson(packageJsonPath) {
+async function readPackageJson(packageJsonPath: string): Promise<Record<string, unknown> | null> {
   try {
     const raw = await fs.readFile(packageJsonPath, "utf8");
     return JSON.parse(raw);
@@ -72,8 +74,8 @@ async function readPackageJson(packageJsonPath) {
   }
 }
 
-async function detectPackageManager(repoRoot) {
-  const checks = [
+async function detectPackageManager(repoRoot: string): Promise<"pnpm" | "yarn" | "npm"> {
+  const checks: Array<{ name: "pnpm" | "yarn" | "npm"; file: string }> = [
     { name: "pnpm", file: "pnpm-lock.yaml" },
     { name: "yarn", file: "yarn.lock" },
     { name: "npm", file: "package-lock.json" }
@@ -91,8 +93,16 @@ async function detectPackageManager(repoRoot) {
   return "npm";
 }
 
-async function buildCheckCommands({ repoRoot, scripts, packageManager }) {
-  const commands = [];
+async function buildCheckCommands({
+  repoRoot,
+  scripts,
+  packageManager
+}: {
+  repoRoot: string;
+  scripts: Record<string, unknown>;
+  packageManager: "pnpm" | "yarn" | "npm";
+}): Promise<Array<{ name: string; command: string; args: string[]; display: string; timeoutMs: number }>> {
+  const commands: Array<{ name: string; command: string; args: string[]; display: string; timeoutMs: number }> = [];
 
   if (typeof scripts.lint === "string") {
     commands.push(scriptCommand("lint", packageManager));
@@ -120,7 +130,7 @@ async function buildCheckCommands({ repoRoot, scripts, packageManager }) {
   return commands;
 }
 
-function scriptCommand(name, packageManager) {
+function scriptCommand(name: string, packageManager: "pnpm" | "yarn" | "npm") {
   switch (packageManager) {
     case "pnpm":
       return { name, command: "pnpm", args: ["run", name], display: `pnpm run ${name}`, timeoutMs: 120000 };
@@ -132,13 +142,14 @@ function scriptCommand(name, packageManager) {
   }
 }
 
-function looksLikeMissingExecutable(error) {
-  const message = `${error?.message ?? ""}`.toLowerCase();
+function looksLikeMissingExecutable(error: unknown): boolean {
+  const message = `${(error as Error | undefined)?.message ?? ""}`.toLowerCase();
   return message.includes("failed to start") || message.includes("enoent");
 }
 
-function formatCommandOutput(error) {
-  const output = [error?.stderr, error?.stdout, error?.message]
+function formatCommandOutput(error: unknown): string {
+  const normalized = error as CliCommandError | undefined;
+  const output = [normalized?.stderr, normalized?.stdout, normalized?.message]
     .filter(Boolean)
     .join("\n")
     .trim();

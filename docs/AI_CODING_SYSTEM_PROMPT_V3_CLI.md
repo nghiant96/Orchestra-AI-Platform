@@ -251,9 +251,9 @@ JSON hardening rules
 
 CLI requirements
 
-`cli.js` must:
+`cli.ts` must:
 
-- Accept `node ai-system/cli.js "task description"`.
+- Accept `node --import tsx ai-system/cli.ts "task description"`.
 - Support `--cwd <path>` to target another repository.
 - Support `--dry-run` to avoid writing files.
 - Print a clear result summary:

@@ -1,9 +1,34 @@
 import crypto from "node:crypto";
 import { runCommand } from "../utils/api.js";
 import { parseJsonResponse } from "../utils/string.js";
+import type {
+  MemoryAdapter,
+  MemoryConfig,
+  MemoryMatch,
+  MemorySearchInput,
+  MemoryStoreInput,
+  Logger
+} from "../types.js";
 
-export class OpenMemoryAdapter {
-  constructor({ repoRoot, config, logger }) {
+interface OpenMemoryRequestOptions {
+  method?: string;
+  body?: string;
+  timeoutMs?: number;
+}
+
+export class OpenMemoryAdapter implements MemoryAdapter {
+  repoRoot: string;
+  config: MemoryConfig;
+  logger?: Logger;
+  transport: string;
+  id: string;
+  command: string;
+  baseUrl: string;
+  maxResults: number;
+  userId: string;
+  healthChecked: boolean;
+
+  constructor({ repoRoot, config, logger }: { repoRoot: string; config: MemoryConfig; logger?: Logger }) {
     this.repoRoot = repoRoot;
     this.config = config;
     this.logger = logger;
@@ -16,7 +41,7 @@ export class OpenMemoryAdapter {
     this.healthChecked = false;
   }
 
-  async searchRelevant({ task, stage, plan }) {
+  async searchRelevant({ task, stage, plan }: MemorySearchInput): Promise<MemoryMatch[]> {
     await this.ensureHealthy();
 
     const query = buildQuery(task, stage, plan);
@@ -65,7 +90,7 @@ export class OpenMemoryAdapter {
     return normalizeQueryResults(stdout);
   }
 
-  formatForPrompt(memories, stage) {
+  formatForPrompt(memories: MemoryMatch[], stage: string): string {
     if (!Array.isArray(memories) || memories.length === 0) {
       return "";
     }
@@ -85,7 +110,7 @@ export class OpenMemoryAdapter {
     return joined.length <= maxChars ? joined : `${joined.slice(0, maxChars - 3)}...`;
   }
 
-  async storeRunSummary({ task, plan, result, iterations, issueCounts, providers, success, dryRun }) {
+  async storeRunSummary({ task, plan, result, iterations, issueCounts, providers, success, dryRun }: MemoryStoreInput) {
     await this.ensureHealthy();
 
     const text = buildOpenMemoryText({
@@ -140,7 +165,7 @@ export class OpenMemoryAdapter {
     return true;
   }
 
-  async ensureHealthy() {
+  async ensureHealthy(): Promise<void> {
     if (this.healthChecked) {
       return;
     }
@@ -162,7 +187,7 @@ export class OpenMemoryAdapter {
     this.healthChecked = true;
   }
 
-  async requestJson(route, { method = "GET", body, timeoutMs } = {}) {
+  async requestJson(route: string, { method = "GET", body, timeoutMs }: OpenMemoryRequestOptions = {}): Promise<any> {
     const headers = {
       Accept: "application/json"
     };
@@ -204,16 +229,16 @@ export class OpenMemoryAdapter {
   }
 }
 
-function buildRepoScopedUserId(repoRoot) {
+function buildRepoScopedUserId(repoRoot: string): string {
   const hash = crypto.createHash("sha256").update(repoRoot).digest("hex").slice(0, 16);
   return `repo_${hash}`;
 }
 
-function buildQuery(task, stage, plan) {
+function buildQuery(task: string, stage: string, plan?: { readFiles?: string[]; writeTargets?: string[] } | null): string {
   return [task, stage, ...(plan?.readFiles ?? []), ...(plan?.writeTargets ?? [])].filter(Boolean).join(" ");
 }
 
-function normalizeQueryResults(input) {
+function normalizeQueryResults(input: unknown): MemoryMatch[] {
   if (typeof input === "string") {
     const json = tryParseQueryJson(input);
     if (json) {

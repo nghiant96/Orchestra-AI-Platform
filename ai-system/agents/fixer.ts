@@ -1,12 +1,24 @@
 import { FILE_OUTPUT_SCHEMA } from "./generator.js";
+import type { AgentDependencies, FileGenerationResult, PlanResult, ReviewIssue } from "../types.js";
 
 export class FixerAgent {
-  constructor({ provider, rules }) {
+  provider: AgentDependencies["provider"];
+  rules: AgentDependencies["rules"];
+
+  constructor({ provider, rules }: AgentDependencies) {
     this.provider = provider;
     this.rules = rules;
   }
 
-  async fixCode(task, plan, currentFiles, reviewSummary, issues, cwd, memoryContext = "") {
+  async fixCode(
+    task: string,
+    plan: PlanResult,
+    currentFiles: FileGenerationResult["files"],
+    reviewSummary: string,
+    issues: ReviewIssue[],
+    cwd: string,
+    memoryContext = ""
+  ): Promise<FileGenerationResult> {
     const systemPrompt = [
       "You are the code fix agent for a local coding system.",
       "Return JSON only.",

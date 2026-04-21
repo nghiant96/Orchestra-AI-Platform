@@ -1,10 +1,15 @@
+import type { AgentDependencies, JsonSchema, PlanResult } from "../types.js";
+
 export class PlannerAgent {
-  constructor({ provider, rules }) {
+  provider: AgentDependencies["provider"];
+  rules: AgentDependencies["rules"];
+
+  constructor({ provider, rules }: AgentDependencies) {
     this.provider = provider;
     this.rules = rules;
   }
 
-  async planTask(task, treeString, cwd, memoryContext = "") {
+  async planTask(task: string, treeString: string, cwd: string, memoryContext = ""): Promise<PlanResult> {
     const systemPrompt = [
       "You are the planning agent for a local coding system.",
       "Return JSON only.",
@@ -38,7 +43,7 @@ export class PlannerAgent {
   }
 }
 
-export const PLAN_SCHEMA = {
+export const PLAN_SCHEMA: JsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {

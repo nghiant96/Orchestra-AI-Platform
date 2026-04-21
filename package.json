@@ -4,20 +4,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node ai-system/cli.js",
-    "server": "node ai-system/server.js",
-    "ai": "node ai-system/cli.js",
-    "ai:local": "AI_SYSTEM_PROVIDER=local-cli node ai-system/cli.js",
-    "ai:9router": "AI_SYSTEM_PROVIDER=9router node ai-system/cli.js",
-    "ai:chat": "node ai-system/cli.js --chat",
-    "ai:help": "node ai-system/cli.js --help",
+    "start": "node --import tsx ai-system/cli.ts",
+    "server": "node --import tsx ai-system/server.ts",
+    "ai": "node --import tsx ai-system/cli.ts",
+    "ai:local": "AI_SYSTEM_PROVIDER=local-cli node --import tsx ai-system/cli.ts",
+    "ai:9router": "AI_SYSTEM_PROVIDER=9router node --import tsx ai-system/cli.ts",
+    "ai:chat": "node --import tsx ai-system/cli.ts --chat",
+    "ai:help": "node --import tsx ai-system/cli.ts --help",
     "docker:up": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=change-me docker compose up -d ai-coding-system",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f ai-coding-system"
   },
   "bin": {
-    "ai": "./ai-system/cli.js",
-    "ai-system": "./ai-system/cli.js"
+    "ai": "./bin/ai.js",
+    "ai-system": "./bin/ai-system.js"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2"

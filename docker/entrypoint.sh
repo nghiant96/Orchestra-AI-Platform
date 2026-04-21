@@ -6,7 +6,7 @@ DEFAULT_WORKDIR="${AI_SYSTEM_WORKDIR:-/workspace}"
 SERVER_MODE="${AI_SYSTEM_SERVER_MODE:-false}"
 
 run_server() {
-  exec node "${APP_ROOT}/ai-system/server.js"
+  exec node --import tsx "${APP_ROOT}/ai-system/server.ts"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -14,7 +14,7 @@ if [[ $# -eq 0 ]]; then
     run_server
   fi
 
-  exec node "${APP_ROOT}/ai-system/cli.js" --help
+  exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" --help
 fi
 
 if [[ "${1}" == "server" ]]; then
@@ -22,11 +22,11 @@ if [[ "${1}" == "server" ]]; then
 fi
 
 if [[ "${1}" == "--help" || "${1}" == "-h" ]]; then
-  exec node "${APP_ROOT}/ai-system/cli.js" "$@"
+  exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" "$@"
 fi
 
 if [[ "${1}" == "--cwd" ]]; then
-  exec node "${APP_ROOT}/ai-system/cli.js" "$@"
+  exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" "$@"
 fi
 
-exec node "${APP_ROOT}/ai-system/cli.js" --cwd "${DEFAULT_WORKDIR}" "$@"
+exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" --cwd "${DEFAULT_WORKDIR}" "$@"

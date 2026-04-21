@@ -1,10 +1,21 @@
+import type { AgentDependencies, ContextFile, FileGenerationResult, JsonSchema, PlanResult } from "../types.js";
+
 export class GeneratorAgent {
-  constructor({ provider, rules }) {
+  provider: AgentDependencies["provider"];
+  rules: AgentDependencies["rules"];
+
+  constructor({ provider, rules }: AgentDependencies) {
     this.provider = provider;
     this.rules = rules;
   }
 
-  async generateCode(task, plan, contextFiles, cwd, memoryContext = "") {
+  async generateCode(
+    task: string,
+    plan: PlanResult,
+    contextFiles: ContextFile[],
+    cwd: string,
+    memoryContext = ""
+  ): Promise<FileGenerationResult> {
     const systemPrompt = [
       "You are the code generation agent for a local coding system.",
       "Return JSON only.",
@@ -39,7 +50,7 @@ export class GeneratorAgent {
   }
 }
 
-export const FILE_OUTPUT_SCHEMA = {
+export const FILE_OUTPUT_SCHEMA: JsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {

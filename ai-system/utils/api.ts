@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { truncate } from "./string.js";
+import type { CliCommandError, CommandRetryOptions, CommandRunOptions, CommandRunResult } from "../types.js";
 
 export async function loadEnvironment(repoRoot = process.cwd()) {
   const envPath = path.join(repoRoot, ".env");
@@ -50,8 +51,8 @@ export async function runCommandWithRetry({
   label = command,
   monitorIntervalMs = 0,
   onMonitor
-}) {
-  let lastError;
+}: CommandRetryOptions): Promise<CommandRunResult> {
+  let lastError: unknown;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
@@ -73,7 +74,8 @@ export async function runCommandWithRetry({
     }
   }
 
-  throw new Error(`${label} failed after ${retries + 1} attempt(s): ${lastError?.message ?? "Unknown error"}`);
+  const error = lastError as CliCommandError | undefined;
+  throw new Error(`${label} failed after ${retries + 1} attempt(s): ${error?.message ?? "Unknown error"}`);
 }
 
 export async function runCommand({
@@ -84,7 +86,7 @@ export async function runCommand({
   timeoutMs = 60000,
   monitorIntervalMs = 0,
   onMonitor
-}) {
+}: CommandRunOptions): Promise<CommandRunResult> {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const child = spawn(command, args, {
@@ -149,7 +151,7 @@ export async function runCommand({
         return;
       }
 
-      const error = new Error(
+      const error: CliCommandError = new Error(
         `Command failed: ${command} ${args.join(" ")} (code=${code ?? "null"}, signal=${signal ?? "none"}). stderr: ${truncate(stderr.trim(), 600)}`
       );
       error.code = code;
@@ -163,7 +165,7 @@ export async function runCommand({
     }
     child.stdin.end();
 
-    function rejectOnce(error) {
+    function rejectOnce(error: unknown) {
       if (timeout) {
         clearTimeout(timeout);
       }
@@ -195,8 +197,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableCliError(error) {
-  const message = `${error?.message ?? ""} ${error?.stderr ?? ""}`.toLowerCase();
+function isRetryableCliError(error: unknown) {
+  const normalized = error as CliCommandError | undefined;
+  const message = `${normalized?.message ?? ""} ${normalized?.stderr ?? ""}`.toLowerCase();
   return ["timeout", "temporarily unavailable", "rate limit", "try again", "overloaded", "503", "429"].some((needle) =>
     message.includes(needle)
   );

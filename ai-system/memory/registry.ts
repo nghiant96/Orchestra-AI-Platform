@@ -1,7 +1,16 @@
 import { LocalFileMemoryAdapter } from "./local-file.js";
 import { OpenMemoryAdapter } from "./openmemory.js";
+import type { Logger, MemoryAdapter, MemoryConfig, RulesConfig } from "../types.js";
 
-export function createMemoryAdapter({ repoRoot, rules, logger }) {
+export function createMemoryAdapter({
+  repoRoot,
+  rules,
+  logger
+}: {
+  repoRoot: string;
+  rules: RulesConfig;
+  logger?: Logger;
+}): MemoryAdapter {
   const config = rules.memory ?? {};
 
   if (config.enabled === false) {
@@ -17,7 +26,9 @@ export function createMemoryAdapter({ repoRoot, rules, logger }) {
   }
 }
 
-class NoopMemoryAdapter {
+class NoopMemoryAdapter implements MemoryAdapter {
+  id: string;
+
   constructor() {
     this.id = "disabled";
   }

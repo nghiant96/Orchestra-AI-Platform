@@ -1,9 +1,41 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { generateEmbedding, cosineSimilarity } from "../utils/embeddings.js";
+import type {
+  CliCommandError,
+  Logger,
+  MemoryAdapter,
+  MemoryConfig,
+  MemoryMatch,
+  MemorySearchInput,
+  MemoryStoreInput
+} from "../types.js";
 
-export class LocalFileMemoryAdapter {
-  constructor({ repoRoot, config, logger }) {
+interface LocalMemoryEntry {
+  id: string;
+  createdAt: string;
+  kind: string;
+  outcome: string;
+  task: string;
+  summary: string;
+  embedding?: number[] | null;
+  changedFiles?: string[];
+  readFiles?: string[];
+  writeTargets?: string[];
+  issueCounts?: Record<string, number>;
+  providers?: Record<string, string>;
+  text?: string;
+}
+
+export class LocalFileMemoryAdapter implements MemoryAdapter {
+  repoRoot: string;
+  config: MemoryConfig;
+  logger?: Logger;
+  id: string;
+  memoryDir: string;
+  memoryFile: string;
+
+  constructor({ repoRoot, config, logger }: { repoRoot: string; config: MemoryConfig; logger?: Logger }) {
     this.repoRoot = repoRoot;
     this.config = config;
     this.logger = logger;
@@ -12,7 +44,7 @@ export class LocalFileMemoryAdapter {
     this.memoryFile = path.join(this.memoryDir, "memories.jsonl");
   }
 
-  async searchRelevant({ task, stage, plan }) {
+  async searchRelevant({ task, stage, plan }: MemorySearchInput): Promise<MemoryMatch[]> {
     const entries = await this.readEntries();
     if (entries.length === 0) {
       return [];
@@ -44,7 +76,7 @@ export class LocalFileMemoryAdapter {
     return scored;
   }
 
-  formatForPrompt(memories, stage) {
+  formatForPrompt(memories: MemoryMatch[], stage: string): string {
     if (!Array.isArray(memories) || memories.length === 0) {
       return "";
     }
@@ -67,7 +99,7 @@ export class LocalFileMemoryAdapter {
       : joined.slice(0, (this.config.max_prompt_chars ?? 1600) - 3) + "...";
   }
 
-  async storeRunSummary({ task, plan, result, iterations, issueCounts, providers, success, dryRun }) {
+  async storeRunSummary({ task, plan, result, iterations, issueCounts, providers, success, dryRun }: MemoryStoreInput) {
     const summary = summarizeRun(result, iterations);
     const embedding = await generateEmbedding(`${task} ${summary}`);
 
@@ -93,20 +125,21 @@ export class LocalFileMemoryAdapter {
     return true;
   }
 
-  async readEntries() {
+  async readEntries(): Promise<LocalMemoryEntry[]> {
     try {
       const raw = await fs.readFile(this.memoryFile, "utf8");
       return raw
         .split(/\r?\n/)
         .filter(Boolean)
-        .map((line) => JSON.parse(line))
+        .map((line) => JSON.parse(line) as LocalMemoryEntry)
         .filter((entry) => entry && typeof entry === "object");
     } catch (error) {
-      if (error.code === "ENOENT") {
+      const normalized = error as CliCommandError | undefined;
+      if (normalized?.code === "ENOENT") {
         return [];
       }
 
-      this.logger?.warn(`Memory read failed: ${error.message}`);
+      this.logger?.warn(`Memory read failed: ${normalized?.message ?? "Unknown error"}`);
       return [];
     }
   }
@@ -123,7 +156,7 @@ export class LocalFileMemoryAdapter {
   }
 }
 
-function buildQuery(task, stage, plan) {
+function buildQuery(task: string, stage: string, plan?: { readFiles?: string[]; writeTargets?: string[] } | null): string {
   return [
     task,
     stage,
@@ -134,7 +167,7 @@ function buildQuery(task, stage, plan) {
     .join(" ");
 }
 
-function scoreEntry(entry, queryTokens, queryEmbedding, stage) {
+function scoreEntry(entry: LocalMemoryEntry, queryTokens: Set<string>, queryEmbedding: number[] | null, stage: string): number {
   const entryTokens = tokenize(
     [
       entry.task,
@@ -168,7 +201,7 @@ function scoreEntry(entry, queryTokens, queryEmbedding, stage) {
   return keywordScore + semanticScore + recencyBonus + stageBonus + (stage ? 0.1 : 0);
 }
 
-function tokenize(text) {
+function tokenize(text: string): Set<string> {
   return new Set(
     String(text)
       .toLowerCase()
@@ -178,7 +211,7 @@ function tokenize(text) {
   );
 }
 
-function computeRecencyBonus(createdAt) {
+function computeRecencyBonus(createdAt: string): number {
   const ageMs = Date.now() - Date.parse(createdAt);
   if (!Number.isFinite(ageMs) || ageMs < 0) {
     return 0;
@@ -188,7 +221,7 @@ function computeRecencyBonus(createdAt) {
   return Math.max(2 - ageDays / 7, 0);
 }
 
-function summarizeRun(result, iterations) {
+function summarizeRun(result: MemoryStoreInput["result"], iterations: MemoryStoreInput["iterations"]): string {
   const changedFiles = result?.files?.map((file) => file.path) ?? [];
   const latestSummary = iterations?.at(-1)?.summary ?? "No review summary available.";
   return changedFiles.length > 0
@@ -196,7 +229,7 @@ function summarizeRun(result, iterations) {
     : latestSummary;
 }
 
-function buildMemoryText({ task, plan, result, iterations, issueCounts, providers, success, dryRun }) {
+function buildMemoryText({ task, plan, result, iterations, issueCounts, providers, success, dryRun }: MemoryStoreInput): string {
   return [
     `Task: ${task}`,
     `Outcome: ${dryRun ? "dry-run" : success ? "success" : "failure"}`,

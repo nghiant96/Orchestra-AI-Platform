@@ -32,7 +32,7 @@ async function main() {
     process.exit(0);
   }
 
-  if (!options.task) {
+  if (!options.task && !options.resumeTarget) {
     printHelp();
     throw new Error("Missing task description.");
   }
@@ -52,6 +52,7 @@ async function parseArgs(args) {
   let help = false;
   let configPath = null;
   let providerPreset = null;
+  let resumeTarget = null;
   const taskParts = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -89,6 +90,19 @@ async function parseArgs(args) {
       }
       providerPreset = nextArg;
       index += 1;
+      continue;
+    }
+    if (arg === "--resume") {
+      const nextArg = args[index + 1];
+      if (!nextArg) {
+        throw new Error("Missing value for --resume.");
+      }
+      resumeTarget = nextArg;
+      index += 1;
+      continue;
+    }
+    if (arg === "--resume-last") {
+      resumeTarget = "last";
       continue;
     }
     if (arg === "--9router") {
@@ -142,11 +156,12 @@ async function parseArgs(args) {
     help,
     configPath,
     providerPreset,
+    resumeTarget,
     task
   };
 }
 
-async function runTask({ cwd, dryRun, interactive, pauseAfterPlan, pauseAfterGenerate, configPath, providerPreset, task }) {
+async function runTask({ cwd, dryRun, interactive, pauseAfterPlan, pauseAfterGenerate, configPath, providerPreset, resumeTarget, task }) {
   applyProviderPreset(providerPreset);
 
   const { Orchestrator } = await import("./core/orchestrator.js");
@@ -156,6 +171,10 @@ async function runTask({ cwd, dryRun, interactive, pauseAfterPlan, pauseAfterGen
     logger,
     configPath
   });
+
+  if (resumeTarget) {
+    return orchestrator.resume(resumeTarget);
+  }
 
   return orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate });
 }
@@ -168,7 +187,8 @@ async function runInteractiveSession(initialOptions) {
     pauseAfterPlan: initialOptions.pauseAfterPlan,
     pauseAfterGenerate: initialOptions.pauseAfterGenerate,
     configPath: initialOptions.configPath,
-    providerPreset: initialOptions.providerPreset
+    providerPreset: initialOptions.providerPreset,
+    resumeTarget: initialOptions.resumeTarget
   };
 
   applyProviderPreset(state.providerPreset);
@@ -202,6 +222,7 @@ async function runInteractiveSession(initialOptions) {
           pauseAfterGenerate: state.pauseAfterGenerate,
           configPath: state.configPath,
           providerPreset: state.providerPreset,
+          resumeTarget: state.resumeTarget,
           task: line
         });
         printResult(result);
@@ -325,6 +346,25 @@ async function handleInteractiveCommand(line, state) {
     return "handled";
   }
 
+  if (line === "/resume-last") {
+    state.resumeTarget = "last";
+    console.log("[info] resume target set to last");
+    return "handled";
+  }
+
+  if (line.startsWith("/resume ")) {
+    const value = line.slice(8).trim();
+    state.resumeTarget = value || null;
+    console.log(`[info] resume target set to ${state.resumeTarget ?? "(none)"}`);
+    return "handled";
+  }
+
+  if (line === "/resume clear") {
+    state.resumeTarget = null;
+    console.log("[info] resume target cleared");
+    return "handled";
+  }
+
   return null;
 }
 
@@ -388,6 +428,7 @@ function printInteractiveBanner(state) {
   console.log(`- pause after plan: ${state.pauseAfterPlan}`);
   console.log(`- pause after generate: ${state.pauseAfterGenerate}`);
   console.log(`- provider preset: ${state.providerPreset ?? "(default)"}`);
+  console.log(`- resume target: ${state.resumeTarget ?? "(none)"}`);
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
   console.log("Type a task and press Enter. Use /help for session commands.");
 }
@@ -407,6 +448,9 @@ function printInteractiveHelp() {
   console.log("- /pause-generate off");
   console.log("- /manual-review");
   console.log("- /manual-review off");
+  console.log("- /resume /absolute/or/relative/path/to/run-or-run-state.json");
+  console.log("- /resume-last");
+  console.log("- /resume clear");
   console.log("- /provider local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli");
   console.log("- /provider clear");
   console.log("- /cwd /absolute/or/relative/path");
@@ -424,6 +468,7 @@ function printSessionStatus(state) {
   console.log(`- pause after plan: ${state.pauseAfterPlan}`);
   console.log(`- pause after generate: ${state.pauseAfterGenerate}`);
   console.log(`- provider preset: ${state.providerPreset ?? "(default)"}`);
+  console.log(`- resume target: ${state.resumeTarget ?? "(none)"}`);
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
 }
 
@@ -448,6 +493,8 @@ function printHelp() {
   ai --pause-after-plan "task description"
   ai --pause-after-generate "task description"
   ai --manual-review "task description"
+  ai --resume /path/to/.ai-system-artifacts/run-.../
+  ai --resume-last
   ai --provider 9router "task description"
   ai --9router --chat
   ai --chat
@@ -459,6 +506,7 @@ Examples:
   ai --pause-after-plan "Pause after planner checkpoint"
   ai --pause-after-generate "Pause before AI review"
   ai --manual-review "Let me inspect every major checkpoint"
+  ai --resume-last
   ai --provider 9router --dry-run "Refactor the auth flow"
   ai --cwd /absolute/path/to/repo "Implement retry handling"
   ai --config .ai-system.json --chat
@@ -471,6 +519,7 @@ Interactive mode:
   Use --pause-after-plan to stop after the planner checkpoint.
   Use --pause-after-generate to stop after each generated candidate is saved.
   Use --manual-review to enable plan approval plus both pause checkpoints.
+  Use --resume or --resume-last to continue a paused run from checkpoint artifacts.
 
 Provider presets:
   --provider local-cli

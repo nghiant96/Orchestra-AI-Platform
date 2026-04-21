@@ -1,10 +1,31 @@
+import type {
+  AgentDependencies,
+  ContextFile,
+  DiffSummary,
+  GeneratedFile,
+  JsonSchema,
+  ReviewIssue,
+  ReviewResult
+} from "../types.js";
+
 export class ReviewerAgent {
-  constructor({ provider, rules }) {
+  provider: AgentDependencies["provider"];
+  rules: AgentDependencies["rules"];
+
+  constructor({ provider, rules }: AgentDependencies) {
     this.provider = provider;
     this.rules = rules;
   }
 
-  async reviewCode(task, originalFiles, candidateFiles, validationIssues, diffSummaries, cwd, memoryContext = "") {
+  async reviewCode(
+    task: string,
+    originalFiles: Array<{ path: string; content?: string | null }>,
+    candidateFiles: GeneratedFile[],
+    validationIssues: ReviewIssue[],
+    diffSummaries: DiffSummary[],
+    cwd: string,
+    memoryContext = ""
+  ): Promise<ReviewResult> {
     const systemPrompt = [
       "You are the review agent for a local coding system.",
       "Return JSON only.",
@@ -41,7 +62,7 @@ export class ReviewerAgent {
   }
 }
 
-export const REVIEW_SCHEMA = {
+export const REVIEW_SCHEMA: JsonSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
