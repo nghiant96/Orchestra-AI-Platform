@@ -35,7 +35,7 @@ export class Orchestrator {
     this.configPath = configPath;
   }
 
-  async run(task, { dryRun = false, interactive = false } = {}) {
+  async run(task, { dryRun = false, interactive = false, pauseAfterPlan = false, pauseAfterGenerate = false } = {}) {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
@@ -59,6 +59,7 @@ export class Orchestrator {
       implementationMatches: 0,
       stored: false
     };
+    const artifactState = createArtifactState(repoRoot, rules);
 
     this.logger.step(`Building project tree for ${repoRoot}`);
     const treeString = await buildProjectTree(repoRoot, rules);
@@ -81,6 +82,36 @@ export class Orchestrator {
       writeTargets,
       notes: Array.isArray(rawPlan.notes) ? rawPlan.notes : []
     };
+    await persistPlanArtifacts(
+      artifactState,
+      {
+        task,
+        rawPlan,
+        plan,
+        provider: plannerProvider.id
+      },
+      this.logger
+    );
+
+    if (pauseAfterPlan) {
+      const confirmed = await this.confirmCheckpoint(
+        "Plan checkpoint saved. Review the plan artifact before continuing?",
+        artifactState.stepPaths.plan
+      );
+      if (!confirmed) {
+        this.logger.warn("Task paused by user after planner checkpoint.");
+        return buildStoppedResult({
+          status: "paused_after_plan",
+          dryRun,
+          repoRoot,
+          configPath,
+          plan,
+          providers: { plannerProvider, reviewerProvider, generatorProvider, fixerProvider },
+          memoryStats,
+          artifactState
+        });
+      }
+    }
 
     if (interactive) {
       const confirmed = await this.confirmPlan(plan);
@@ -100,6 +131,7 @@ export class Orchestrator {
           finalIssues: [],
           providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
           memory: memoryStats,
+          artifacts: null,
           wroteFiles: false
         };
       }
@@ -115,6 +147,15 @@ export class Orchestrator {
 
     this.logger.step(`Reading ${plan.readFiles.length} file(s) of context`);
     const { contexts: contextFiles, skippedFiles } = await readContextFiles(repoRoot, plan.readFiles, rules, this.logger);
+    await persistContextArtifacts(
+      artifactState,
+      {
+        readFiles: plan.readFiles,
+        skippedFiles,
+        contexts: contextFiles
+      },
+      this.logger
+    );
 
     const iterationResults = [];
     let currentResult = null;
@@ -170,10 +211,54 @@ export class Orchestrator {
 
       latestReviewSummary = review.summary;
       acceptedIssues = mergeIssues(review.issues, preReviewIssues);
+      const artifactInfo = await persistIterationArtifacts(
+        artifactState,
+        {
+          iteration,
+          task,
+          dryRun,
+          plan,
+          provider: iteration === 1 ? generatorProvider.id : fixerProvider.id,
+          resultSummary: currentResult.summary ?? "",
+          candidateFiles: currentResult.files,
+          originalFiles,
+          diffSummaries,
+          preReviewIssues,
+          reviewSummary: review.summary,
+          issues: acceptedIssues
+        },
+        this.logger
+      );
+
+      if (pauseAfterGenerate) {
+        const confirmed = await this.confirmCheckpoint(
+          `Generation checkpoint saved for iteration ${iteration}. Review the candidate files before continuing to AI review?`,
+          artifactInfo?.iterationPath ?? artifactState.latestIterationPath
+        );
+        if (!confirmed) {
+          this.logger.warn("Task paused by user after generation checkpoint.");
+          return buildStoppedResult({
+            status: "paused_after_generate",
+            dryRun,
+            repoRoot,
+            configPath,
+            plan,
+            result: currentResult,
+            iterations: iterationResults,
+            skippedContextFiles: skippedFiles,
+            finalIssues: acceptedIssues,
+            providers: { plannerProvider, reviewerProvider, generatorProvider, fixerProvider },
+            memoryStats,
+            artifactState
+          });
+        }
+      }
+
       iterationResults.push({
         iteration,
         summary: review.summary,
-        issues: acceptedIssues
+        issues: acceptedIssues,
+        artifactPath: artifactInfo?.iterationPath ?? null
       });
 
       if (!hasBlockingIssues(acceptedIssues)) {
@@ -210,6 +295,7 @@ export class Orchestrator {
           finalIssues: acceptedIssues,
           providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
           memory: memoryStats,
+          artifacts: finalizeArtifactState(artifactState, currentResult, true),
           wroteFiles: !dryRun
         };
       }
@@ -243,6 +329,7 @@ export class Orchestrator {
       finalIssues: acceptedIssues,
       providers: summarizeProviders({ plannerProvider, reviewerProvider, generatorProvider, fixerProvider }),
       memory: memoryStats,
+      artifacts: finalizeArtifactState(artifactState, currentResult, false),
       wroteFiles: false
     };
   }
@@ -265,6 +352,32 @@ export class Orchestrator {
 
     try {
       const answer = await rl.question("Proceed with this plan? (y/n): ");
+      return answer.toLowerCase().startsWith("y");
+    } finally {
+      rl.close();
+    }
+  }
+
+  async confirmCheckpoint(message, artifactPath) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      this.logger.info(`Skipping interactive checkpoint prompt because no TTY is available. Artifact: ${artifactPath}`);
+      return true;
+    }
+
+    console.log(`\n--- Checkpoint ---`);
+    console.log(message);
+    if (artifactPath) {
+      console.log(`Artifact: ${artifactPath}`);
+    }
+    console.log("Type 'y' to continue or anything else to stop here.");
+
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    try {
+      const answer = await rl.question("Continue? (y/n): ");
       return answer.toLowerCase().startsWith("y");
     } finally {
       rl.close();
@@ -523,4 +636,179 @@ function applyOpenAICompatibleOverride(providerConfigs, { baseUrl, apiKey, model
       providerConfig.model = model;
     }
   }
+}
+
+function buildStoppedResult({
+  status,
+  dryRun,
+  repoRoot,
+  configPath,
+  plan,
+  result = null,
+  iterations = [],
+  skippedContextFiles = [],
+  finalIssues = [],
+  providers,
+  memoryStats,
+  artifactState
+}) {
+  return {
+    ok: false,
+    status,
+    dryRun,
+    repoRoot,
+    configPath,
+    plan,
+    result,
+    iterations,
+    issueCounts: summarizeIssueCounts(finalIssues),
+    skippedContextFiles,
+    finalIssues,
+    providers: summarizeProviders(providers),
+    memory: memoryStats,
+    artifacts: finalizeArtifactState(artifactState, result, false),
+    wroteFiles: false
+  };
+}
+
+function createArtifactState(repoRoot, rules) {
+  const config = rules.artifacts ?? {};
+  return {
+    enabled: config.enabled !== false,
+    repoRoot,
+    baseDir: path.join(repoRoot, config.data_dir ?? ".ai-system-artifacts"),
+    runDir: null,
+    latestIterationPath: null,
+    stepPaths: {}
+  };
+}
+
+async function persistPlanArtifacts(state, payload, logger) {
+  if (!state?.enabled) {
+    return null;
+  }
+
+  const stepPath = await ensureArtifactStepDirectory(state, "01-plan");
+  const manifest = {
+    savedAt: new Date().toISOString(),
+    provider: payload.provider,
+    task: payload.task,
+    rawPlan: payload.rawPlan,
+    normalizedPlan: payload.plan
+  };
+  await fs.writeFile(path.join(stepPath, "plan.json"), JSON.stringify(manifest, null, 2), "utf8");
+  state.stepPaths.plan = stepPath;
+  logger?.info(`Saved planner checkpoint at ${stepPath}`);
+  return stepPath;
+}
+
+async function persistContextArtifacts(state, payload, logger) {
+  if (!state?.enabled) {
+    return null;
+  }
+
+  const stepPath = await ensureArtifactStepDirectory(state, "02-context");
+  const filesRoot = path.join(stepPath, "files");
+  await fs.mkdir(filesRoot, { recursive: true });
+
+  for (const context of payload.contexts) {
+    const targetPath = path.join(filesRoot, context.path);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, context.content, "utf8");
+  }
+
+  const manifest = {
+    savedAt: new Date().toISOString(),
+    readFiles: payload.readFiles,
+    skippedFiles: payload.skippedFiles,
+    savedFiles: payload.contexts.map((context) => context.path)
+  };
+  await fs.writeFile(path.join(stepPath, "context.json"), JSON.stringify(manifest, null, 2), "utf8");
+  state.stepPaths.context = stepPath;
+  logger?.info(`Saved context checkpoint at ${stepPath}`);
+  return stepPath;
+}
+
+async function persistIterationArtifacts(state, payload, logger) {
+  if (!state?.enabled) {
+    return null;
+  }
+
+  if (!state.runDir) {
+    state.runDir = path.join(state.baseDir, createRunDirectoryName());
+  }
+
+  const iterationPath = path.join(state.runDir, `iteration-${payload.iteration}`);
+  const filesRoot = path.join(iterationPath, "files");
+  await fs.mkdir(filesRoot, { recursive: true });
+
+  for (const file of payload.candidateFiles) {
+    const targetPath = path.join(filesRoot, file.path);
+    await fs.mkdir(path.dirname(targetPath), { recursive: true });
+    await fs.writeFile(targetPath, file.content, "utf8");
+  }
+
+  const manifest = {
+    iteration: payload.iteration,
+    task: payload.task,
+    dryRun: payload.dryRun,
+    savedAt: new Date().toISOString(),
+    provider: payload.provider,
+    plan: {
+      prompt: payload.plan?.prompt ?? "",
+      readFiles: payload.plan?.readFiles ?? [],
+      writeTargets: payload.plan?.writeTargets ?? [],
+      notes: payload.plan?.notes ?? []
+    },
+    resultSummary: payload.resultSummary,
+    candidateFiles: payload.candidateFiles.map((file) => ({
+      path: file.path,
+      action: file.action
+    })),
+    originalFiles: payload.originalFiles.map((file) => ({
+      path: file.path,
+      existed: file.content !== null
+    })),
+    diffSummaries: payload.diffSummaries,
+    preReviewIssues: payload.preReviewIssues,
+    reviewSummary: payload.reviewSummary,
+    issues: payload.issues
+  };
+
+  await fs.writeFile(path.join(iterationPath, "manifest.json"), JSON.stringify(manifest, null, 2), "utf8");
+  state.latestIterationPath = iterationPath;
+  state.stepPaths[`iteration-${payload.iteration}`] = iterationPath;
+  logger?.info(`Saved candidate artifacts for manual review at ${iterationPath}`);
+  return { iterationPath, manifestPath: path.join(iterationPath, "manifest.json") };
+}
+
+function finalizeArtifactState(state, currentResult, ok) {
+  if (!state?.enabled || !state.runDir) {
+    return null;
+  }
+
+  return {
+    enabled: true,
+    ok,
+    runPath: state.runDir,
+    latestIterationPath: state.latestIterationPath,
+    stepPaths: state.stepPaths,
+    latestFiles: currentResult?.files?.map((file) => file.path) ?? []
+  };
+}
+
+function createRunDirectoryName() {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const random = Math.random().toString(36).slice(2, 8);
+  return `run-${timestamp}-${random}`;
+}
+
+async function ensureArtifactStepDirectory(state, name) {
+  if (!state.runDir) {
+    state.runDir = path.join(state.baseDir, createRunDirectoryName());
+  }
+
+  const stepPath = path.join(state.runDir, name);
+  await fs.mkdir(stepPath, { recursive: true });
+  return stepPath;
 }

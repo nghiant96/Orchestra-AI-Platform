@@ -47,6 +47,8 @@ async function parseArgs(args) {
   let dryRun = false;
   let chat = false;
   let confirmPlan = false;
+  let pauseAfterPlan = false;
+  let pauseAfterGenerate = false;
   let help = false;
   let configPath = null;
   let providerPreset = null;
@@ -105,6 +107,20 @@ async function parseArgs(args) {
       confirmPlan = true;
       continue;
     }
+    if (arg === "--pause-after-plan") {
+      pauseAfterPlan = true;
+      continue;
+    }
+    if (arg === "--pause-after-generate") {
+      pauseAfterGenerate = true;
+      continue;
+    }
+    if (arg === "--manual-review") {
+      confirmPlan = true;
+      pauseAfterPlan = true;
+      pauseAfterGenerate = true;
+      continue;
+    }
 
     taskParts.push(arg);
   }
@@ -121,6 +137,8 @@ async function parseArgs(args) {
     dryRun,
     chat,
     interactive: confirmPlan,
+    pauseAfterPlan,
+    pauseAfterGenerate,
     help,
     configPath,
     providerPreset,
@@ -128,7 +146,7 @@ async function parseArgs(args) {
   };
 }
 
-async function runTask({ cwd, dryRun, interactive, configPath, providerPreset, task }) {
+async function runTask({ cwd, dryRun, interactive, pauseAfterPlan, pauseAfterGenerate, configPath, providerPreset, task }) {
   applyProviderPreset(providerPreset);
 
   const { Orchestrator } = await import("./core/orchestrator.js");
@@ -139,7 +157,7 @@ async function runTask({ cwd, dryRun, interactive, configPath, providerPreset, t
     configPath
   });
 
-  return orchestrator.run(task, { dryRun, interactive });
+  return orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate });
 }
 
 async function runInteractiveSession(initialOptions) {
@@ -147,6 +165,8 @@ async function runInteractiveSession(initialOptions) {
     cwd: initialOptions.cwd,
     dryRun: initialOptions.dryRun,
     interactive: initialOptions.interactive,
+    pauseAfterPlan: initialOptions.pauseAfterPlan,
+    pauseAfterGenerate: initialOptions.pauseAfterGenerate,
     configPath: initialOptions.configPath,
     providerPreset: initialOptions.providerPreset
   };
@@ -178,6 +198,8 @@ async function runInteractiveSession(initialOptions) {
           cwd: state.cwd,
           dryRun: state.dryRun,
           interactive: state.interactive,
+          pauseAfterPlan: state.pauseAfterPlan,
+          pauseAfterGenerate: state.pauseAfterGenerate,
           configPath: state.configPath,
           providerPreset: state.providerPreset,
           task: line
@@ -228,6 +250,45 @@ async function handleInteractiveCommand(line, state) {
   if (line === "/interactive off") {
     state.interactive = false;
     console.log("[info] plan approval disabled");
+    return "handled";
+  }
+
+  if (line === "/pause-plan" || line === "/pause-plan on") {
+    state.pauseAfterPlan = true;
+    console.log("[info] pause-after-plan enabled");
+    return "handled";
+  }
+
+  if (line === "/pause-plan off") {
+    state.pauseAfterPlan = false;
+    console.log("[info] pause-after-plan disabled");
+    return "handled";
+  }
+
+  if (line === "/pause-generate" || line === "/pause-generate on") {
+    state.pauseAfterGenerate = true;
+    console.log("[info] pause-after-generate enabled");
+    return "handled";
+  }
+
+  if (line === "/pause-generate off") {
+    state.pauseAfterGenerate = false;
+    console.log("[info] pause-after-generate disabled");
+    return "handled";
+  }
+
+  if (line === "/manual-review" || line === "/manual-review on") {
+    state.interactive = true;
+    state.pauseAfterPlan = true;
+    state.pauseAfterGenerate = true;
+    console.log("[info] manual-review mode enabled");
+    return "handled";
+  }
+
+  if (line === "/manual-review off") {
+    state.pauseAfterPlan = false;
+    state.pauseAfterGenerate = false;
+    console.log("[info] manual-review mode disabled");
     return "handled";
   }
 
@@ -324,6 +385,8 @@ function printInteractiveBanner(state) {
   console.log(`- cwd: ${state.cwd}`);
   console.log(`- dry-run: ${state.dryRun}`);
   console.log(`- plan approval: ${state.interactive}`);
+  console.log(`- pause after plan: ${state.pauseAfterPlan}`);
+  console.log(`- pause after generate: ${state.pauseAfterGenerate}`);
   console.log(`- provider preset: ${state.providerPreset ?? "(default)"}`);
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
   console.log("Type a task and press Enter. Use /help for session commands.");
@@ -338,6 +401,12 @@ function printInteractiveHelp() {
   console.log("- /dry-run off");
   console.log("- /interactive");
   console.log("- /interactive off");
+  console.log("- /pause-plan");
+  console.log("- /pause-plan off");
+  console.log("- /pause-generate");
+  console.log("- /pause-generate off");
+  console.log("- /manual-review");
+  console.log("- /manual-review off");
   console.log("- /provider local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli");
   console.log("- /provider clear");
   console.log("- /cwd /absolute/or/relative/path");
@@ -352,6 +421,8 @@ function printSessionStatus(state) {
   console.log(`- cwd: ${state.cwd}`);
   console.log(`- dry-run: ${state.dryRun}`);
   console.log(`- plan approval: ${state.interactive}`);
+  console.log(`- pause after plan: ${state.pauseAfterPlan}`);
+  console.log(`- pause after generate: ${state.pauseAfterGenerate}`);
   console.log(`- provider preset: ${state.providerPreset ?? "(default)"}`);
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
 }
@@ -360,6 +431,8 @@ function buildPrompt(state) {
   const mode = [
     state.dryRun ? "dry-run" : null,
     state.interactive ? "confirm-plan" : null,
+    state.pauseAfterPlan ? "pause-plan" : null,
+    state.pauseAfterGenerate ? "pause-generate" : null,
     state.providerPreset ? state.providerPreset : null
   ]
     .filter(Boolean)
@@ -372,6 +445,9 @@ function printHelp() {
   ai "task description"
   ai --cwd /path/to/repo --dry-run "task description"
   ai --interactive "task description"
+  ai --pause-after-plan "task description"
+  ai --pause-after-generate "task description"
+  ai --manual-review "task description"
   ai --provider 9router "task description"
   ai --9router --chat
   ai --chat
@@ -380,6 +456,9 @@ Examples:
   ai "Refactor the auth flow"
   ai --dry-run "Add a reusable loading state component"
   ai --interactive "Review the plan before changing files"
+  ai --pause-after-plan "Pause after planner checkpoint"
+  ai --pause-after-generate "Pause before AI review"
+  ai --manual-review "Let me inspect every major checkpoint"
   ai --provider 9router --dry-run "Refactor the auth flow"
   ai --cwd /absolute/path/to/repo "Implement retry handling"
   ai --config .ai-system.json --chat
@@ -389,6 +468,9 @@ Interactive mode:
   Run \`ai\` with no task to open a session, similar to Gemini CLI.
   Use --chat explicitly if you want chat mode.
   Use --interactive to confirm the AI plan before changes are generated.
+  Use --pause-after-plan to stop after the planner checkpoint.
+  Use --pause-after-generate to stop after each generated candidate is saved.
+  Use --manual-review to enable plan approval plus both pause checkpoints.
 
 Provider presets:
   --provider local-cli
@@ -452,6 +534,9 @@ function printResult(result) {
   console.log("");
   console.log("Result");
   console.log(`- success: ${result.ok}`);
+  if (result.status) {
+    console.log(`- status: ${result.status}`);
+  }
   console.log(`- repo: ${result.repoRoot}`);
   console.log(`- config: ${result.configPath ?? "(default rules)"}`);
   console.log(
@@ -460,6 +545,13 @@ function printResult(result) {
   console.log(
     `- memory: backend=${result.memory?.backend}, planning_matches=${result.memory?.planningMatches ?? 0}, implementation_matches=${result.memory?.implementationMatches ?? 0}, stored=${result.memory?.stored}`
   );
+  console.log(`- artifacts: ${result.artifacts?.latestIterationPath || result.artifacts?.runPath || "(none)"}`);
+  if (result.artifacts?.stepPaths && Object.keys(result.artifacts.stepPaths).length > 0) {
+    console.log("- checkpoints:");
+    for (const [name, artifactPath] of Object.entries(result.artifacts.stepPaths)) {
+      console.log(`  - ${name}: ${artifactPath}`);
+    }
+  }
   console.log(`- planned read files: ${(result.plan?.readFiles ?? []).join(", ") || "(none)"}`);
   console.log(`- skipped context files: ${(result.skippedContextFiles ?? []).join(", ") || "(none)"}`);
   console.log(`- write targets: ${(result.plan?.writeTargets ?? []).join(", ") || "(none)"}`);
@@ -477,7 +569,9 @@ function printResult(result) {
     }
   }
 
-  if (!result.ok) {
+  if (!result.ok && result.status?.startsWith("paused_")) {
+    console.log("- next action: inspect the checkpoint artifacts, then rerun when ready.");
+  } else if (!result.ok) {
     const blockingIssues = (result.finalIssues ?? []).filter(
       (issue) => issue.severity === "high" || issue.severity === "medium"
     );

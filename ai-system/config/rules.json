@@ -8,6 +8,10 @@
   "request_timeout_ms": 60000,
   "request_retries": 3,
   "retry_base_delay_ms": 500,
+  "artifacts": {
+    "enabled": true,
+    "data_dir": ".ai-system-artifacts"
+  },
   "memory": {
     "enabled": true,
     "backend": "local-file",

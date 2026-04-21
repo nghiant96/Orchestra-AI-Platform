@@ -171,6 +171,24 @@ Review the AI plan before it generates code:
 ai --interactive "Refactor the auth flow"
 ```
 
+Pause after key checkpoints:
+
+```bash
+ai --pause-after-plan "Refactor the auth flow"
+ai --pause-after-generate "Refactor the auth flow"
+ai --manual-review "Refactor the auth flow"
+```
+
+Manual review safety:
+
+- Every generated candidate is saved under `.ai-system-artifacts/` before it is accepted.
+- If review or validation fails, you can still open the latest candidate files and inspect `manifest.json` for issues and diff summaries.
+- Each run now saves step checkpoints:
+  - `01-plan/plan.json`
+  - `02-context/context.json` and `02-context/files/`
+  - `iteration-N/manifest.json` and `iteration-N/files/`
+- `--manual-review` combines plan approval, pause after planner, and pause after each generated candidate.
+
 ## Docker and Server Usage
 
 Use this mode only when you want a long-lived service, remote deployment, or containerized execution.

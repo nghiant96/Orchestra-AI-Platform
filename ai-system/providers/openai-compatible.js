@@ -59,6 +59,7 @@ export class OpenAICompatibleProvider {
       },
       body: JSON.stringify({
         model: this.config.model,
+        stream: false,
         temperature: this.config.temperature ?? 0,
         messages: buildMessages(systemPrompt, prompt, schema),
         response_format: this.config.response_format ?? { type: "json_object" }
@@ -71,7 +72,7 @@ export class OpenAICompatibleProvider {
       throw buildHttpError(response.status, raw);
     }
 
-    const parsed = JSON.parse(raw);
+    const parsed = parseOpenAICompatiblePayload(raw);
     return extractMessageContent(parsed);
   }
 }
@@ -104,6 +105,87 @@ function buildMessages(systemPrompt, prompt, schema) {
       content: instruction
     }
   ];
+}
+
+function parseOpenAICompatiblePayload(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return parseSsePayload(raw);
+  }
+}
+
+function parseSsePayload(raw) {
+  const events = [];
+
+  for (const line of String(raw).split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) {
+      continue;
+    }
+
+    const payload = trimmed.slice(5).trim();
+    if (!payload || payload === "[DONE]") {
+      continue;
+    }
+
+    try {
+      events.push(JSON.parse(payload));
+    } catch {
+      continue;
+    }
+  }
+
+  if (events.length === 0) {
+    throw new Error(`openai-compatible provider returned invalid JSON payload: ${truncate(raw, 600)}`);
+  }
+
+  let finalMessageContent = "";
+  let finalText = "";
+  let lastEvent = events.at(-1);
+
+  for (const event of events) {
+    const choice = Array.isArray(event?.choices) ? event.choices[0] : null;
+    const content = choice?.message?.content;
+    if (typeof content === "string" && content) {
+      finalMessageContent = content;
+    }
+
+    const deltaContent = choice?.delta?.content;
+    if (typeof deltaContent === "string" && deltaContent) {
+      finalText += deltaContent;
+    }
+
+    if (typeof choice?.text === "string" && choice.text) {
+      finalText += choice.text;
+    }
+  }
+
+  if (finalMessageContent) {
+    return {
+      ...lastEvent,
+      choices: [
+        {
+          ...(Array.isArray(lastEvent?.choices) ? lastEvent.choices[0] : {}),
+          message: { content: finalMessageContent }
+        }
+      ]
+    };
+  }
+
+  if (finalText) {
+    return {
+      ...lastEvent,
+      choices: [
+        {
+          ...(Array.isArray(lastEvent?.choices) ? lastEvent.choices[0] : {}),
+          message: { content: finalText }
+        }
+      ]
+    };
+  }
+
+  return lastEvent;
 }
 
 function extractMessageContent(payload) {
