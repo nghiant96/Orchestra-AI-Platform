@@ -1,0 +1,24 @@
+{
+  "max_iterations": 2,
+  "max_files": 4,
+  "memory": {
+    "enabled": true,
+    "backend": "local-file"
+  },
+  "providers": {
+    "planner": {
+      "type": "gemini-cli"
+    },
+    "reviewer": {
+      "type": "gemini-cli"
+    },
+    "generator": {
+      "type": "codex-cli",
+      "timeout_ms": 0
+    },
+    "fixer": {
+      "type": "codex-cli",
+      "timeout_ms": 0
+    }
+  }
+}

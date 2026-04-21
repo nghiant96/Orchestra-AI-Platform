@@ -5,10 +5,16 @@
   "type": "module",
   "scripts": {
     "start": "node ai-system/cli.js",
+    "server": "node ai-system/server.js",
     "ai": "node ai-system/cli.js",
-    "ai:help": "node ai-system/cli.js --help"
+    "ai:chat": "node ai-system/cli.js --chat",
+    "ai:help": "node ai-system/cli.js --help",
+    "docker:up": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=change-me docker compose up -d ai-coding-system",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f ai-coding-system"
   },
   "bin": {
+    "ai": "./ai-system/cli.js",
     "ai-system": "./ai-system/cli.js"
   }
 }

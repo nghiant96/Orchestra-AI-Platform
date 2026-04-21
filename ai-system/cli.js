@@ -13,19 +13,19 @@ async function main() {
     process.exit(0);
   }
 
-  const { cwd, dryRun, task } = await parseArgs(args);
-  if (!task) {
+  const options = await parseArgs(args);
+
+  if (options.interactive) {
+    await runInteractiveSession(options);
+    process.exit(0);
+  }
+
+  if (!options.task) {
     printHelp();
     throw new Error("Missing task description.");
   }
 
-  const logger = createLogger();
-  const orchestrator = new Orchestrator({
-    repoRoot: cwd,
-    logger
-  });
-
-  const result = await orchestrator.run(task, { dryRun });
+  const result = await runTask(options);
   printResult(result);
   process.exit(result.ok ? 0 : 1);
 }
@@ -33,6 +33,8 @@ async function main() {
 async function parseArgs(args) {
   let cwd = process.cwd();
   let dryRun = false;
+  let interactive = false;
+  let configPath = null;
   const taskParts = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -49,31 +51,199 @@ async function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--config") {
+      const nextArg = args[index + 1];
+      if (!nextArg) {
+        throw new Error("Missing value for --config.");
+      }
+      configPath = path.resolve(nextArg);
+      index += 1;
+      continue;
+    }
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+    if (arg === "--chat" || arg === "--interactive") {
+      interactive = true;
       continue;
     }
     taskParts.push(arg);
   }
 
-  const task = taskParts.join(" ").trim() || (await readTaskFromStdin()) || (await promptForTask());
+  const pipedTask = await readTaskFromStdin();
+  const task = taskParts.join(" ").trim() || pipedTask;
+
+  if (!task && !interactive && process.stdin.isTTY && process.stdout.isTTY) {
+    interactive = true;
+  }
 
   return {
     cwd,
     dryRun,
+    interactive,
+    configPath,
     task
   };
 }
 
+async function runTask({ cwd, dryRun, configPath, task }) {
+  const logger = createLogger();
+  const orchestrator = new Orchestrator({
+    repoRoot: cwd,
+    logger,
+    configPath
+  });
+
+  return orchestrator.run(task, { dryRun });
+}
+
+async function runInteractiveSession(initialOptions) {
+  const state = {
+    cwd: initialOptions.cwd,
+    dryRun: initialOptions.dryRun,
+    configPath: initialOptions.configPath
+  };
+
+  const rl = readline.createInterface({ input, output });
+  printInteractiveBanner(state);
+
+  try {
+    while (true) {
+      const raw = await rl.question(buildPrompt(state));
+      const line = raw.trim();
+
+      if (!line) {
+        continue;
+      }
+
+      const commandResult = await handleInteractiveCommand(line, state);
+      if (commandResult === "exit") {
+        break;
+      }
+      if (commandResult === "handled") {
+        continue;
+      }
+
+      try {
+        const result = await runTask({
+          cwd: state.cwd,
+          dryRun: state.dryRun,
+          configPath: state.configPath,
+          task: line
+        });
+        printResult(result);
+      } catch (error) {
+        console.error(`[error] ${error.message}`);
+      }
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function handleInteractiveCommand(line, state) {
+  if (line === "exit" || line === "quit" || line === "/exit" || line === "/quit") {
+    return "exit";
+  }
+
+  if (line === "/help") {
+    printInteractiveHelp();
+    return "handled";
+  }
+
+  if (line === "/status") {
+    printSessionStatus(state);
+    return "handled";
+  }
+
+  if (line === "/dry-run" || line === "/dry-run on") {
+    state.dryRun = true;
+    console.log("[info] dry-run enabled");
+    return "handled";
+  }
+
+  if (line === "/dry-run off") {
+    state.dryRun = false;
+    console.log("[info] dry-run disabled");
+    return "handled";
+  }
+
+  if (line.startsWith("/cwd ")) {
+    state.cwd = path.resolve(line.slice(5).trim());
+    console.log(`[info] cwd set to ${state.cwd}`);
+    return "handled";
+  }
+
+  if (line === "/config clear") {
+    state.configPath = null;
+    console.log("[info] config override cleared");
+    return "handled";
+  }
+
+  if (line.startsWith("/config ")) {
+    const value = line.slice(8).trim();
+    state.configPath = value ? path.resolve(value) : null;
+    console.log(`[info] config set to ${state.configPath ?? "(auto)"}`);
+    return "handled";
+  }
+
+  return null;
+}
+
+function printInteractiveBanner(state) {
+  console.log("AI Coding System");
+  console.log(`- cwd: ${state.cwd}`);
+  console.log(`- dry-run: ${state.dryRun}`);
+  console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
+  console.log("Type a task and press Enter. Use /help for session commands.");
+}
+
+function printInteractiveHelp() {
+  console.log("");
+  console.log("Session commands");
+  console.log("- /help");
+  console.log("- /status");
+  console.log("- /dry-run");
+  console.log("- /dry-run off");
+  console.log("- /cwd /absolute/or/relative/path");
+  console.log("- /config /absolute/or/relative/path/to/config.json");
+  console.log("- /config clear");
+  console.log("- /exit");
+}
+
+function printSessionStatus(state) {
+  console.log("");
+  console.log("Session");
+  console.log(`- cwd: ${state.cwd}`);
+  console.log(`- dry-run: ${state.dryRun}`);
+  console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
+}
+
+function buildPrompt(state) {
+  return `ai:${path.basename(state.cwd)}${state.dryRun ? " [dry-run]" : ""}> `;
+}
+
 function printHelp() {
   console.log(`Usage:
-  node ai-system/cli.js "task description"
-  node ai-system/cli.js --cwd /path/to/repo --dry-run "task description"
+  ai "task description"
+  ai --cwd /path/to/repo --dry-run "task description"
+  ai --chat
 
 Examples:
-  pnpm run ai -- "Refactor the auth flow"
-  pnpm run ai -- --dry-run "Add a reusable loading state component"
-  echo "Fix retry handling in api client" | pnpm run ai
+  ai "Refactor the auth flow"
+  ai --dry-run "Add a reusable loading state component"
+  ai --cwd /absolute/path/to/repo "Implement retry handling"
+  ai --config .ai-system.json --chat
+  echo "Fix retry handling in api client" | ai
+
+Interactive mode:
+  Run \`ai\` with no task to open a session, similar to Gemini CLI.
+  Use /help inside the session for commands.
+
+Project config:
+  The CLI auto-loads .ai-system.json from the current repo when present.
+  You can override it with --config /path/to/config.json
 
 Environment overrides:
   AI_SYSTEM_PLANNER_PROVIDER=gemini-cli|claude-cli
@@ -106,20 +276,6 @@ async function readTaskFromStdin() {
   return data.trim();
 }
 
-async function promptForTask() {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    return "";
-  }
-
-  const rl = readline.createInterface({ input, output });
-  try {
-    const task = await rl.question("Task: ");
-    return task.trim();
-  } finally {
-    rl.close();
-  }
-}
-
 function printResult(result) {
   const changedFiles = result.result?.files?.map((file) => file.path) ?? [];
   const iterations = result.iterations ?? [];
@@ -128,6 +284,7 @@ function printResult(result) {
   console.log("Result");
   console.log(`- success: ${result.ok}`);
   console.log(`- repo: ${result.repoRoot}`);
+  console.log(`- config: ${result.configPath ?? "(default rules)"}`);
   console.log(
     `- providers: planner=${result.providers?.planner}, reviewer=${result.providers?.reviewer}, generator=${result.providers?.generator}, fixer=${result.providers?.fixer}`
   );

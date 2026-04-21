@@ -23,6 +23,195 @@ Optional alternate provider:
 
 - `claude`
 
+## Setup
+
+Log into the CLIs you plan to use:
+
+```bash
+gemini
+codex login
+# optional
+claude
+```
+
+## CLI-First Local Usage
+
+This is the default workflow. Use it when you are coding locally and want a terminal experience similar to Gemini CLI.
+
+Start an interactive session:
+
+```bash
+ai
+# or
+pnpm run ai:chat
+```
+
+Run a one-shot task in the current directory:
+
+```bash
+npm run ai -- "Add retry handling to the API client"
+```
+
+Run against another repository:
+
+```bash
+npm run ai -- --cwd /absolute/path/to/repo "Refactor the auth hook to handle refresh tokens"
+```
+
+Preview without writing files:
+
+```bash
+npm run ai -- --dry-run "Add a reusable loading state component"
+```
+
+Use project-level config:
+
+```bash
+cp .ai-system.json.example .ai-system.json
+ai --chat
+```
+
+Inside interactive mode:
+
+```text
+/help
+/status
+/dry-run
+/dry-run off
+/cwd ../another-project
+/config .ai-system.json
+/config clear
+/exit
+```
+
+Useful local overrides:
+
+```bash
+AI_SYSTEM_REVIEWER_PROVIDER=claude-cli npm run ai -- --dry-run "Review the generated hook changes"
+AI_SYSTEM_MEMORY_ENABLED=false npm run ai -- --dry-run "Refactor the auth flow"
+AI_SYSTEM_MEMORY_BACKEND=openmemory \
+AI_SYSTEM_MEMORY_TRANSPORT=http \
+AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080 \
+npm run ai -- --dry-run "Refactor the auth flow"
+AI_SYSTEM_GENERATOR_TIMEOUT_MS=480000 AI_SYSTEM_FIXER_TIMEOUT_MS=300000 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+AI_SYSTEM_GENERATOR_TIMEOUT_MS=0 AI_SYSTEM_FIXER_TIMEOUT_MS=0 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000 \
+AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS=60000 \
+pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+```
+
+## Docker and Server Usage
+
+Use this mode only when you want a long-lived service, remote deployment, or containerized execution.
+
+Build the image:
+
+```bash
+docker build -t ai-coding-system:local .
+```
+
+Run a one-shot container job against the current repository:
+
+```bash
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  -v "$HOME/.gemini:/root/.gemini" \
+  -v "$HOME/.codex:/root/.codex" \
+  -v "$HOME/.claude:/root/.claude" \
+  ai-coding-system:local \
+  --dry-run "Add a reusable loading state component"
+```
+
+Run as a long-lived HTTP service:
+
+```bash
+docker run --rm -it \
+  -e AI_SYSTEM_SERVER_MODE=true \
+  -e AI_SYSTEM_SERVER_TOKEN=change-me \
+  -e PORT=3927 \
+  -p 3927:3927 \
+  -v "$PWD:/workspace" \
+  -v "$HOME/.gemini:/root/.gemini" \
+  -v "$HOME/.codex:/root/.codex" \
+  -v "$HOME/.claude:/root/.claude" \
+  ai-coding-system:local
+```
+
+Use Docker Compose for a one-shot local run:
+
+```bash
+docker compose run --rm ai-coding-system --dry-run "Refactor the auth flow"
+```
+
+Run Docker Compose in server mode:
+
+```bash
+AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=change-me docker compose up ai-coding-system
+```
+
+Shortcuts in this repo:
+
+```bash
+pnpm docker:up
+pnpm docker:down
+pnpm docker:logs
+```
+
+Or with `make`:
+
+```bash
+make ai-up
+make ai-down
+make ai-logs
+```
+
+If you want a custom token:
+
+```bash
+AI_SYSTEM_SERVER_TOKEN=my-secret make ai-up
+```
+
+Deploy on a server:
+
+```bash
+docker build -t registry.example.com/ai-coding-system:latest .
+docker push registry.example.com/ai-coding-system:latest
+```
+
+Then run it on the server by mounting:
+
+- the target repository to `/workspace`
+- CLI auth directories to `/root/.gemini`, `/root/.codex`, and optionally `/root/.claude`
+
+Example:
+
+```bash
+docker run --rm -it \
+  -v /srv/my-repo:/workspace \
+  -v /srv/ai-auth/.gemini:/root/.gemini \
+  -v /srv/ai-auth/.codex:/root/.codex \
+  -v /srv/ai-auth/.claude:/root/.claude \
+  registry.example.com/ai-coding-system:latest \
+  "Implement retry handling for the API client"
+```
+
+If your platform starts the container with no command, set:
+
+- `AI_SYSTEM_SERVER_MODE=true`
+- `PORT=3927` or the platform's assigned port
+- `AI_SYSTEM_SERVER_TOKEN=<shared-secret>`
+
+Then call the service:
+
+```bash
+curl -X POST http://127.0.0.1:3927/run \
+  -H "Authorization: Bearer change-me" \
+  -H "Content-Type: application/json" \
+  -d '{"task":"Implement retry handling for the API client","dryRun":true}'
+```
+
+## Configuration Reference
+
 Optional environment variables:
 
 - `AI_SYSTEM_MAX_ITERATIONS`
@@ -50,132 +239,14 @@ Optional environment variables:
 - `AI_SYSTEM_OPENMEMORY_BASE_URL`
 - `AI_SYSTEM_OPENMEMORY_API_KEY`
 
-## Setup
-
-Log into the CLIs you plan to use:
-
-```bash
-gemini
-codex login
-# optional
-claude
-```
-
-## Usage
-
-Run against the current directory:
-
-```bash
-npm run ai -- "Add retry handling to the API client"
-```
-
-Run against another repository:
-
-```bash
-npm run ai -- --cwd /absolute/path/to/repo "Refactor the auth hook to handle refresh tokens"
-```
-
-Preview without writing files:
-
-```bash
-npm run ai -- --dry-run "Add a reusable loading state component"
-```
-
-Switch a role to Claude via environment override:
-
-```bash
-AI_SYSTEM_REVIEWER_PROVIDER=claude-cli npm run ai -- --dry-run "Review the generated hook changes"
-```
-
-Disable memory for a run:
-
-```bash
-AI_SYSTEM_MEMORY_ENABLED=false npm run ai -- --dry-run "Refactor the auth flow"
-```
-
-Use OpenMemory as the memory backend over HTTP:
-
-```bash
-AI_SYSTEM_MEMORY_BACKEND=openmemory \
-AI_SYSTEM_MEMORY_TRANSPORT=http \
-AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080 \
-npm run ai -- --dry-run "Refactor the auth flow"
-```
-
-Increase generator timeout for larger refactors:
-
-```bash
-AI_SYSTEM_GENERATOR_TIMEOUT_MS=480000 AI_SYSTEM_FIXER_TIMEOUT_MS=300000 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
-```
-
-Disable `codex` timeout completely for long-running tasks:
-
-```bash
-AI_SYSTEM_GENERATOR_TIMEOUT_MS=0 AI_SYSTEM_FIXER_TIMEOUT_MS=0 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
-```
-
-Keep long-running providers visible without killing them:
-
-```bash
-AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000 \
-AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS=60000 \
-pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
-```
-
-## Docker
-
-Build the image:
-
-```bash
-docker build -t ai-coding-system:local .
-```
-
-Run against the current repository mounted at `/workspace`:
-
-```bash
-docker run --rm -it \
-  -v "$PWD:/workspace" \
-  -v "$HOME/.gemini:/root/.gemini" \
-  -v "$HOME/.codex:/root/.codex" \
-  -v "$HOME/.claude:/root/.claude" \
-  ai-coding-system:local \
-  --dry-run "Add a reusable loading state component"
-```
-
-Use Docker Compose locally:
-
-```bash
-docker compose run --rm ai-coding-system --dry-run "Refactor the auth flow"
-```
-
-Deploy on a server:
-
-```bash
-docker build -t registry.example.com/ai-coding-system:latest .
-docker push registry.example.com/ai-coding-system:latest
-```
-
-Then run it on the server by mounting:
-
-- the target repository to `/workspace`
-- CLI auth directories to `/root/.gemini`, `/root/.codex`, and optionally `/root/.claude`
-
-Example:
-
-```bash
-docker run --rm -it \
-  -v /srv/my-repo:/workspace \
-  -v /srv/ai-auth/.gemini:/root/.gemini \
-  -v /srv/ai-auth/.codex:/root/.codex \
-  -v /srv/ai-auth/.claude:/root/.claude \
-  registry.example.com/ai-coding-system:latest \
-  "Implement retry handling for the API client"
-```
-
-Notes for container usage:
+## Container Notes
 
 - The image bundles `gemini`, `codex`, and `claude` CLIs via their npm packages.
 - Authentication is expected to come from mounted CLI config directories.
+- With no command, the container now starts an HTTP server automatically when `PORT` is set or `AI_SYSTEM_SERVER_MODE=true`.
+- The server exposes `GET /health` and `POST /run`.
+- `pnpm docker:up` and `make ai-up` are shortcuts for this repository only. They use this repo's `docker-compose.yml` and mount this repo into `/workspace`.
+- If you want the same workflow inside another project, that project also needs a matching `docker-compose.yml` or a wrapper script that mounts that project's directory.
 - The default memory backend `local-file` works out of the box because it stores data inside the mounted workspace.
 - `OpenMemory` is not bundled into this image, but the app can talk to an existing OpenMemory server over HTTP.
 - If OpenMemory is running on the host machine, use `AI_SYSTEM_OPENMEMORY_BASE_URL=http://host.docker.internal:8080` inside the container.

@@ -22,20 +22,22 @@ import {
   validateCandidateFiles
 } from "./reviewer.js";
 import { loadEnvironment } from "../utils/api.js";
+import { loadJsonIfExists, mergeConfig, resolveProjectConfigPath } from "../utils/config.js";
 import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
 
 export class Orchestrator {
-  constructor({ repoRoot, logger }) {
+  constructor({ repoRoot, logger, configPath = null }) {
     this.repoRoot = repoRoot;
     this.logger = logger;
+    this.configPath = configPath;
   }
 
   async run(task, { dryRun = false } = {}) {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
-    const rules = await loadRules();
+    const { rules, configPath } = await loadRules(repoRoot, this.configPath);
     applyEnvOverrides(rules);
     const memory = createMemoryAdapter({ repoRoot, rules, logger: this.logger });
     const plannerProvider = createProvider("planner", rules, this.logger);
@@ -166,6 +168,7 @@ export class Orchestrator {
           ok: true,
           dryRun,
           repoRoot,
+          configPath,
           plan,
           result: currentResult,
           iterations: iterationResults,
@@ -194,6 +197,7 @@ export class Orchestrator {
       ok: false,
       dryRun,
       repoRoot,
+      configPath,
       plan,
       result: currentResult,
       iterations: iterationResults,
@@ -207,10 +211,17 @@ export class Orchestrator {
   }
 }
 
-async function loadRules() {
+async function loadRules(repoRoot, explicitConfigPath) {
   const rulesPath = new URL("../config/rules.json", import.meta.url);
   const raw = await fs.readFile(rulesPath, "utf8");
-  return JSON.parse(raw);
+  const baseRules = JSON.parse(raw);
+  const configPath = await resolveProjectConfigPath(repoRoot, explicitConfigPath);
+  const projectRules = configPath ? await loadJsonIfExists(configPath) : null;
+
+  return {
+    rules: mergeConfig(baseRules, projectRules),
+    configPath
+  };
 }
 
 function applyEnvOverrides(rules) {

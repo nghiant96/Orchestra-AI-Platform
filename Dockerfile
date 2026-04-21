@@ -22,6 +22,8 @@ RUN npm install -g \
 
 WORKDIR /opt/ai-coding-system
 
+RUN mkdir -p /workspace
+
 COPY package.json README.md ./
 COPY ai-system ./ai-system
 COPY docs ./docs
@@ -29,5 +31,7 @@ COPY docker ./docker
 
 RUN chmod +x /opt/ai-coding-system/docker/entrypoint.sh
 
+EXPOSE 3927
+
 ENTRYPOINT ["/usr/bin/tini", "--", "/opt/ai-coding-system/docker/entrypoint.sh"]
-CMD ["--help"]
+CMD []
