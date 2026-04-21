@@ -15,6 +15,9 @@
     "max_results": 4,
     "max_prompt_chars": 1600,
     "max_entries": 500,
+    "transport": "http",
+    "base_url": "http://127.0.0.1:8080",
+    "api_key": "",
     "command": "opm",
     "health_timeout_ms": 10000,
     "query_timeout_ms": 15000,
@@ -23,23 +26,38 @@
   "providers": {
     "planner": {
       "type": "gemini-cli",
-      "command": "gemini"
+      "command": "gemini",
+      "timeout_ms": 90000,
+      "retries": 2,
+      "monitor_interval_ms": 0
     },
     "reviewer": {
       "type": "gemini-cli",
-      "command": "gemini"
+      "command": "gemini",
+      "timeout_ms": 90000,
+      "retries": 2,
+      "monitor_interval_ms": 0
     },
     "generator": {
       "type": "codex-cli",
-      "command": "codex"
+      "command": "codex",
+      "timeout_ms": 0,
+      "retries": 1,
+      "monitor_interval_ms": 60000
     },
     "fixer": {
       "type": "codex-cli",
-      "command": "codex"
+      "command": "codex",
+      "timeout_ms": 0,
+      "retries": 1,
+      "monitor_interval_ms": 60000
     },
     "claude_fallback": {
       "type": "claude-cli",
-      "command": "claude"
+      "command": "claude",
+      "timeout_ms": 0,
+      "retries": 1,
+      "monitor_interval_ms": 60000
     }
   },
   "excluded_directories": [

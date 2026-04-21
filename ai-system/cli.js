@@ -37,6 +37,9 @@ async function parseArgs(args) {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === "--") {
+      continue;
+    }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];
       if (!nextArg) {
@@ -77,8 +80,16 @@ Environment overrides:
   AI_SYSTEM_REVIEWER_PROVIDER=gemini-cli|claude-cli
   AI_SYSTEM_GENERATOR_PROVIDER=codex-cli|claude-cli
   AI_SYSTEM_FIXER_PROVIDER=codex-cli|claude-cli
+  AI_SYSTEM_GENERATOR_TIMEOUT_MS=0    # disable timeout
+  AI_SYSTEM_FIXER_TIMEOUT_MS=0        # disable timeout
+  AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000
+  AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS=60000
+  AI_SYSTEM_GENERATOR_RETRIES=1
+  AI_SYSTEM_FIXER_RETRIES=1
   AI_SYSTEM_MEMORY_ENABLED=true|false
   AI_SYSTEM_MEMORY_BACKEND=local-file|openmemory
+  AI_SYSTEM_MEMORY_TRANSPORT=http|cli
+  AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080
 `);
 }
 

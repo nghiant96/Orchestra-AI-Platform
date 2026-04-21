@@ -32,8 +32,23 @@ Optional environment variables:
 - `AI_SYSTEM_REVIEWER_PROVIDER`
 - `AI_SYSTEM_GENERATOR_PROVIDER`
 - `AI_SYSTEM_FIXER_PROVIDER`
+- `AI_SYSTEM_PLANNER_TIMEOUT_MS`
+- `AI_SYSTEM_REVIEWER_TIMEOUT_MS`
+- `AI_SYSTEM_GENERATOR_TIMEOUT_MS`
+- `AI_SYSTEM_FIXER_TIMEOUT_MS`
+- `AI_SYSTEM_PLANNER_MONITOR_INTERVAL_MS`
+- `AI_SYSTEM_REVIEWER_MONITOR_INTERVAL_MS`
+- `AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS`
+- `AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS`
+- `AI_SYSTEM_PLANNER_RETRIES`
+- `AI_SYSTEM_REVIEWER_RETRIES`
+- `AI_SYSTEM_GENERATOR_RETRIES`
+- `AI_SYSTEM_FIXER_RETRIES`
 - `AI_SYSTEM_MEMORY_ENABLED`
 - `AI_SYSTEM_MEMORY_BACKEND`
+- `AI_SYSTEM_MEMORY_TRANSPORT`
+- `AI_SYSTEM_OPENMEMORY_BASE_URL`
+- `AI_SYSTEM_OPENMEMORY_API_KEY`
 
 ## Setup
 
@@ -78,11 +93,33 @@ Disable memory for a run:
 AI_SYSTEM_MEMORY_ENABLED=false npm run ai -- --dry-run "Refactor the auth flow"
 ```
 
-Use OpenMemory as the memory backend:
+Use OpenMemory as the memory backend over HTTP:
 
 ```bash
-# Requires OpenMemory's opm CLI and a running OpenMemory service
-AI_SYSTEM_MEMORY_BACKEND=openmemory npm run ai -- --dry-run "Refactor the auth flow"
+AI_SYSTEM_MEMORY_BACKEND=openmemory \
+AI_SYSTEM_MEMORY_TRANSPORT=http \
+AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080 \
+npm run ai -- --dry-run "Refactor the auth flow"
+```
+
+Increase generator timeout for larger refactors:
+
+```bash
+AI_SYSTEM_GENERATOR_TIMEOUT_MS=480000 AI_SYSTEM_FIXER_TIMEOUT_MS=300000 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+```
+
+Disable `codex` timeout completely for long-running tasks:
+
+```bash
+AI_SYSTEM_GENERATOR_TIMEOUT_MS=0 AI_SYSTEM_FIXER_TIMEOUT_MS=0 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+```
+
+Keep long-running providers visible without killing them:
+
+```bash
+AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000 \
+AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS=60000 \
+pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
 ```
 
 ## Docker
@@ -140,7 +177,9 @@ Notes for container usage:
 - The image bundles `gemini`, `codex`, and `claude` CLIs via their npm packages.
 - Authentication is expected to come from mounted CLI config directories.
 - The default memory backend `local-file` works out of the box because it stores data inside the mounted workspace.
-- `OpenMemory` is not bundled into this image. If you want `AI_SYSTEM_MEMORY_BACKEND=openmemory`, make sure `opm` and the OpenMemory service are available in the container or extend the image.
+- `OpenMemory` is not bundled into this image, but the app can talk to an existing OpenMemory server over HTTP.
+- If OpenMemory is running on the host machine, use `AI_SYSTEM_OPENMEMORY_BASE_URL=http://host.docker.internal:8080` inside the container.
+- If both services share a Docker network, set `AI_SYSTEM_OPENMEMORY_BASE_URL` to the service DNS name, for example `http://openmemory-openmemory-1:8080`.
 
 ## Notes
 
@@ -148,9 +187,13 @@ Notes for container usage:
 - It excludes common large or sensitive directories by default.
 - CLI output is normalized through provider adapters, then validated against the expected schema.
 - If a CLI emits invalid JSON, the tool attempts extraction and retries before failing.
+- Provider timeouts and retries can be tuned per role. This is especially useful for large generator tasks where `codex` needs more than a minute.
+- `codex` generator/fixer now default to `timeout_ms: 0`, which means no hard timeout. This avoids killing a large task that is close to finishing.
+- Soft monitoring is enabled for long-running generator/fixer tasks by default. It emits heartbeat logs instead of killing the process.
 - Project-scoped memory is stored locally under `.ai-system-memory/` by default.
 - The default memory backend is vendor-neutral and local-first, so you can add OpenMemory later without changing the orchestrator.
-- An OpenMemory backend is also available through the official `opm` CLI. It uses `opm health`, `opm query`, and `opm add`.
+- The OpenMemory backend supports both HTTP and `opm` CLI transports. HTTP is the better default when OpenMemory is already running in Docker.
+- `claude-mem` can run alongside this project, but it is not the active backend unless you add a dedicated adapter for its worker API.
 - Local validation is intentionally lightweight. The tool validates path safety and JSON syntax, but it does not guarantee project-level semantic correctness unless you add stronger validators.
 - Default provider mapping is:
   - planner: `gemini-cli`

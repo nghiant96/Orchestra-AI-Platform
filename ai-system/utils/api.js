@@ -47,13 +47,23 @@ export async function runCommandWithRetry({
   timeoutMs = 60000,
   retries = 3,
   baseDelayMs = 500,
-  label = command
+  label = command,
+  monitorIntervalMs = 0,
+  onMonitor
 }) {
   let lastError;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
     try {
-      return await runCommand({ command, args, cwd, input, timeoutMs });
+      return await runCommand({
+        command,
+        args,
+        cwd,
+        input,
+        timeoutMs,
+        monitorIntervalMs,
+        onMonitor: typeof onMonitor === "function" ? (event) => onMonitor({ ...event, attempt }) : undefined
+      });
     } catch (error) {
       lastError = error;
       if (attempt === retries || !isRetryableCliError(error)) {
@@ -66,8 +76,17 @@ export async function runCommandWithRetry({
   throw new Error(`${label} failed after ${retries + 1} attempt(s): ${lastError?.message ?? "Unknown error"}`);
 }
 
-export async function runCommand({ command, args, cwd, input, timeoutMs = 60000 }) {
+export async function runCommand({
+  command,
+  args,
+  cwd,
+  input,
+  timeoutMs = 60000,
+  monitorIntervalMs = 0,
+  onMonitor
+}) {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
     const child = spawn(command, args, {
       cwd,
       env: process.env,
@@ -77,11 +96,29 @@ export async function runCommand({ command, args, cwd, input, timeoutMs = 60000 
     let stdout = "";
     let stderr = "";
     let settled = false;
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      rejectOnce(new Error(`Command timed out after ${timeoutMs}ms: ${command}`));
-    }, timeoutMs);
+    let nextMonitorId = 1;
+    const timeout =
+      Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? setTimeout(() => {
+            child.kill("SIGTERM");
+            rejectOnce(new Error(`Command timed out after ${timeoutMs}ms: ${command}`));
+          }, timeoutMs)
+        : null;
+    const monitor =
+      Number.isFinite(monitorIntervalMs) && monitorIntervalMs > 0 && typeof onMonitor === "function"
+        ? setInterval(() => {
+            onMonitor({
+              command,
+              args,
+              cwd,
+              elapsedMs: Date.now() - startedAt,
+              stdoutBytes: Buffer.byteLength(stdout, "utf8"),
+              stderrBytes: Buffer.byteLength(stderr, "utf8"),
+              monitorId: nextMonitorId
+            });
+            nextMonitorId += 1;
+          }, monitorIntervalMs)
+        : null;
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -96,7 +133,12 @@ export async function runCommand({ command, args, cwd, input, timeoutMs = 60000 
     });
 
     child.on("close", (code, signal) => {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (monitor) {
+        clearInterval(monitor);
+      }
       if (settled) {
         return;
       }
@@ -122,7 +164,12 @@ export async function runCommand({ command, args, cwd, input, timeoutMs = 60000 
     child.stdin.end();
 
     function rejectOnce(error) {
-      clearTimeout(timeout);
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      if (monitor) {
+        clearInterval(monitor);
+      }
       if (!settled) {
         settled = true;
         reject(error);

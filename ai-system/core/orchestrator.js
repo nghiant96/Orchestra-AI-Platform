@@ -241,6 +241,23 @@ function applyEnvOverrides(rules) {
   if (process.env.AI_SYSTEM_MEMORY_BACKEND) {
     rules.memory.backend = process.env.AI_SYSTEM_MEMORY_BACKEND;
   }
+  if (process.env.AI_SYSTEM_MEMORY_TRANSPORT) {
+    rules.memory.transport = process.env.AI_SYSTEM_MEMORY_TRANSPORT;
+  }
+  if (process.env.AI_SYSTEM_OPENMEMORY_BASE_URL) {
+    rules.memory.base_url = process.env.AI_SYSTEM_OPENMEMORY_BASE_URL;
+  }
+  if (process.env.AI_SYSTEM_OPENMEMORY_API_KEY) {
+    rules.memory.api_key = process.env.AI_SYSTEM_OPENMEMORY_API_KEY;
+  }
+  applyProviderOverride(rules.providers.planner, process.env.AI_SYSTEM_PLANNER_TIMEOUT_MS, process.env.AI_SYSTEM_PLANNER_RETRIES);
+  applyProviderOverride(rules.providers.reviewer, process.env.AI_SYSTEM_REVIEWER_TIMEOUT_MS, process.env.AI_SYSTEM_REVIEWER_RETRIES);
+  applyProviderOverride(rules.providers.generator, process.env.AI_SYSTEM_GENERATOR_TIMEOUT_MS, process.env.AI_SYSTEM_GENERATOR_RETRIES);
+  applyProviderOverride(rules.providers.fixer, process.env.AI_SYSTEM_FIXER_TIMEOUT_MS, process.env.AI_SYSTEM_FIXER_RETRIES);
+  applyMonitorOverride(rules.providers.planner, process.env.AI_SYSTEM_PLANNER_MONITOR_INTERVAL_MS);
+  applyMonitorOverride(rules.providers.reviewer, process.env.AI_SYSTEM_REVIEWER_MONITOR_INTERVAL_MS);
+  applyMonitorOverride(rules.providers.generator, process.env.AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS);
+  applyMonitorOverride(rules.providers.fixer, process.env.AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS);
 }
 
 function sanitizeGeneratedFiles(files, plan, rules, repoRoot) {
@@ -304,5 +321,29 @@ async function safelyStoreMemory(memory, payload, logger) {
   } catch (error) {
     logger?.warn(`Memory store failed: ${error.message}`);
     return false;
+  }
+}
+
+function applyProviderOverride(providerConfig, timeoutMs, retries) {
+  if (!providerConfig) {
+    return;
+  }
+
+  if (typeof timeoutMs !== "undefined") {
+    providerConfig.timeout_ms = Number(timeoutMs);
+  }
+
+  if (typeof retries !== "undefined") {
+    providerConfig.retries = Number(retries);
+  }
+}
+
+function applyMonitorOverride(providerConfig, monitorIntervalMs) {
+  if (!providerConfig) {
+    return;
+  }
+
+  if (typeof monitorIntervalMs !== "undefined") {
+    providerConfig.monitor_interval_ms = Number(monitorIntervalMs);
   }
 }
