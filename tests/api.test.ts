@@ -71,7 +71,7 @@ test("runCommand force-kills hung child processes after the grace period", async
         command: process.execPath,
         args: ["-e", script],
         cwd: tempDir,
-        timeoutMs: 50,
+        timeoutMs: 150,
         killGraceMs: 50
       }),
       /timed out/

@@ -4,20 +4,20 @@ Use this file for non-trivial work that benefits from an explicit execution plan
 
 ## Active Task
 
-Task: Continue the orchestrator refactor by extracting persistence and execution logic into dedicated modules.
+Task: Add orchestration-level resume integration tests and extract interactive confirmation out of the orchestrator.
 
 - [x] Define the current task
 - [x] Read project guidance and existing lessons
-- [x] Extract artifact/state persistence helpers into a dedicated module
-- [x] Extract the generation/review loop into `run-executor.ts`
-- [x] Simplify `orchestrator.ts` to coordinator-only flow where practical
+- [x] Extract interactive confirmation helpers into a dedicated module
+- [x] Wire `orchestrator.ts` to the confirmation module
+- [x] Add integration tests for `Orchestrator.resume()` with fake providers
 - [x] Run verification and record the final result
 
 ## Review
 
-- Result: Artifact/state persistence now lives in `ai-system/core/artifacts.ts`, the generation/review loop now lives in `ai-system/core/run-executor.ts`, and `ai-system/core/orchestrator.ts` primarily coordinates planning, resume loading, and high-level control flow.
+- Result: Completed.
 - Verification:
-  - `pnpm exec tsc --noEmit`
-  - `pnpm test`
-  - `pnpm run ai:help`
-- Notes: `orchestrator.ts` is now much smaller and the risky duplicated control flow has been moved behind module boundaries, which makes the next round of refinement safer.
+  - Passed `pnpm exec tsc --noEmit`
+  - Passed `pnpm test`
+  - Passed `pnpm run ai:help`
+- Notes: `orchestrator.ts` now delegates interactive prompts to a dedicated confirmation module, and `resume()` is covered at the orchestration layer for both `paused_after_plan` and `paused_after_generate` flows using fake CLI providers in temp repos.
