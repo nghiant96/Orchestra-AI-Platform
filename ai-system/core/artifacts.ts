@@ -12,6 +12,7 @@ import type {
   ProviderSummary,
   ReviewIssue,
   RoutingDecision,
+  ToolExecutionResult,
   RunStatus,
   RulesConfig
 } from "../types.js";
@@ -39,6 +40,35 @@ export interface PersistedRunState {
   pauseAfterGenerate?: boolean;
   memory?: Partial<MemoryStats>;
   artifacts?: ArtifactSummary | null;
+  latestToolResults?: ToolExecutionResult[];
+}
+
+export interface RecentRunSummary {
+  statePath: string;
+  runState: PersistedRunState & {
+    status?: string;
+    task?: string;
+    issueCounts?: Record<string, number>;
+    providers?: ProviderSummary;
+    latestToolResults?: ToolExecutionResult[];
+  };
+  artifactIndex: {
+    updatedAt?: string;
+    runPath?: string;
+    latestIterationPath?: string | null;
+    latestStep?: string;
+    latestStatus?: string | null;
+    latestTask?: string | null;
+    latestProvider?: string | null;
+    latestFiles?: string[];
+    latestToolResults?: ToolExecutionResult[];
+    iterationCount?: number;
+    stepPaths?: Record<string, string>;
+  } | null;
+  routing: {
+    planning: RoutingDecision | null;
+    implementation: RoutingDecision | null;
+  };
 }
 
 export function buildStoppedResult({
@@ -53,7 +83,8 @@ export function buildStoppedResult({
   finalIssues = [],
   providers,
   memoryStats,
-  artifactState
+  artifactState,
+  latestToolResults = []
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
   dryRun: boolean;
@@ -67,6 +98,7 @@ export function buildStoppedResult({
   providers: ProviderSummary;
   memoryStats: MemoryStats;
   artifactState: ArtifactState;
+  latestToolResults?: ToolExecutionResult[];
 }): OrchestratorResult {
   return {
     ok: false,
@@ -82,7 +114,8 @@ export function buildStoppedResult({
     finalIssues,
     providers,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, result, false),
+    artifacts: finalizeArtifactState(artifactState, result, false, latestToolResults),
+    latestToolResults,
     wroteFiles: false
   };
 }
@@ -264,6 +297,7 @@ export async function persistIterationArtifacts(
     candidateFiles: Array<{ path: string; content: string; action?: string }>;
     originalFiles: Array<{ path: string; content?: string | null }>;
     diffSummaries: unknown;
+    toolResults?: ToolExecutionResult[];
     preReviewIssues: unknown;
     reviewSummary: string;
     issues: ReviewIssue[];
@@ -311,6 +345,7 @@ export async function persistIterationArtifacts(
       existed: file.content !== null
     })),
     diffSummaries: payload.diffSummaries,
+    toolResults: payload.toolResults ?? [],
     preReviewIssues: payload.preReviewIssues,
     reviewSummary: payload.reviewSummary,
     issues: payload.issues
@@ -365,6 +400,7 @@ export async function persistRunState(
     pauseAfterPlan?: boolean;
     pauseAfterGenerate?: boolean;
     latestReviewSummary?: string;
+    latestToolResults?: ToolExecutionResult[];
   },
   logger?: Logger
 ): Promise<string | null> {
@@ -390,11 +426,12 @@ export async function persistRunState(
     issueCounts: payload.issueCounts ?? summarizeIssueCounts(payload.finalIssues ?? []),
     providers: payload.providers,
     memory: payload.memory,
-    artifacts: payload.artifacts ?? finalizeArtifactState(state, payload.result, payload.ok === true),
+    artifacts: payload.artifacts ?? finalizeArtifactState(state, payload.result, payload.ok === true, payload.latestToolResults ?? []),
     wroteFiles: payload.wroteFiles ?? false,
     pauseAfterPlan: payload.pauseAfterPlan ?? false,
     pauseAfterGenerate: payload.pauseAfterGenerate ?? false,
-    latestReviewSummary: payload.latestReviewSummary ?? ""
+    latestReviewSummary: payload.latestReviewSummary ?? "",
+    latestToolResults: payload.latestToolResults ?? []
   };
 
   await fs.writeFile(statePath, JSON.stringify(serializable, null, 2), "utf8");
@@ -406,14 +443,20 @@ export async function persistRunState(
     artifactPath: statePath,
     metadata: {
       iterations: serializable.iterations.length,
-      wroteFiles: serializable.wroteFiles
+      wroteFiles: serializable.wroteFiles,
+      latestToolResults: (serializable.latestToolResults ?? []).map((entry) => ({
+        name: entry.name,
+        ok: entry.ok,
+        skipped: entry.skipped
+      }))
     }
   });
   await writeArtifactIndex(state, {
     latestStep: "run-state",
     latestStatus: serializable.status,
     latestTask: payload.task,
-    latestFiles: serializable.artifacts?.latestFiles ?? []
+    latestFiles: serializable.artifacts?.latestFiles ?? [],
+    latestToolResults: serializable.latestToolResults ?? []
   });
   logger?.info(`Saved resumable run state at ${statePath}`);
   return statePath;
@@ -422,7 +465,8 @@ export async function persistRunState(
 export function finalizeArtifactState(
   state: ArtifactState,
   currentResult: FileGenerationResult | null,
-  ok: boolean
+  ok: boolean,
+  latestToolResults: ToolExecutionResult[] = []
 ): ArtifactSummary | null {
   if (!state.enabled || !state.runDir) {
     return null;
@@ -434,7 +478,8 @@ export function finalizeArtifactState(
     runPath: state.runDir,
     latestIterationPath: state.latestIterationPath,
     stepPaths: state.stepPaths,
-    latestFiles: currentResult?.files?.map((file) => file.path) ?? []
+    latestFiles: currentResult?.files?.map((file) => file.path) ?? [],
+    latestToolResults
   };
 }
 
@@ -445,24 +490,7 @@ export async function resolveResumeStatePath(repoRoot: string, rules: RulesConfi
   }
 
   if (target === "last") {
-    const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
-    const entries = await fs.readdir(artifactsDir, { withFileTypes: true });
-    const runDirs = entries
-      .filter((entry) => entry.isDirectory() && entry.name.startsWith("run-"))
-      .map((entry) => path.join(artifactsDir, entry.name))
-      .sort((left, right) => right.localeCompare(left));
-
-    for (const runDir of runDirs) {
-      const statePath = path.join(runDir, "run-state.json");
-      try {
-        await fs.access(statePath);
-        return statePath;
-      } catch {
-        continue;
-      }
-    }
-
-    throw new Error(`No resumable runs found in ${artifactsDir}`);
+    return await resolveLatestRunStatePath(repoRoot, rules, "No resumable runs found");
   }
 
   const absoluteTarget = path.resolve(target);
@@ -474,6 +502,32 @@ export async function resolveResumeStatePath(repoRoot: string, rules: RulesConfi
   }
 
   return absoluteTarget;
+}
+
+export async function loadRecentRunSummary(repoRoot: string, rules: RulesConfig, resumeTarget = "last"): Promise<RecentRunSummary> {
+  const statePath =
+    resumeTarget === "last"
+      ? await resolveLatestRunStatePath(repoRoot, rules, "No runs found")
+      : await resolveResumeStatePath(repoRoot, rules, resumeTarget);
+  const runState = JSON.parse(await fs.readFile(statePath, "utf8")) as RecentRunSummary["runState"];
+  const runDir = path.dirname(statePath);
+  const indexPath = path.join(runDir, "artifact-index.json");
+  const planningRoutingPath = path.join(runDir, "00-routing", "planning.json");
+  const implementationRoutingPath = path.join(runDir, "00-routing", "implementation.json");
+
+  const artifactIndex = await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath);
+  const planningRouting = await readJsonIfExists<{ decision?: RoutingDecision }>(planningRoutingPath);
+  const implementationRouting = await readJsonIfExists<{ decision?: RoutingDecision }>(implementationRoutingPath);
+
+  return {
+    statePath,
+    runState,
+    artifactIndex,
+    routing: {
+      planning: planningRouting?.decision ?? null,
+      implementation: implementationRouting?.decision ?? null
+    }
+  };
 }
 
 export async function loadSavedContextArtifacts(state: ArtifactState, expectedPaths: string[]): Promise<ContextFile[]> {
@@ -564,6 +618,7 @@ async function writeArtifactIndex(
     latestTask?: string;
     latestProvider?: string;
     latestFiles?: string[];
+    latestToolResults?: ToolExecutionResult[];
   }
 ): Promise<void> {
   if (!state.enabled || !state.runDir) {
@@ -585,6 +640,7 @@ async function writeArtifactIndex(
     latestTask: payload.latestTask ?? null,
     latestProvider: payload.latestProvider ?? null,
     latestFiles: payload.latestFiles ?? [],
+    latestToolResults: payload.latestToolResults ?? [],
     iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
     stepPaths: state.stepPaths
   };
@@ -600,4 +656,33 @@ function normalizeStepPaths(stepPaths: Record<string, unknown>, runPath: string)
     output[key] = path.isAbsolute(value) ? value : path.join(runPath, value);
   }
   return output;
+}
+
+async function readJsonIfExists<T>(filePath: string): Promise<T | null> {
+  try {
+    return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveLatestRunStatePath(repoRoot: string, rules: RulesConfig, missingMessage: string): Promise<string> {
+  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  const entries = await fs.readdir(artifactsDir, { withFileTypes: true });
+  const runDirs = entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("run-"))
+    .map((entry) => path.join(artifactsDir, entry.name))
+    .sort((left, right) => right.localeCompare(left));
+
+  for (const runDir of runDirs) {
+    const statePath = path.join(runDir, "run-state.json");
+    try {
+      await fs.access(statePath);
+      return statePath;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`${missingMessage} in ${artifactsDir}`);
 }

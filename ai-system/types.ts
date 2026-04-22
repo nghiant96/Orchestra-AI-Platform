@@ -77,6 +77,58 @@ export interface RoutingConfig {
   [key: string]: unknown;
 }
 
+export type ToolExecutionName = "json-validation" | "lint" | "typecheck" | "build" | "test" | (string & {});
+export type ToolExecutionKind = "validation" | "command";
+
+export interface ToolCommandConfig {
+  enabled?: boolean;
+  command?: string;
+  args?: string[];
+  script?: string;
+  append_changed_files?: boolean;
+  timeout_ms?: number;
+  retries?: number;
+  base_delay_ms?: number;
+  [key: string]: unknown;
+}
+
+export interface ToolExecutionConfig {
+  enabled?: boolean;
+  json_validation?: boolean;
+  commands?: Partial<Record<ToolExecutionName, ToolCommandConfig>>;
+  [key: string]: unknown;
+}
+
+export interface ToolExecutionResult {
+  name: ToolExecutionName;
+  kind: ToolExecutionKind;
+  ok: boolean;
+  skipped: boolean;
+  issueCount: number;
+  durationMs: number;
+  summary: string;
+  command?: string;
+  args?: string[];
+  exitCode?: number | null;
+  stdout?: string;
+  stderr?: string;
+}
+
+export interface ToolExecutionSummary {
+  results: ToolExecutionResult[];
+  issues: ReviewIssue[];
+}
+
+export interface ToolConfigurationSummary {
+  name: ToolExecutionName;
+  enabled: boolean;
+  source: "configured-command" | "configured-script" | "auto-detected-script" | "fallback" | "disabled" | "none";
+  command?: string;
+  args?: string[];
+  scopedToChangedFiles?: boolean;
+  summary: string;
+}
+
 export interface MemoryConfig {
   enabled?: boolean;
   backend?: string;
@@ -115,6 +167,7 @@ export interface RulesConfig {
   memory: MemoryConfig;
   providers: ProviderConfigMap;
   routing?: RoutingConfig;
+  tools?: ToolExecutionConfig;
   excluded_directories?: string[];
   sensitive_file_names?: string[];
   [key: string]: unknown;
@@ -190,6 +243,7 @@ export interface IterationResult {
   iteration: number;
   summary: string;
   issues: ReviewIssue[];
+  toolResults?: ToolExecutionResult[];
   artifactPath?: string | null;
 }
 
@@ -214,6 +268,7 @@ export interface ArtifactSummary {
   latestIterationPath: string | null;
   stepPaths: Record<string, string>;
   latestFiles: string[];
+  latestToolResults?: ToolExecutionResult[];
 }
 
 export type RunStatus =
@@ -240,6 +295,7 @@ export interface OrchestratorResult {
   memory: MemoryStats;
   artifacts: ArtifactSummary | null;
   wroteFiles: boolean;
+  latestToolResults?: ToolExecutionResult[];
 }
 
 export interface MemoryMatch {

@@ -1,4 +1,6 @@
 import fs from "node:fs/promises";
+import http from "node:http";
+import https from "node:https";
 import path from "node:path";
 import { loadEnvironment } from "../utils/api.js";
 import {
@@ -10,7 +12,8 @@ import {
   type ProjectConfigPresetName
 } from "../utils/config.js";
 import { loadRules, prepareRuntimeRules } from "./orchestrator-runtime.js";
-import type { Logger, RoutingDecision, RulesConfig } from "../types.js";
+import { summarizeConfiguredTools } from "./tool-executor.js";
+import type { Logger, RoutingDecision, RulesConfig, ToolConfigurationSummary } from "../types.js";
 
 export interface ConfigInspection {
   repoRoot: string;
@@ -22,6 +25,7 @@ export interface ConfigInspection {
   profile: ProjectConfigPresetName | null;
   effectiveRules: RulesConfig;
   routing: RoutingDecision;
+  toolSummaries: ToolConfigurationSummary[];
   activeEnvOverrides: Array<{ key: string; value: string; category: "behavior" | "secret" }>;
   recommendations: string[];
 }
@@ -37,6 +41,16 @@ export interface SetupChoices {
   memoryBackend: "local-file" | "openmemory";
   openMemoryBaseUrl?: string;
   openMemoryApiKey?: string;
+  tools?: Partial<
+    Record<
+      "lint" | "typecheck" | "build" | "test",
+      {
+        mode: "auto" | "disabled" | "script";
+        script?: string;
+        appendChangedFiles?: boolean;
+      }
+    >
+  >;
 }
 
 export interface SetupCheckResult {
@@ -114,6 +128,7 @@ export async function inspectProjectConfiguration({
     stage: "planning",
     logger: silentLogger()
   });
+  const toolSummaries = await summarizeConfiguredTools({ repoRoot, rules: effectiveRules });
 
   const activeEnvOverrides = collectActiveEnvOverrides();
   const recommendations = buildRecommendations({
@@ -134,6 +149,7 @@ export async function inspectProjectConfiguration({
     profile,
     effectiveRules,
     routing,
+    toolSummaries,
     activeEnvOverrides,
     recommendations
   };
@@ -200,6 +216,12 @@ export async function applySetupChoices({
       ...(currentConfig.memory ?? {}),
       enabled: true,
       backend: choices.memoryBackend
+    },
+    tools: {
+      ...(typeof currentConfig.tools === "object" && currentConfig.tools ? currentConfig.tools : {}),
+      enabled: true,
+      json_validation: true,
+      commands: buildToolCommandsConfig(choices.tools ?? {}, currentConfig.tools?.commands as Record<string, unknown> | undefined)
     }
   };
 
@@ -229,6 +251,47 @@ export async function applySetupChoices({
     envPath,
     config: nextConfig
   };
+}
+
+function buildToolCommandsConfig(
+  tools: NonNullable<SetupChoices["tools"]>,
+  currentCommands: Record<string, unknown> | undefined
+): NonNullable<NonNullable<ProjectConfig["tools"]>["commands"]> {
+  const output = { ...(currentCommands ?? {}) } as NonNullable<NonNullable<ProjectConfig["tools"]>["commands"]>;
+
+  for (const toolName of ["lint", "typecheck", "build", "test"] as const) {
+    const selection = tools[toolName];
+    if (!selection) {
+      continue;
+    }
+
+    if (selection.mode === "auto") {
+      const current = output[toolName];
+      if (current && typeof current === "object" && !Array.isArray(current)) {
+        const { script: _script, command: _command, args: _args, append_changed_files: _append, ...rest } = current as Record<string, unknown>;
+        output[toolName] = {
+          ...rest,
+          enabled: true
+        } as NonNullable<NonNullable<ProjectConfig["tools"]>["commands"]>[string];
+      } else {
+        output[toolName] = { enabled: true } as NonNullable<NonNullable<ProjectConfig["tools"]>["commands"]>[string];
+      }
+      continue;
+    }
+
+    if (selection.mode === "disabled") {
+      output[toolName] = { enabled: false } as NonNullable<NonNullable<ProjectConfig["tools"]>["commands"]>[string];
+      continue;
+    }
+
+    output[toolName] = {
+      enabled: true,
+      script: selection.script?.trim() || toolName,
+      ...(selection.appendChangedFiles ? { append_changed_files: true } : {})
+    } as NonNullable<NonNullable<ProjectConfig["tools"]>["commands"]>[string];
+  }
+
+  return output;
 }
 
 export async function runSetupCheck({
@@ -444,23 +507,32 @@ function quoteEnvValue(value: string): string {
 }
 
 async function commandExists(command: string): Promise<boolean> {
-  try {
-    const result = await fetchCommand(command);
-    return result;
-  } catch {
-    return false;
-  }
-}
+  const pathValue = process.env.PATH || "";
+  const entries = pathValue.split(path.delimiter).filter(Boolean);
+  const candidates =
+    process.platform === "win32"
+      ? [command, `${command}.exe`, `${command}.cmd`, `${command}.bat`]
+      : [command];
 
-async function fetchCommand(command: string): Promise<boolean> {
-  const { runCommand } = await import("../utils/api.js");
-  await runCommand({
-    command: "sh",
-    args: ["-lc", `command -v ${command}`],
-    cwd: process.cwd(),
-    timeoutMs: 5000
-  });
-  return true;
+  for (const entry of entries) {
+    for (const candidate of candidates) {
+      const target = path.join(entry, candidate);
+      try {
+        const stats = await fs.stat(target);
+        if (stats.isFile()) {
+          if (process.platform === "win32") {
+            return true;
+          }
+          await fs.access(target, fs.constants.X_OK);
+          return true;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  return false;
 }
 
 async function probeOpenMemory(memory: RulesConfig["memory"], kind: "health" | "query" | "add"): Promise<ProbeResult> {
@@ -471,38 +543,40 @@ async function probeOpenMemory(memory: RulesConfig["memory"], kind: "health" | "
 
   try {
     if (kind === "health") {
-      const response = await fetch(`${stripTrailingSlash(baseUrl)}/health`, {
+      const response = await requestUrl({
+        url: `${stripTrailingSlash(baseUrl)}/health`,
+        method: "GET",
         headers: buildOpenMemoryHeaders(memory),
-        signal: AbortSignal.timeout(memory?.health_timeout_ms ?? 10000)
+        timeoutMs: memory?.health_timeout_ms ?? 10000
       });
-      const text = await response.text();
-      return { ok: response.ok, status: response.status, message: truncateText(text) || response.statusText };
+      return { ok: response.ok, status: response.status, message: truncateText(response.body) || response.statusText };
     }
 
-    const response = await fetch(`${stripTrailingSlash(baseUrl)}/${kind === "query" ? "memory/query" : "memory/add"}`, {
+    const body =
+      kind === "query"
+        ? JSON.stringify({
+            query: "setup-check",
+            k: 1,
+            user_id: "ai-system-setup-check",
+            filters: { user_id: "ai-system-setup-check" }
+          })
+        : JSON.stringify({
+            content: "ai-system setup check",
+            tags: ["ai-system", "setup-check"],
+            metadata: { source: "ai-system-setup-check" },
+            user_id: "ai-system-setup-check"
+          });
+    const response = await requestUrl({
+      url: `${stripTrailingSlash(baseUrl)}/${kind === "query" ? "memory/query" : "memory/add"}`,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         ...buildOpenMemoryHeaders(memory)
       },
-      body:
-        kind === "query"
-          ? JSON.stringify({
-              query: "setup-check",
-              k: 1,
-              user_id: "ai-system-setup-check",
-              filters: { user_id: "ai-system-setup-check" }
-            })
-          : JSON.stringify({
-              content: "ai-system setup check",
-              tags: ["ai-system", "setup-check"],
-              metadata: { source: "ai-system-setup-check" },
-              user_id: "ai-system-setup-check"
-            }),
-      signal: AbortSignal.timeout(kind === "query" ? memory?.query_timeout_ms ?? 15000 : memory?.store_timeout_ms ?? 15000)
+      body,
+      timeoutMs: kind === "query" ? memory?.query_timeout_ms ?? 15000 : memory?.store_timeout_ms ?? 15000
     });
-    const text = await response.text();
-    return { ok: response.ok, status: response.status, message: truncateText(text) || response.statusText };
+    return { ok: response.ok, status: response.status, message: truncateText(response.body) || response.statusText };
   } catch (error) {
     const normalized = error as Error;
     return { ok: false, status: null, message: normalized.message };
@@ -532,6 +606,61 @@ function redactSecret(value: string): string {
   }
 
   return `${trimmed.slice(0, 4)}***${trimmed.slice(-4)}`;
+}
+
+async function requestUrl({
+  url,
+  method,
+  headers,
+  body,
+  timeoutMs
+}: {
+  url: string;
+  method: "GET" | "POST";
+  headers: Record<string, string>;
+  body?: string;
+  timeoutMs: number;
+}): Promise<{ ok: boolean; status: number; statusText: string; body: string }> {
+  const target = new URL(url);
+  const transport = target.protocol === "https:" ? https : http;
+
+  return await new Promise((resolve, reject) => {
+    const request = transport.request(
+      {
+        protocol: target.protocol,
+        hostname: target.hostname,
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method,
+        headers: {
+          ...headers,
+          ...(typeof body === "string" ? { "Content-Length": Buffer.byteLength(body, "utf8").toString() } : {})
+        }
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.on("end", () => {
+          const responseBody = Buffer.concat(chunks).toString("utf8");
+          resolve({
+            ok: (response.statusCode ?? 500) >= 200 && (response.statusCode ?? 500) < 300,
+            status: response.statusCode ?? 500,
+            statusText: response.statusMessage ?? "",
+            body: responseBody
+          });
+        });
+      }
+    );
+
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`Request timed out after ${timeoutMs}ms`));
+    });
+    request.on("error", reject);
+    if (typeof body === "string") {
+      request.write(body);
+    }
+    request.end();
+  });
 }
 
 function silentLogger(): Logger {

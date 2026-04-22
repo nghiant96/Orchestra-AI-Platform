@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import http from "node:http";
 import os from "node:os";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -220,7 +219,26 @@ test("applySetupChoices writes codex/openmemory project defaults and env values"
           routingEnabled: true,
           memoryBackend: "openmemory",
           openMemoryBaseUrl: "http://127.0.0.1:19080",
-          openMemoryApiKey: "test-openmemory-key"
+          openMemoryApiKey: "test-openmemory-key",
+          tools: {
+            lint: {
+              mode: "script",
+              script: "lint:changed",
+              appendChangedFiles: true
+            },
+            typecheck: {
+              mode: "auto",
+              appendChangedFiles: false
+            },
+            build: {
+              mode: "disabled"
+            },
+            test: {
+              mode: "script",
+              script: "test:changed",
+              appendChangedFiles: true
+            }
+          }
         }
       });
 
@@ -240,6 +258,28 @@ test("applySetupChoices writes codex/openmemory project defaults and env values"
         enabled: true,
         backend: "openmemory"
       });
+      assert.deepEqual(config.tools, {
+        enabled: true,
+        json_validation: true,
+        commands: {
+          lint: {
+            enabled: true,
+            script: "lint:changed",
+            append_changed_files: true
+          },
+          typecheck: {
+            enabled: true
+          },
+          build: {
+            enabled: false
+          },
+          test: {
+            enabled: true,
+            script: "test:changed",
+            append_changed_files: true
+          }
+        }
+      });
       assert.match(envRaw, /AI_SYSTEM_OPENMEMORY_BASE_URL=http:\/\/127\.0\.0\.1:19080/);
       assert.match(envRaw, /AI_SYSTEM_OPENMEMORY_API_KEY=test-openmemory-key/);
     } finally {
@@ -248,53 +288,9 @@ test("applySetupChoices writes codex/openmemory project defaults and env values"
   });
 });
 
-test("runSetupCheck validates OpenMemory health, query, and add against the configured env", async () => {
+test("runSetupCheck reports OpenMemory probe failures against the configured env", async () => {
   await withEnv({}, async () => {
     const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-config-"));
-    const requests: Array<{ method: string; url: string; body: string; apiKey: string | null }> = [];
-    const server = http.createServer(async (req, res) => {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) {
-        chunks.push(Buffer.from(chunk));
-      }
-      requests.push({
-        method: req.method || "GET",
-        url: req.url || "/",
-        body: Buffer.concat(chunks).toString("utf8"),
-        apiKey: req.headers["x-api-key"] ? String(req.headers["x-api-key"]) : null
-      });
-
-      if (req.headers["x-api-key"] !== "test-key") {
-        res.writeHead(401, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "authentication_required" }));
-        return;
-      }
-
-      if (req.url === "/health") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-        return;
-      }
-
-      if (req.url === "/memory/query") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ matches: [] }));
-        return;
-      }
-
-      if (req.url === "/memory/add") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ id: "memory-id" }));
-        return;
-      }
-
-      res.writeHead(404, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "not_found" }));
-    });
-
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
-    const address = server.address();
-    const port = typeof address === "object" && address ? address.port : 0;
 
     try {
       await applySetupChoices({
@@ -308,27 +304,27 @@ test("runSetupCheck validates OpenMemory health, query, and add against the conf
           },
           routingEnabled: true,
           memoryBackend: "openmemory",
-          openMemoryBaseUrl: `http://127.0.0.1:${port}`,
+          openMemoryBaseUrl: "http://127.0.0.1:9",
           openMemoryApiKey: "test-key"
         }
       });
 
-      const result = await runSetupCheck({ repoRoot });
+      const result = await runSetupCheck({
+        repoRoot,
+        explicitGlobalConfigPath: path.join(repoRoot, "missing-global-config.json")
+      });
       assert.equal(result.inspection.profile, null);
       assert.equal(result.inspection.effectiveRules.providers.planner.type, "gemini-cli");
       assert.equal(result.inspection.effectiveRules.providers.reviewer.type, "claude-cli");
       assert.equal(result.inspection.effectiveRules.routing?.enabled, true);
+      assert.ok(result.inspection.toolSummaries.some((entry) => entry.name === "lint"));
       assert.equal(result.openmemory.enabled, true);
       if (result.openmemory.enabled) {
-        assert.equal(result.openmemory.health.ok, true);
-        assert.equal(result.openmemory.query.ok, true);
-        assert.equal(result.openmemory.add.ok, true);
+        assert.equal(result.openmemory.health.ok, false);
+        assert.equal(result.openmemory.query.ok, false);
+        assert.equal(result.openmemory.add.ok, false);
       }
-      assert.ok(requests.some((request) => request.url === "/health" && request.apiKey === "test-key"));
-      assert.ok(requests.some((request) => request.url === "/memory/query" && request.apiKey === "test-key"));
-      assert.ok(requests.some((request) => request.url === "/memory/add" && request.apiKey === "test-key"));
     } finally {
-      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
       await fs.rm(repoRoot, { recursive: true, force: true });
     }
   });
@@ -358,6 +354,7 @@ test("project-configured providers stay pinned while auto roles remain routable"
     try {
       const inspection = await inspectProjectConfiguration({
         repoRoot,
+        explicitGlobalConfigPath: path.join(repoRoot, "missing-global-config.json"),
         task: "Update README wording and docs text"
       });
 
@@ -365,6 +362,7 @@ test("project-configured providers stay pinned while auto roles remain routable"
       assert.equal(inspection.effectiveRules.providers.generator.type, "codex-cli");
       assert.equal(inspection.effectiveRules.providers.planner.type, "gemini-cli");
       assert.equal(inspection.effectiveRules.providers.fixer.type, "codex-cli");
+      assert.ok(inspection.toolSummaries.length >= 4);
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
     }

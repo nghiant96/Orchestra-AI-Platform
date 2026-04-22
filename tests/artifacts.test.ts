@@ -7,6 +7,7 @@ import {
   createArtifactState,
   finalizeArtifactState,
   loadSavedContextArtifacts,
+  loadRecentRunSummary,
   persistContextArtifacts,
   persistIterationArtifacts,
   persistPlanArtifacts,
@@ -15,7 +16,17 @@ import {
   resolveResumeStatePath,
   restoreArtifactState
 } from "../ai-system/core/artifacts.js";
-import type { FileGenerationResult, IterationResult, MemoryStats, PlanResult, ProviderSummary, ReviewIssue, RoutingDecision, RulesConfig } from "../ai-system/types.js";
+import type {
+  FileGenerationResult,
+  IterationResult,
+  MemoryStats,
+  PlanResult,
+  ProviderSummary,
+  ReviewIssue,
+  RoutingDecision,
+  RulesConfig,
+  ToolExecutionResult
+} from "../ai-system/types.js";
 
 test("artifact checkpoints can be restored into resume-ready state", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-artifacts-"));
@@ -60,6 +71,20 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     implementationMatches: 2,
     stored: false
   };
+  const toolResults: ToolExecutionResult[] = [
+    {
+      name: "lint",
+      kind: "command",
+      ok: true,
+      skipped: false,
+      issueCount: 0,
+      durationMs: 15,
+      summary: "lint passed.",
+      command: "npm",
+      args: ["run", "lint"],
+      exitCode: 0
+    }
+  ];
 
   try {
     const state = createArtifactState(tempDir, rules);
@@ -94,6 +119,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
           changedLineEstimate: 1
         }
       ],
+      toolResults,
       preReviewIssues: [],
       reviewSummary: "Looks resumable",
       issues
@@ -139,8 +165,12 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       latestStatus: string;
       latestStep: string;
       iterationCount: number;
+      latestToolResults: ToolExecutionResult[];
       stepPaths: Record<string, string>;
     };
+    const iterationManifest = JSON.parse(
+      await fs.readFile(path.join(state.latestIterationPath as string, "manifest.json"), "utf8")
+    ) as { toolResults: ToolExecutionResult[] };
 
     assert.deepEqual(restoredContexts, contextFiles);
     assert.equal(restored.runDir, state.runDir);
@@ -156,6 +186,9 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     assert.equal(index.iterationCount, 1);
     assert.ok(index.stepPaths.timeline);
     assert.ok(index.stepPaths.index);
+    assert.equal(index.latestToolResults.length, 0);
+    assert.equal(iterationManifest.toolResults.length, 1);
+    assert.equal(iterationManifest.toolResults[0]?.name, "lint");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -229,6 +262,130 @@ test("persistRoutingArtifacts writes stage-specific routing manifests", async ()
     assert.equal(saved.stage, "implementation");
     assert.equal(saved.decision.profile, "safe");
     assert.equal(state.stepPaths["routing-implementation"], artifactPath);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadRecentRunSummary returns latest run state, index, and routing details", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-recent-run-"));
+  const rules = createRules();
+  const state = createArtifactState(tempDir, rules);
+  const plan: PlanResult = {
+    prompt: "Update auth session handling",
+    readFiles: ["src/auth.ts"],
+    writeTargets: ["src/auth.ts"],
+    notes: []
+  };
+  const result: FileGenerationResult = {
+    summary: "Updated auth session handling",
+    files: [{ path: "src/auth.ts", action: "update", content: "export const auth = true;\n" }]
+  };
+  const providers: ProviderSummary = {
+    planner: "gemini-cli",
+    reviewer: "claude-cli",
+    generator: "codex-cli",
+    fixer: "codex-cli"
+  };
+  const memory: MemoryStats = {
+    backend: "openmemory",
+    planningMatches: 1,
+    implementationMatches: 1,
+    stored: true
+  };
+  const toolResults: ToolExecutionResult[] = [
+    {
+      name: "typecheck",
+      kind: "command",
+      ok: false,
+      skipped: false,
+      issueCount: 1,
+      durationMs: 42,
+      summary: "typecheck failed.",
+      command: "pnpm",
+      args: ["run", "typecheck"],
+      exitCode: 1
+    }
+  ];
+  const planningDecision: RoutingDecision = {
+    stage: "planning",
+    enabled: true,
+    profile: "balanced",
+    reason: "score-based routing",
+    roleProviders: {
+      planner: "gemini-cli",
+      reviewer: "gemini-cli",
+      generator: "codex-cli",
+      fixer: "codex-cli"
+    },
+    appliedRoles: {},
+    reasons: ["Repository contains tsconfig.json."],
+    signals: []
+  };
+  const implementationDecision: RoutingDecision = {
+    stage: "implementation",
+    enabled: true,
+    profile: "safe",
+    reason: "Plan targets risky paths.",
+    roleProviders: {
+      planner: "gemini-cli",
+      reviewer: "claude-cli",
+      generator: "codex-cli",
+      fixer: "codex-cli"
+    },
+    appliedRoles: { reviewer: "claude-cli" },
+    reasons: ["Plan targets auth/session.ts."],
+    signals: []
+  };
+
+  try {
+    await persistRoutingArtifacts(state, {
+      stage: "planning",
+      task: "Update auth session handling",
+      decision: planningDecision
+    });
+    await persistRoutingArtifacts(state, {
+      stage: "implementation",
+      task: "Update auth session handling",
+      decision: implementationDecision
+    });
+    const artifacts = finalizeArtifactState(state, result, false, toolResults);
+    await persistRunState(state, {
+      status: "failed",
+      task: "Update auth session handling",
+      dryRun: true,
+      repoRoot: tempDir,
+      configPath: null,
+      plan,
+      result,
+      iterations: [],
+      skippedContextFiles: [],
+      finalIssues: [
+        {
+          severity: "medium",
+          category: "tool:typecheck",
+          path: "",
+          description: "typecheck failed",
+          suggestedFix: "Fix it"
+        }
+      ],
+      providers,
+      memory,
+      artifacts,
+      wroteFiles: false,
+      latestReviewSummary: "Typecheck failed after generation",
+      latestToolResults: toolResults
+    });
+
+    const summary = await loadRecentRunSummary(tempDir, rules, "last");
+
+    assert.equal(summary.runState.status, "failed");
+    assert.equal(summary.runState.task, "Update auth session handling");
+    assert.equal(summary.artifactIndex?.latestStatus, "failed");
+    assert.equal(summary.artifactIndex?.latestToolResults?.length, 1);
+    assert.equal(summary.routing.planning?.profile, "balanced");
+    assert.equal(summary.routing.implementation?.profile, "safe");
+    assert.equal(summary.runState.latestToolResults?.[0]?.name, "typecheck");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

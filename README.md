@@ -7,6 +7,7 @@ A local CLI-first coding system that uses installed AI CLIs instead of direct AP
 - Builds a safe directory tree for a target repository
 - Lets a planner provider choose a small set of relevant files
 - Sends only those files to a generator provider for full-file generation
+- Runs configurable repo checks (`lint`, `typecheck`, optional `build` / `test`) before review
 - Runs a review and fix loop up to a configured maximum
 - Retrieves relevant project memory before planning and implementation
 - Writes accepted files atomically
@@ -112,6 +113,8 @@ ai setup --check
 ai config show
 ai config use codex-all
 ai doctor
+ai explain-routing "Refactor the auth flow"
+ai runs latest
 ```
 
 Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
@@ -146,12 +149,63 @@ ai --chat
 Recommended config workflow:
 
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
+- `ai setup` also configures the project tool checks (`lint`, `typecheck`, `build`, `test`) and changed-file scoping preferences
 - Use `ai setup --check` to verify CLI availability and OpenMemory connectivity without changing files
 - Put day-to-day behavior in `.ai-system.json`
 - Put secrets and host-specific values in `.env`
 - Use `ai config use codex-all|hybrid|safe-review` to switch project presets
 - Use `ai config show` to inspect the effective config
 - Use `ai doctor` when behavior is surprising and you need to see env/routing overrides
+- Use `ai explain-routing "task"` to see why the current config would pick specific providers for that task
+- Use `ai runs latest` to inspect the latest artifact-backed run summary quickly
+
+Tool execution workflow:
+
+- The generation loop now runs structured repo checks before review
+- Default checks:
+  - `json-validation`
+  - auto-detected `lint`
+  - auto-detected `typecheck`
+- Optional checks:
+  - `build`
+  - `test`
+- Use `ai doctor` to see the effective tool commands and whether they are scoped to changed files
+
+Example project tool config in `.ai-system.json`:
+
+```json
+{
+  "tools": {
+    "enabled": true,
+    "json_validation": true,
+    "commands": {
+      "lint": {
+        "enabled": true,
+        "script": "lint:changed",
+        "args": ["{changed_files}"]
+      },
+      "typecheck": {
+        "enabled": true,
+        "script": "typecheck"
+      },
+      "build": {
+        "enabled": false
+      },
+      "test": {
+        "enabled": true,
+        "command": "pnpm",
+        "args": ["vitest", "run", "{changed_files}"]
+      }
+    }
+  }
+}
+```
+
+Supported changed-file placeholders in tool args:
+
+- `{changed_files}` expands to one argument per changed file
+- `{changed_files_csv}` expands to a single comma-separated argument
+- `append_changed_files: true` appends changed file paths to the configured args
 
 Inside interactive mode:
 

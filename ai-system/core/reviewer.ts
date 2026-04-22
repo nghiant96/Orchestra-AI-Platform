@@ -62,14 +62,6 @@ export function validateCandidateFiles(files: GeneratedFile[]): ReviewIssue[] {
       continue;
     }
 
-    if (file.path.endsWith(".json")) {
-      try {
-        JSON.parse(file.content);
-      } catch (error) {
-        const normalized = error as Error;
-        issues.push(validationIssue("high", "validation", file.path, `Generated JSON is invalid: ${normalized.message}`));
-      }
-    }
   }
 
   return issues;

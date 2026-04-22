@@ -3,9 +3,10 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { createLogger } from "./utils/logger.js";
-import type { OrchestratorResult } from "./types.js";
+import type { OrchestratorResult, RoutingDecision } from "./types.js";
 import { maskSecrets } from "./utils/string.js";
 import type { ConfigInspection, SetupCheckResult } from "./core/config-workflow.js";
+import type { RecentRunSummary } from "./core/artifacts.js";
 
 const PRESET_ENV_KEYS = [
   "AI_SYSTEM_PROVIDER",
@@ -43,8 +44,10 @@ type CliCommand =
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
   | { kind: "doctor" }
+  | { kind: "explain-routing" }
   | { kind: "setup" }
-  | { kind: "setup-check" };
+  | { kind: "setup-check" }
+  | { kind: "runs-latest" };
 
 interface InteractiveState {
   cwd: string;
@@ -56,6 +59,8 @@ interface InteractiveState {
   providerPreset: string | null;
   resumeTarget: string | null;
 }
+
+type SetupToolName = "lint" | "typecheck" | "build" | "test";
 
 async function main() {
   const options = await parseArgs(process.argv.slice(2));
@@ -113,6 +118,19 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     if (arg === "doctor") {
       command = { kind: "doctor" };
       continue;
+    }
+    if (arg === "explain-routing") {
+      command = { kind: "explain-routing" };
+      continue;
+    }
+    if (arg === "runs") {
+      const nextArg = args[index + 1];
+      if (nextArg === "latest") {
+        command = { kind: "runs-latest" };
+        index += 1;
+        continue;
+      }
+      throw new Error("Unsupported runs subcommand. Use `runs latest`.");
     }
     if (arg === "setup") {
       const nextArg = args[index + 1];
@@ -332,7 +350,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
   }
 }
 
-async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command }: CliOptions): Promise<void> {
+async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task }: CliOptions): Promise<void> {
   if (!command) {
     return;
   }
@@ -391,6 +409,38 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
       printDoctor(inspection, workflow.getPresetCatalog());
       return;
     }
+    case "explain-routing": {
+      if (task.trim()) {
+        const inspection = await workflow.inspectProjectConfiguration({
+          repoRoot: cwd,
+          explicitConfigPath: configPath,
+          explicitGlobalConfigPath,
+          ignoreProjectConfig,
+          task
+        });
+        printRoutingExplanation({
+          source: "current-task",
+          repoRoot: cwd,
+          task,
+          planning: inspection.routing,
+          implementation: null
+        });
+        return;
+      }
+
+      const { loadRules } = await import("./core/orchestrator-runtime.js");
+      const { loadRecentRunSummary } = await import("./core/artifacts.js");
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const summary = await loadRecentRunSummary(cwd, rules, "last");
+      printRoutingExplanation({
+        source: "latest-run",
+        repoRoot: cwd,
+        task: summary.runState.task ?? summary.artifactIndex?.latestTask ?? "",
+        planning: summary.routing.planning,
+        implementation: summary.routing.implementation
+      });
+      return;
+    }
     case "setup": {
       await runSetupWizard({ cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig });
       return;
@@ -403,6 +453,14 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
         ignoreProjectConfig
       });
       printSetupCheck(result);
+      return;
+    }
+    case "runs-latest": {
+      const { loadRules } = await import("./core/orchestrator-runtime.js");
+      const { loadRecentRunSummary } = await import("./core/artifacts.js");
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const summary = await loadRecentRunSummary(cwd, rules, "last");
+      printRecentRunSummary(summary);
       return;
     }
   }
@@ -516,6 +574,13 @@ async function runSetupWizard({
       }
     }
 
+    const toolSelections = {
+      lint: await promptForToolSetup(rl, inspection, "lint"),
+      typecheck: await promptForToolSetup(rl, inspection, "typecheck"),
+      build: await promptForToolSetup(rl, inspection, "build"),
+      test: await promptForToolSetup(rl, inspection, "test")
+    };
+
     console.log("");
     console.log("Apply");
     console.log(`- planner: ${plannerProvider}`);
@@ -527,6 +592,12 @@ async function runSetupWizard({
     if (memoryBackend === "openmemory") {
       console.log(`- OpenMemory base URL: ${openMemoryBaseUrl}`);
       console.log(`- OpenMemory API key: ${openMemoryApiKey ? "(updated)" : envValues.AI_SYSTEM_OPENMEMORY_API_KEY ? "(keep existing)" : "(empty)"}`);
+    }
+    console.log("- tools:");
+    for (const [toolName, selection] of Object.entries(toolSelections)) {
+      console.log(
+        `  - ${toolName}: mode=${selection.mode}${selection.script ? `, script=${selection.script}` : ""}${selection.appendChangedFiles ? ", changed-files=true" : ""}`
+      );
     }
 
     const confirmation = await promptForInput({
@@ -554,7 +625,8 @@ async function runSetupWizard({
         routingEnabled,
         memoryBackend,
         openMemoryBaseUrl,
-        openMemoryApiKey
+        openMemoryApiKey,
+        tools: toolSelections
       }
     });
 
@@ -826,6 +898,9 @@ function buildPrompt(state: InteractiveState): string {
 function printHelp(): void {
   console.log(`Usage:
   ai "task description"
+  ai explain-routing "task description"
+  ai explain-routing
+  ai runs latest
   ai setup
   ai setup --global
   ai setup --check
@@ -848,6 +923,9 @@ function printHelp(): void {
 
 Examples:
   ai "Refactor the auth flow"
+  ai explain-routing "Refactor the auth flow"
+  ai explain-routing
+  ai runs latest
   ai setup
   ai setup --global
   ai setup --check
@@ -897,6 +975,9 @@ Project config:
   Add \`--global\` to \`ai config show\`, \`ai config use\`, or \`ai doctor\` to inspect or write the global config layer directly.
   Use \`ai config show\` to inspect the effective config after preset/env merges.
   Use \`ai doctor\` to explain overrides and likely sources of surprising behavior.
+  Use \`ai explain-routing "task"\` to see why the current config would choose specific providers.
+  Use \`ai explain-routing\` with no task to inspect routing from the latest artifact-backed run.
+  Use \`ai runs latest\` to inspect the newest artifact-backed run without opening JSON files manually.
 
 Environment overrides:
   AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli
@@ -947,10 +1028,21 @@ function printConfigShow(inspection: ConfigInspection): void {
   console.log(
     `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
   );
+  console.log(
+    `- tools: enabled=${inspection.effectiveRules.tools?.enabled !== false}, json_validation=${inspection.effectiveRules.tools?.json_validation !== false}`
+  );
   console.log(`- env overrides: ${inspection.activeEnvOverrides.length}`);
   if (inspection.projectConfig) {
     console.log("- project config:");
     console.log(formatDisplayJson(inspection.projectConfig));
+  }
+  if (inspection.toolSummaries.length > 0) {
+    console.log("- effective tool commands:");
+    for (const tool of inspection.toolSummaries) {
+      console.log(
+        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scoped_changed_files=${tool.scopedToChangedFiles === true}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
+      );
+    }
   }
 }
 
@@ -990,6 +1082,14 @@ function printDoctor(
   console.log(
     `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
   );
+  if (inspection.toolSummaries.length > 0) {
+    console.log("- effective tool commands:");
+    for (const tool of inspection.toolSummaries) {
+      console.log(
+        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
+      );
+    }
+  }
 
   if (inspection.activeEnvOverrides.length > 0) {
     console.log("- active env overrides:");
@@ -1052,12 +1152,87 @@ function providerChoiceDescriptions(): Record<string, string> {
   };
 }
 
+async function promptForToolSetup(
+  rl: readline.Interface,
+  inspection: ConfigInspection,
+  toolName: SetupToolName
+): Promise<{ mode: "auto" | "disabled" | "script"; script?: string; appendChangedFiles?: boolean }> {
+  const currentConfig = inspection.projectConfig?.tools?.commands?.[toolName];
+  const currentSummary = inspection.toolSummaries.find((entry) => entry.name === toolName);
+
+  const mode = await promptForChoice({
+    rl,
+    label: `${toolName} check mode`,
+    choices: ["auto", "disabled", "script"],
+    defaultValue: currentToolMode(currentConfig),
+    descriptions: {
+      auto: `Use auto-detected project behavior for ${toolName}.`,
+      disabled: `Do not run ${toolName} during the generation loop.`,
+      script: `Pin ${toolName} to a specific package script.`
+    }
+  });
+
+  if (mode === "disabled") {
+    return { mode };
+  }
+
+  let script: string | undefined;
+  if (mode === "script") {
+    script = await promptForInput({
+      rl,
+      label: `${toolName} script name`,
+      defaultValue: currentToolScriptName(currentConfig, toolName)
+    });
+  }
+
+  const currentScoped = currentSummary?.scopedToChangedFiles === true || currentConfig?.append_changed_files === true;
+  const appendChangedFiles = await promptForChoice({
+    rl,
+    label: `${toolName} changed-file scoping`,
+    choices: ["yes", "no"],
+    defaultValue: currentScoped ? "yes" : "no",
+    descriptions: {
+      yes: `Append changed files to the ${toolName} command when possible.`,
+      no: `Run ${toolName} without passing changed file paths.`
+    }
+  });
+
+  return {
+    mode,
+    ...(script ? { script } : {}),
+    appendChangedFiles: appendChangedFiles === "yes"
+  };
+}
+
 function currentSetupProviderChoice(
   inspection: ConfigInspection,
   role: "planner" | "reviewer" | "generator" | "fixer"
 ): string {
   const configuredType = inspection.projectConfig?.providers?.[role]?.type;
   return typeof configuredType === "string" && configuredType.trim() !== "" ? configuredType : "auto";
+}
+
+function currentToolMode(currentConfig: unknown): "auto" | "disabled" | "script" {
+  if (!currentConfig || typeof currentConfig !== "object" || Array.isArray(currentConfig)) {
+    return "auto";
+  }
+
+  const candidate = currentConfig as Record<string, unknown>;
+  if (candidate.enabled === false) {
+    return "disabled";
+  }
+  if (typeof candidate.script === "string" && candidate.script.trim() !== "") {
+    return "script";
+  }
+  return "auto";
+}
+
+function currentToolScriptName(currentConfig: unknown, toolName: SetupToolName): string {
+  if (!currentConfig || typeof currentConfig !== "object" || Array.isArray(currentConfig)) {
+    return toolName;
+  }
+  const candidate = currentConfig as Record<string, unknown>;
+  return typeof candidate.script === "string" && candidate.script.trim() !== "" ? candidate.script : toolName;
 }
 
 async function promptForChoice({
@@ -1165,6 +1340,18 @@ function printResult(result: OrchestratorResult): void {
   console.log(
     `- memory: backend=${result.memory?.backend}, planning_matches=${result.memory?.planningMatches ?? 0}, implementation_matches=${result.memory?.implementationMatches ?? 0}, stored=${result.memory?.stored}`
   );
+  if ((result.latestToolResults ?? []).length > 0) {
+    const toolCounts = summarizeToolResults(result.latestToolResults ?? []);
+    console.log(
+      `- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`
+    );
+    console.log("- latest tool results:");
+    for (const tool of result.latestToolResults ?? []) {
+      console.log(
+        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
+      );
+    }
+  }
   console.log(`- artifacts: ${result.artifacts?.latestIterationPath || result.artifacts?.runPath || "(none)"}`);
   if (result.artifacts?.stepPaths && Object.keys(result.artifacts.stepPaths).length > 0) {
     console.log("- checkpoints:");
@@ -1185,7 +1372,12 @@ function printResult(result: OrchestratorResult): void {
   if (iterations.length > 0) {
     console.log("- loop summaries:");
     for (const iteration of iterations) {
-      console.log(`  - #${iteration.iteration}: ${iteration.summary || "no summary"}`);
+      const toolCounts = summarizeToolResults(iteration.toolResults ?? []);
+      const toolSuffix =
+        (iteration.toolResults ?? []).length > 0
+          ? ` | tools: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`
+          : "";
+      console.log(`  - #${iteration.iteration}: ${iteration.summary || "no summary"}${toolSuffix}`);
     }
   }
 
@@ -1201,6 +1393,140 @@ function printResult(result: OrchestratorResult): void {
       console.log(`  - [${issue.severity}] ${issue.path || "(unknown file)"}: ${issue.description}`);
     }
   }
+}
+
+function summarizeToolResults(results: Array<{ ok: boolean; skipped: boolean }>): { passed: number; failed: number; skipped: number } {
+  return results.reduce(
+    (counts, result) => {
+      if (result.skipped) {
+        counts.skipped += 1;
+      } else if (result.ok) {
+        counts.passed += 1;
+      } else {
+        counts.failed += 1;
+      }
+      return counts;
+    },
+    { passed: 0, failed: 0, skipped: 0 }
+  );
+}
+
+function printRecentRunSummary(summary: RecentRunSummary): void {
+  const status = summary.runState.status ?? summary.artifactIndex?.latestStatus ?? "(unknown)";
+  const latestToolResults = summary.runState.latestToolResults ?? summary.artifactIndex?.latestToolResults ?? [];
+  const issueCounts = summary.runState.issueCounts ?? summarizeIssueCountsFromIssues(summary.runState.finalIssues ?? []);
+  const changedFiles = summary.runState.result?.files?.map((file) => file.path) ?? summary.artifactIndex?.latestFiles ?? [];
+
+  console.log("");
+  console.log("Latest Run");
+  console.log(`- state: ${summary.statePath}`);
+  console.log(`- status: ${status}`);
+  console.log(`- task: ${summary.runState.task ?? summary.artifactIndex?.latestTask ?? "(unknown)"}`);
+  console.log(`- iterations: ${summary.artifactIndex?.iterationCount ?? summary.runState.iterations?.length ?? 0}`);
+  if (summary.runState.providers) {
+    console.log(
+      `- providers: planner=${summary.runState.providers.planner}, reviewer=${summary.runState.providers.reviewer}, generator=${summary.runState.providers.generator}, fixer=${summary.runState.providers.fixer}`
+    );
+  }
+  if (summary.routing.planning || summary.routing.implementation) {
+    console.log("- routing:");
+    if (summary.routing.planning) {
+      console.log(
+        `  - planning: profile=${summary.routing.planning.profile}, enabled=${summary.routing.planning.enabled}, reason=${summary.routing.planning.reason}`
+      );
+    }
+    if (summary.routing.implementation) {
+      console.log(
+        `  - implementation: profile=${summary.routing.implementation.profile}, enabled=${summary.routing.implementation.enabled}, reason=${summary.routing.implementation.reason}`
+      );
+    }
+  }
+  console.log(`- changed files: ${changedFiles.join(", ") || "(none)"}`);
+  console.log(`- issues: high=${issueCounts.high ?? 0}, medium=${issueCounts.medium ?? 0}, low=${issueCounts.low ?? 0}`);
+  if (latestToolResults.length > 0) {
+    const toolCounts = summarizeToolResults(latestToolResults);
+    console.log(`- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`);
+    for (const tool of latestToolResults) {
+      console.log(
+        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
+      );
+    }
+  }
+  if (summary.runState.latestReviewSummary) {
+    console.log(`- last review summary: ${summary.runState.latestReviewSummary}`);
+  }
+  if (summary.artifactIndex?.runPath) {
+    console.log(`- artifact run: ${summary.artifactIndex.runPath}`);
+  }
+}
+
+function printRoutingExplanation({
+  source,
+  repoRoot,
+  task,
+  planning,
+  implementation
+}: {
+  source: "current-task" | "latest-run";
+  repoRoot: string;
+  task: string;
+  planning: RoutingDecision | null;
+  implementation: RoutingDecision | null;
+}): void {
+  console.log("");
+  console.log("Routing");
+  console.log(`- source: ${source}`);
+  console.log(`- repo: ${repoRoot}`);
+  console.log(`- task: ${task || "(none)"}`);
+
+  if (!planning && !implementation) {
+    console.log("- routing: no routing information available");
+    return;
+  }
+
+  if (planning) {
+    printRoutingStage("planning", planning);
+  }
+  if (implementation) {
+    printRoutingStage("implementation", implementation);
+  } else if (source === "current-task") {
+    console.log("- implementation:");
+    console.log("  - unavailable before the planner produces write targets");
+  }
+}
+
+function printRoutingStage(label: string, decision: RoutingDecision): void {
+  console.log(`- ${label}:`);
+  console.log(`  - enabled: ${decision.enabled}`);
+  console.log(`  - profile: ${decision.profile}`);
+  console.log(`  - reason: ${decision.reason}`);
+  console.log(
+    `  - role providers: planner=${decision.roleProviders.planner}, reviewer=${decision.roleProviders.reviewer}, generator=${decision.roleProviders.generator}, fixer=${decision.roleProviders.fixer}`
+  );
+  if (Object.keys(decision.appliedRoles ?? {}).length > 0) {
+    console.log(
+      `  - applied roles: ${Object.entries(decision.appliedRoles)
+        .map(([role, provider]) => `${role}=${provider}`)
+        .join(", ")}`
+    );
+  }
+  const matchedSignals = (decision.signals ?? []).filter((signal) => signal.matched);
+  if (matchedSignals.length > 0) {
+    console.log("  - matched signals:");
+    for (const signal of matchedSignals.slice(0, 10)) {
+      console.log(`    - ${signal.name}${signal.details ? `: ${signal.details}` : ""}`);
+    }
+  }
+}
+
+function summarizeIssueCountsFromIssues(issues: Array<{ severity: "high" | "medium" | "low" }>): Record<"high" | "medium" | "low", number> {
+  return issues.reduce(
+    (counts, issue) => {
+      counts[issue.severity] += 1;
+      return counts;
+    },
+    { high: 0, medium: 0, low: 0 }
+  );
 }
 
 main().catch((error) => {

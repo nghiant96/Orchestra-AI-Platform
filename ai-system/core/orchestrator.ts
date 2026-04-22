@@ -212,7 +212,8 @@ export class Orchestrator {
         currentResult: null,
         acceptedIssues: [],
         latestReviewSummary: "",
-        iterationResults: []
+        iterationResults: [],
+        latestToolResults: []
       },
       contextFiles,
       rules,
@@ -337,7 +338,8 @@ export class Orchestrator {
           currentResult,
           acceptedIssues,
           latestReviewSummary,
-          iterationResults
+          iterationResults,
+          latestToolResults: saved.latestToolResults ?? []
         },
         resultStatus: "resumed_completed",
         persistedStatus: "resumed_completed",
@@ -363,7 +365,8 @@ export class Orchestrator {
         currentResult,
         acceptedIssues,
         latestReviewSummary,
-        iterationResults
+        iterationResults,
+        latestToolResults: saved.latestToolResults ?? []
       },
       contextFiles,
       rules,

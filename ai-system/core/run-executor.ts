@@ -5,7 +5,6 @@ import { FixerAgent } from "../agents/fixer.js";
 import { ReviewerAgent } from "../agents/reviewer.js";
 import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
-import { runStaticAnalysis } from "../utils/linter.js";
 import type {
   ContextFile,
   FileGenerationResult,
@@ -22,6 +21,7 @@ import type {
   RunStatus,
   RulesConfig
 } from "../types.js";
+import { runToolChecks } from "./tool-executor.js";
 import {
   readContextFiles,
   readOriginalFiles,
@@ -63,6 +63,7 @@ export interface LoopExecutionState {
   acceptedIssues: ReviewIssue[];
   latestReviewSummary: string;
   iterationResults: IterationResult[];
+  latestToolResults: import("../types.js").ToolExecutionResult[];
 }
 
 export function createRuntimeDependencies(repoRoot: string, rules: RulesConfig, logger: Logger): RuntimeDependencies {
@@ -166,7 +167,8 @@ export async function executeGenerationLoop({
     currentResult: initialState.currentResult,
     acceptedIssues: [...initialState.acceptedIssues],
     latestReviewSummary: initialState.latestReviewSummary,
-    iterationResults: [...initialState.iterationResults]
+    iterationResults: [...initialState.iterationResults],
+    latestToolResults: [...initialState.latestToolResults]
   };
 
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
@@ -197,8 +199,14 @@ export async function executeGenerationLoop({
     }));
     const diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
     const validationIssues = validateCandidateFiles(state.currentResult.files);
-    const staticAnalysisIssues = await runStaticAnalysis(repoRoot, state.currentResult.files, logger);
-    const preReviewIssues = mergeIssues(staticAnalysisIssues, validationIssues);
+    const toolExecution = await runToolChecks({
+      repoRoot,
+      changedFiles: state.currentResult.files,
+      rules,
+      logger
+    });
+    state.latestToolResults = toolExecution.results;
+    const preReviewIssues = mergeIssues(toolExecution.issues, validationIssues);
 
     logger.step(`Reviewing generated files with ${runtime.reviewerProvider.id}`);
     const review = normalizeReviewResult(
@@ -227,6 +235,7 @@ export async function executeGenerationLoop({
         candidateFiles: state.currentResult.files,
         originalFiles,
         diffSummaries,
+        toolResults: toolExecution.results,
         preReviewIssues,
         reviewSummary: review.summary,
         issues: state.acceptedIssues
@@ -238,6 +247,7 @@ export async function executeGenerationLoop({
       iteration,
       summary: review.summary,
       issues: state.acceptedIssues,
+      toolResults: toolExecution.results,
       artifactPath: artifactInfo?.iterationPath ?? null
     });
 
@@ -260,7 +270,8 @@ export async function executeGenerationLoop({
           finalIssues: state.acceptedIssues,
           providers: runtime.providerSummary,
           memoryStats,
-          artifactState
+          artifactState,
+          latestToolResults: state.latestToolResults
         });
         await persistRunState(
           artifactState,
@@ -269,7 +280,8 @@ export async function executeGenerationLoop({
             task,
             pauseAfterPlan,
             pauseAfterGenerate,
-            latestReviewSummary: state.latestReviewSummary
+            latestReviewSummary: state.latestReviewSummary,
+            latestToolResults: state.latestToolResults
           },
           logger
         );
@@ -290,10 +302,10 @@ export async function executeGenerationLoop({
         runtime,
         memoryStats,
         artifactState,
-        state,
-        resultStatus: successResultStatus,
-        persistedStatus: successPersistedStatus,
-        logger
+      state,
+      resultStatus: successResultStatus,
+      persistedStatus: successPersistedStatus,
+      logger
       });
       return { result, state };
     }
@@ -375,6 +387,7 @@ export async function finalizeSuccessfulRun({
     providers: runtime.providerSummary,
     memory: memoryStats,
     artifacts: finalizeArtifactState(artifactState, state.currentResult, true),
+    latestToolResults: state.latestToolResults,
     wroteFiles: !dryRun
   };
 
@@ -386,7 +399,8 @@ export async function finalizeSuccessfulRun({
       task,
       pauseAfterPlan,
       pauseAfterGenerate,
-      latestReviewSummary: state.latestReviewSummary
+      latestReviewSummary: state.latestReviewSummary,
+      latestToolResults: state.latestToolResults
     },
     logger
   );
@@ -457,6 +471,7 @@ export async function finalizeFailedRun({
     providers: runtime.providerSummary,
     memory: memoryStats,
     artifacts: finalizeArtifactState(artifactState, state.currentResult, false),
+    latestToolResults: state.latestToolResults,
     wroteFiles: false
   };
 
@@ -468,7 +483,8 @@ export async function finalizeFailedRun({
       task,
       pauseAfterPlan,
       pauseAfterGenerate,
-      latestReviewSummary: state.latestReviewSummary
+      latestReviewSummary: state.latestReviewSummary,
+      latestToolResults: state.latestToolResults
     },
     logger
   );

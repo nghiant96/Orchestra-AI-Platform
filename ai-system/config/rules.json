@@ -85,6 +85,28 @@
       ]
     }
   },
+  "tools": {
+    "enabled": true,
+    "json_validation": true,
+    "commands": {
+      "lint": {
+        "enabled": true,
+        "timeout_ms": 120000
+      },
+      "typecheck": {
+        "enabled": true,
+        "timeout_ms": 120000
+      },
+      "build": {
+        "enabled": false,
+        "timeout_ms": 180000
+      },
+      "test": {
+        "enabled": false,
+        "timeout_ms": 180000
+      }
+    }
+  },
   "providers": {
     "planner": {
       "type": "gemini-cli",
