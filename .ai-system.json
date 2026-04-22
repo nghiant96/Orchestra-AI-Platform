@@ -1,28 +1,23 @@
 {
   "memory": {
     "enabled": true,
-    "backend": "local-file"
+    "backend": "openmemory"
+  },
+  "routing": {
+    "enabled": false
   },
   "providers": {
     "planner": {
-      "type": "gemini-cli",
-      "timeout_ms": 0,
-      "retries": 2
+      "type": "codex-cli"
     },
     "reviewer": {
-      "type": "gemini-cli",
-      "timeout_ms": 0,
-      "retries": 2
+      "type": "codex-cli"
     },
     "generator": {
-      "type": "codex-cli",
-      "timeout_ms": 0,
-      "retries": 2
+      "type": "codex-cli"
     },
     "fixer": {
-      "type": "codex-cli",
-      "timeout_ms": 0,
-      "retries": 2
+      "type": "codex-cli"
     }
   }
 }

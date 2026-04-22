@@ -4,21 +4,19 @@ Use this file for non-trivial work that benefits from an explicit execution plan
 
 ## Active Task
 
-Task: Add context-aware and plan-aware provider routing so the system can choose planner/reviewer/generator/fixer more intelligently.
+Task: Add a global configuration layer so provider and memory defaults can apply across projects without reconfiguring each repository.
 
 - [x] Define the current task
-- [x] Read project guidance and existing lessons
-- [x] Create a dedicated provider-router module with scoring signals
-- [x] Apply routing once before planning and reroute again after plan creation
-- [x] Persist routing decisions into artifacts/timeline for debugging
-- [x] Add tests for plan-aware rerouting and override precedence
-- [x] Run full verification and record the result
+- [x] Inspect current config resolution and precedence
+- [x] Add automatic global config loading before project config
+- [x] Extend CLI commands so setup/config/doctor can work against the global config too
+- [x] Add tests for global-vs-project precedence and verify end-to-end
 
 ## Review
 
 - Result: Completed.
 - Verification:
   - Passed `pnpm exec tsc --noEmit`
-  - Passed `pnpm test`
-  - Passed `pnpm run ai:help`
-- Notes: Routing is now decided twice: once before planning from task/repo signals, and again after planning from the actual read/write targets. Both decisions are persisted into `00-routing/*.json` and the artifact timeline for debugging.
+  - Passed `pnpm test -- config-workflow orchestrator-runtime`
+  - Passed `node --import tsx ./bin/ai.js doctor --global`
+- Notes: Config precedence is now `internal defaults -> global config -> project config -> env overrides`. `ai setup` remains role-based, supports `auto` per role, and explicit roles are locked against dynamic routing while `auto` roles remain routable. `--global` on setup/config/doctor targets the global config layer directly at `~/.config/ai-system/config.json`.

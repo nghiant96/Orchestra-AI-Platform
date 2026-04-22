@@ -1,5 +1,14 @@
 import fs from "node:fs/promises";
-import { loadJsonIfExists, mergeConfig, resolveProjectConfigPath } from "../utils/config.js";
+import {
+  getProjectConfigPreset,
+  loadJsonIfExists,
+  mergeConfig,
+  resolveGlobalConfigPath,
+  resolveProjectConfigPath,
+  stripProjectConfigProfile,
+  type ProjectConfig,
+  type ProjectConfigPresetName
+} from "../utils/config.js";
 import type {
   Logger,
   ProviderConfig,
@@ -12,6 +21,11 @@ import { createRuntimeDependencies, type RuntimeDependencies } from "./run-execu
 
 const PROVIDER_ROLES: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
 const ROUTING_CONTROL_KEYS = ["timeout_ms", "retries", "base_delay_ms", "monitor_interval_ms", "temperature", "response_format"] as const;
+const DEFAULT_PROVIDER_COMMANDS: Record<string, string> = {
+  "gemini-cli": "gemini",
+  "claude-cli": "claude",
+  "codex-cli": "codex"
+};
 
 export interface LoadedOrchestratorRuntime {
   rules: RulesConfig;
@@ -72,17 +86,47 @@ export async function rerouteRuntimeForPlan({
 
 export async function loadRules(
   repoRoot: string,
-  explicitConfigPath?: string | null
-): Promise<{ rules: RulesConfig; configPath: string | null }> {
+  explicitConfigPath?: string | null,
+  explicitGlobalConfigPath?: string | null,
+  ignoreProjectConfig = false
+): Promise<{
+  rules: RulesConfig;
+  configPath: string | null;
+  projectConfig: ProjectConfig | null;
+  profile: ProjectConfigPresetName | null;
+  globalConfigPath: string | null;
+  globalConfig: ProjectConfig | null;
+  globalProfile: ProjectConfigPresetName | null;
+}> {
   const rulesPath = new URL("../config/rules.json", import.meta.url);
   const raw = await fs.readFile(rulesPath, "utf8");
   const baseRules = JSON.parse(raw) as RulesConfig;
-  const configPath = await resolveProjectConfigPath(repoRoot, explicitConfigPath);
-  const projectRules = configPath ? await loadJsonIfExists<Partial<RulesConfig>>(configPath) : null;
+  const globalConfigPath = await resolveGlobalConfigPath(explicitGlobalConfigPath);
+  const globalConfig = globalConfigPath ? await loadJsonIfExists<ProjectConfig>(globalConfigPath) : null;
+  const globalPreset = getProjectConfigPreset(globalConfig?.profile);
+  const globalRules = stripProjectConfigProfile(globalConfig);
+  const configPath = ignoreProjectConfig ? null : await resolveProjectConfigPath(repoRoot, explicitConfigPath);
+  const projectConfig = configPath ? await loadJsonIfExists<ProjectConfig>(configPath) : null;
+  const preset = getProjectConfigPreset(projectConfig?.profile);
+  const projectRules = stripProjectConfigProfile(projectConfig);
+  const mergedRules = mergeConfig(
+    mergeConfig(mergeConfig(mergeConfig(baseRules, globalPreset?.config ?? null), globalRules), preset?.config ?? null),
+    projectRules
+  );
+  mergedRules.routing = {
+    ...(mergedRules.routing ?? {}),
+    locked_roles: Object.keys(projectConfig?.providers ?? {})
+  };
+  normalizeAllProviderConfigs(mergedRules);
 
   return {
-    rules: mergeConfig(baseRules, projectRules),
-    configPath
+    rules: mergedRules,
+    configPath,
+    projectConfig,
+    profile: preset?.name ?? null,
+    globalConfigPath,
+    globalConfig,
+    globalProfile: globalPreset?.name ?? null
   };
 }
 
@@ -117,6 +161,9 @@ export function applyDynamicProviderRouting(rules: RulesConfig, decision: Routin
   const appliedRoles: Partial<Record<ProviderRole, string>> = {};
 
   for (const role of PROVIDER_ROLES) {
+    if (isProjectLockedRole(rules, role)) {
+      continue;
+    }
     if (hasExplicitRoleProviderOverride(role)) {
       continue;
     }
@@ -222,16 +269,13 @@ function applySimpleProviderEnv(rules: RulesConfig, provider?: string): void {
     case "default":
     case "local":
     case "local-cli":
-      rules.providers.planner.type = "gemini-cli";
-      rules.providers.reviewer.type = "gemini-cli";
-      rules.providers.generator.type = "codex-cli";
-      rules.providers.fixer.type = "codex-cli";
+      rules.providers.planner = buildProviderConfigForType(rules, "planner", "gemini-cli");
+      rules.providers.reviewer = buildProviderConfigForType(rules, "reviewer", "gemini-cli");
+      rules.providers.generator = buildProviderConfigForType(rules, "generator", "codex-cli");
+      rules.providers.fixer = buildProviderConfigForType(rules, "fixer", "codex-cli");
       return;
     case "9router":
-      rules.providers.planner.type = "openai-compatible";
-      rules.providers.reviewer.type = "openai-compatible";
-      rules.providers.generator.type = "openai-compatible";
-      rules.providers.fixer.type = "openai-compatible";
+      applyProviderTypeToAllRoles(rules, "openai-compatible");
       if (!process.env.AI_SYSTEM_BASE_URL && !process.env.AI_SYSTEM_OPENAI_BASE_URL && !process.env.AI_SYSTEM_9ROUTER_BASE_URL) {
         process.env.AI_SYSTEM_BASE_URL = "http://127.0.0.1:20128/v1";
       }
@@ -240,10 +284,7 @@ function applySimpleProviderEnv(rules: RulesConfig, provider?: string): void {
     case "gemini-cli":
     case "claude-cli":
     case "codex-cli":
-      rules.providers.planner.type = normalized;
-      rules.providers.reviewer.type = normalized;
-      rules.providers.generator.type = normalized;
-      rules.providers.fixer.type = normalized;
+      applyProviderTypeToAllRoles(rules, normalized);
       return;
     default:
       return;
@@ -282,13 +323,7 @@ function applyExplicitProviderTypeOverride(rules: RulesConfig, role: ProviderRol
     return;
   }
 
-  const template = resolveProviderTemplate(rules, role, normalized);
-  if (template) {
-    rules.providers[role] = buildRoutedProviderConfig(rules.providers[role], template, normalized);
-    return;
-  }
-
-  rules.providers[role].type = normalized;
+  rules.providers[role] = buildProviderConfigForType(rules, role, normalized);
 }
 
 function applyProviderOverride(providerConfig: ProviderConfig | undefined, timeoutMs?: string, retries?: string): void {
@@ -338,9 +373,7 @@ function applyOpenAICompatibleOverride(
 
 function resolveProviderTemplate(rules: RulesConfig, role: ProviderRole, providerType: string): ProviderConfig | null {
   const directRoleMatch = rules.providers[role];
-  if (directRoleMatch?.type === providerType) {
-    return directRoleMatch;
-  }
+  const candidates: ProviderConfig[] = [];
 
   for (const [name, provider] of Object.entries(rules.providers)) {
     if (name === role || !provider || typeof provider.type !== "string") {
@@ -348,11 +381,59 @@ function resolveProviderTemplate(rules: RulesConfig, role: ProviderRole, provide
     }
 
     if (provider.type === providerType) {
-      return provider;
+      candidates.push(provider);
     }
   }
 
-  return null;
+  if (directRoleMatch?.type === providerType) {
+    candidates.push(directRoleMatch);
+  }
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const expectedCommand = DEFAULT_PROVIDER_COMMANDS[providerType];
+  if (expectedCommand) {
+    const canonical = candidates.find((candidate) => candidate.command === expectedCommand);
+    if (canonical) {
+      return canonical;
+    }
+  }
+
+  return candidates[0];
+}
+
+function normalizeAllProviderConfigs(rules: RulesConfig): void {
+  const roles: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
+  for (const role of roles) {
+    const providerType = normalizeProviderType(rules.providers[role]?.type);
+    if (!providerType) {
+      continue;
+    }
+
+    rules.providers[role] = buildProviderConfigForType(rules, role, providerType);
+  }
+}
+
+function applyProviderTypeToAllRoles(rules: RulesConfig, providerType: string): void {
+  const roles: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
+  for (const role of roles) {
+    rules.providers[role] = buildProviderConfigForType(rules, role, providerType);
+  }
+}
+
+function buildProviderConfigForType(rules: RulesConfig, role: ProviderRole, providerType: string): ProviderConfig {
+  const original = rules.providers[role];
+  const template = resolveProviderTemplate(rules, role, providerType);
+  if (template) {
+    return buildRoutedProviderConfig(original, template, providerType);
+  }
+
+  return {
+    ...original,
+    type: providerType
+  };
 }
 
 function buildRoutedProviderConfig(original: ProviderConfig, template: ProviderConfig, providerType: string): ProviderConfig {
@@ -383,6 +464,10 @@ function hasExplicitRoleProviderOverride(role: ProviderRole): boolean {
           : "AI_SYSTEM_FIXER_PROVIDER";
 
   return typeof process.env[envKey] === "string" && process.env[envKey]!.trim() !== "";
+}
+
+function isProjectLockedRole(rules: RulesConfig, role: ProviderRole): boolean {
+  return Array.isArray(rules.routing?.locked_roles) && rules.routing!.locked_roles!.includes(role);
 }
 
 function normalizeProviderType(value?: string): string {

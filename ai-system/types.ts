@@ -67,6 +67,7 @@ export interface RoutingDecision {
 export interface RoutingConfig {
   enabled?: boolean;
   default_profile?: RoutingProfileName | string;
+  locked_roles?: string[];
   profiles?: Record<string, ProviderRoutingProfile>;
   heuristics?: {
     fast?: string[];

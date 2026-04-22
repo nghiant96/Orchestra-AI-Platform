@@ -104,6 +104,16 @@ cp .ai-system.json.example .ai-system.json
 ai --chat
 ```
 
+Inspect or change the active project config without editing JSON by hand:
+
+```bash
+ai setup
+ai setup --check
+ai config show
+ai config use codex-all
+ai doctor
+```
+
 Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
 
 ```bash
@@ -132,6 +142,16 @@ Use a repo-local `.env` instead of exporting variables every time:
 cp .env.example .env
 ai --chat
 ```
+
+Recommended config workflow:
+
+- Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
+- Use `ai setup --check` to verify CLI availability and OpenMemory connectivity without changing files
+- Put day-to-day behavior in `.ai-system.json`
+- Put secrets and host-specific values in `.env`
+- Use `ai config use codex-all|hybrid|safe-review` to switch project presets
+- Use `ai config show` to inspect the effective config
+- Use `ai doctor` when behavior is surprising and you need to see env/routing overrides
 
 Inside interactive mode:
 
@@ -301,6 +321,16 @@ curl -X POST http://127.0.0.1:3927/run \
 
 ## Configuration Reference
 
+Project config guidance:
+
+- `ai-system/config/rules.json` is an internal default file. Do not treat it as the normal place to customize a project.
+- `.ai-system.json` is the primary project-level config for provider choices, routing, memory backend, and other long-lived behavior.
+- `.env` is the right place for secrets such as `AI_SYSTEM_OPENMEMORY_API_KEY` and host-specific URLs such as `AI_SYSTEM_OPENMEMORY_BASE_URL`.
+- Project presets currently available through `ai config use`:
+  - `codex-all`
+  - `hybrid`
+  - `safe-review`
+
 Optional environment variables:
 
 - `AI_SYSTEM_PROVIDER`
@@ -350,8 +380,8 @@ Optional environment variables:
 - If you want the same workflow inside another project, that project also needs a matching `docker-compose.yml` or a wrapper script that mounts that project's directory.
 - The default memory backend `local-file` works out of the box because it stores data inside the mounted workspace.
 - `OpenMemory` is not bundled into this image, but the app can talk to an existing OpenMemory server over HTTP.
-- If OpenMemory is running on the host machine, use `AI_SYSTEM_OPENMEMORY_BASE_URL=http://host.docker.internal:8080` inside the container.
-- If both services share a Docker network, set `AI_SYSTEM_OPENMEMORY_BASE_URL` to the service DNS name, for example `http://openmemory-openmemory-1:8080`.
+- If OpenMemory is running on the host machine, use `AI_SYSTEM_OPENMEMORY_BASE_URL=http://host.docker.internal:9080` inside the container.
+- If both services share a Docker network, set `AI_SYSTEM_OPENMEMORY_BASE_URL` to the service DNS name, for example `http://openmemory-openmemory-1:9080`.
 
 ## Notes
 

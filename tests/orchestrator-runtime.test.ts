@@ -102,6 +102,58 @@ test("AI_SYSTEM_ROUTING_PROFILE forces the requested routing profile", async () 
   });
 });
 
+test("AI_SYSTEM_PROVIDER rebuilds all role configs from matching provider templates", async () => {
+  await withEnv({ AI_SYSTEM_PROVIDER: "gemini-cli" }, async () => {
+    const rules = createRules();
+    const repoRoot = await createTempRepo();
+    await prepareRuntimeRules({
+      repoRoot,
+      rules,
+      task: "Update a small README section",
+      stage: "planning",
+      logger: silentLogger()
+    });
+
+    try {
+      assert.equal(rules.providers.planner.type, "gemini-cli");
+      assert.equal(rules.providers.planner.command, "gemini");
+      assert.equal(rules.providers.generator.type, "gemini-cli");
+      assert.equal(rules.providers.generator.command, "gemini");
+      assert.equal(rules.providers.fixer.type, "gemini-cli");
+      assert.equal(rules.providers.fixer.command, "gemini");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("AI_SYSTEM_PROVIDER=default restores the mixed local provider commands", async () => {
+  await withEnv({ AI_SYSTEM_PROVIDER: "default", AI_SYSTEM_ROUTING_ENABLED: "false" }, async () => {
+    const rules = createRules();
+    const repoRoot = await createTempRepo();
+    await prepareRuntimeRules({
+      repoRoot,
+      rules,
+      task: "Update a small README section",
+      stage: "planning",
+      logger: silentLogger()
+    });
+
+    try {
+      assert.equal(rules.providers.planner.type, "gemini-cli");
+      assert.equal(rules.providers.planner.command, "gemini");
+      assert.equal(rules.providers.reviewer.type, "gemini-cli");
+      assert.equal(rules.providers.reviewer.command, "gemini");
+      assert.equal(rules.providers.generator.type, "codex-cli");
+      assert.equal(rules.providers.generator.command, "codex");
+      assert.equal(rules.providers.fixer.type, "codex-cli");
+      assert.equal(rules.providers.fixer.command, "codex");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 test("implementation-stage routing upgrades reviewer when the plan targets risky paths", async () => {
   await withEnv({}, async () => {
     const rules = createRules();
@@ -131,6 +183,7 @@ test("implementation-stage routing upgrades reviewer when the plan targets risky
 
 async function withEnv(env: Record<string, string>, callback: () => Promise<void>): Promise<void> {
   const keys = [
+    "AI_SYSTEM_PROVIDER",
     "AI_SYSTEM_ROUTING_PROFILE",
     "AI_SYSTEM_RISK_PROFILE",
     "AI_SYSTEM_ROUTING_ENABLED",

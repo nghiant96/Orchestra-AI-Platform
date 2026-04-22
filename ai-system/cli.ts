@@ -4,6 +4,8 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { createLogger } from "./utils/logger.js";
 import type { OrchestratorResult } from "./types.js";
+import { maskSecrets } from "./utils/string.js";
+import type { ConfigInspection, SetupCheckResult } from "./core/config-workflow.js";
 
 const PRESET_ENV_KEYS = [
   "AI_SYSTEM_PROVIDER",
@@ -29,12 +31,20 @@ interface CliOptions {
   pauseAfterGenerate: boolean;
   help: boolean;
   configPath: string | null;
+  globalConfig: boolean;
   providerPreset: string | null;
   resumeTarget: string | null;
+  command: CliCommand | null;
   task: string;
 }
 
-type TaskRunOptions = Omit<CliOptions, "chat" | "help">;
+type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig">;
+type CliCommand =
+  | { kind: "config-show" }
+  | { kind: "config-use"; preset: string }
+  | { kind: "doctor" }
+  | { kind: "setup" }
+  | { kind: "setup-check" };
 
 interface InteractiveState {
   cwd: string;
@@ -52,6 +62,11 @@ async function main() {
 
   if (options.help) {
     printHelp();
+    process.exit(0);
+  }
+
+  if (options.command) {
+    await runCliCommand(options);
     process.exit(0);
   }
 
@@ -79,8 +94,10 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let pauseAfterGenerate = false;
   let help = false;
   let configPath: string | null = null;
+  let globalConfig = false;
   let providerPreset: string | null = null;
   let resumeTarget: string | null = null;
+  let command: CliCommand | null = null;
   const taskParts: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
@@ -92,6 +109,41 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     if (arg === "--help" || arg === "-h") {
       help = true;
       continue;
+    }
+    if (arg === "doctor") {
+      command = { kind: "doctor" };
+      continue;
+    }
+    if (arg === "setup") {
+      const nextArg = args[index + 1];
+      if (nextArg === "--check") {
+        command = { kind: "setup-check" };
+        index += 1;
+      } else {
+        command = { kind: "setup" };
+      }
+      continue;
+    }
+    if (arg === "config") {
+      const action = args[index + 1];
+      if (!action) {
+        throw new Error("Missing subcommand for config. Use `config show` or `config use <preset>`.");
+      }
+      if (action === "show") {
+        command = { kind: "config-show" };
+        index += 1;
+        continue;
+      }
+      if (action === "use") {
+        const preset = args[index + 2];
+        if (!preset) {
+          throw new Error("Missing preset for `config use`. Example: `ai config use codex-all`.");
+        }
+        command = { kind: "config-use", preset };
+        index += 2;
+        continue;
+      }
+      throw new Error(`Unsupported config subcommand "${action}". Use \`config show\` or \`config use <preset>\`.`);
     }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];
@@ -109,6 +161,10 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
       }
       configPath = path.resolve(nextArg);
       index += 1;
+      continue;
+    }
+    if (arg === "--global") {
+      globalConfig = true;
       continue;
     }
     if (arg === "--provider") {
@@ -167,7 +223,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     taskParts.push(arg);
   }
 
-  const pipedTask = await readTaskFromStdin();
+  const pipedTask = command ? "" : await readTaskFromStdin();
   const task = taskParts.join(" ").trim() || pipedTask;
 
   if (!task && !chat && process.stdin.isTTY && process.stdout.isTTY) {
@@ -183,8 +239,10 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     pauseAfterGenerate,
     help,
     configPath,
+    globalConfig,
     providerPreset,
     resumeTarget,
+    command,
     task
   };
 }
@@ -269,6 +327,247 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
         console.error(`[error] ${normalized.message}`);
       }
     }
+  } finally {
+    rl.close();
+  }
+}
+
+async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command }: CliOptions): Promise<void> {
+  if (!command) {
+    return;
+  }
+
+  applyProviderPreset(providerPreset);
+
+  const workflow = await import("./core/config-workflow.js");
+  const { getDefaultGlobalConfigPath } = await import("./utils/config.js");
+  const explicitGlobalConfigPath = globalConfig ? getDefaultGlobalConfigPath() : null;
+  const ignoreProjectConfig = globalConfig;
+
+  switch (command.kind) {
+    case "config-show": {
+      const inspection = await workflow.inspectProjectConfiguration({
+        repoRoot: cwd,
+        explicitConfigPath: configPath,
+        explicitGlobalConfigPath,
+        ignoreProjectConfig
+      });
+      printConfigShow(inspection);
+      return;
+    }
+    case "config-use": {
+      const normalizedPreset = workflow
+        .getPresetCatalog()
+        .find((preset) => preset.name === command.preset.toLowerCase());
+      if (!normalizedPreset) {
+        const supported = workflow.getPresetCatalog()
+          .map((preset) => preset.name)
+          .join(", ");
+        throw new Error(`Unsupported preset "${command.preset}". Supported presets: ${supported}.`);
+      }
+
+      const result = await workflow.writeProjectPreset({
+        repoRoot: cwd,
+        explicitConfigPath: configPath,
+        explicitGlobalConfigPath,
+        preset: normalizedPreset.name
+      });
+      const inspection = await workflow.inspectProjectConfiguration({
+        repoRoot: cwd,
+        explicitConfigPath: globalConfig ? null : result.configPath,
+        explicitGlobalConfigPath,
+        ignoreProjectConfig
+      });
+      printConfigUseResult(normalizedPreset.name, result.configPath, inspection);
+      return;
+    }
+    case "doctor": {
+      const inspection = await workflow.inspectProjectConfiguration({
+        repoRoot: cwd,
+        explicitConfigPath: configPath,
+        explicitGlobalConfigPath,
+        ignoreProjectConfig
+      });
+      printDoctor(inspection, workflow.getPresetCatalog());
+      return;
+    }
+    case "setup": {
+      await runSetupWizard({ cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig });
+      return;
+    }
+    case "setup-check": {
+      const result = await workflow.runSetupCheck({
+        repoRoot: cwd,
+        explicitConfigPath: configPath,
+        explicitGlobalConfigPath,
+        ignoreProjectConfig
+      });
+      printSetupCheck(result);
+      return;
+    }
+  }
+}
+
+async function runSetupWizard({
+  cwd,
+  configPath,
+  explicitGlobalConfigPath,
+  ignoreProjectConfig
+}: {
+  cwd: string;
+  configPath: string | null;
+  explicitGlobalConfigPath: string | null;
+  ignoreProjectConfig: boolean;
+}): Promise<void> {
+  const workflow = await import("./core/config-workflow.js");
+  const inspection = await workflow.inspectProjectConfiguration({
+    repoRoot: cwd,
+    explicitConfigPath: configPath,
+    explicitGlobalConfigPath,
+    ignoreProjectConfig
+  });
+  const envValues = await workflow.readEnvValues(cwd);
+  const rl = readline.createInterface({ input, output });
+  const providerChoices = ["auto", "codex-cli", "gemini-cli", "claude-cli"];
+
+  try {
+    console.log("");
+    console.log("Setup");
+    console.log(`- repo: ${cwd}`);
+    console.log(
+      `- config: ${explicitGlobalConfigPath ?? inspection.configPath ?? path.join(cwd, ".ai-system.json")}${explicitGlobalConfigPath ? " (global)" : ""}`
+    );
+    console.log(
+      `- current providers: planner=${inspection.effectiveRules.providers.planner.type}, reviewer=${inspection.effectiveRules.providers.reviewer.type}, generator=${inspection.effectiveRules.providers.generator.type}, fixer=${inspection.effectiveRules.providers.fixer.type}`
+    );
+    console.log(`- current routing: ${inspection.effectiveRules.routing?.enabled !== false}`);
+    console.log(`- current memory: ${inspection.effectiveRules.memory?.backend ?? "(unset)"}`);
+
+    const plannerProvider = await promptForChoice({
+      rl,
+      label: "Planner provider",
+      choices: providerChoices,
+      defaultValue: currentSetupProviderChoice(inspection, "planner"),
+      descriptions: providerChoiceDescriptions()
+    });
+
+    const reviewerProvider = await promptForChoice({
+      rl,
+      label: "Reviewer provider",
+      choices: providerChoices,
+      defaultValue: currentSetupProviderChoice(inspection, "reviewer"),
+      descriptions: providerChoiceDescriptions()
+    });
+
+    const generatorProvider = await promptForChoice({
+      rl,
+      label: "Generator provider",
+      choices: providerChoices,
+      defaultValue: currentSetupProviderChoice(inspection, "generator"),
+      descriptions: providerChoiceDescriptions()
+    });
+
+    const fixerProvider = await promptForChoice({
+      rl,
+      label: "Fixer provider",
+      choices: providerChoices,
+      defaultValue: currentSetupProviderChoice(inspection, "fixer"),
+      descriptions: providerChoiceDescriptions()
+    });
+
+    const hasAutoRole = [plannerProvider, reviewerProvider, generatorProvider, fixerProvider].includes("auto");
+
+    const routingAnswer = await promptForChoice({
+      rl,
+      label: "Enable dynamic routing",
+      choices: ["yes", "no"],
+      defaultValue: hasAutoRole ? "yes" : inspection.effectiveRules.routing?.enabled !== false ? "yes" : "no"
+    });
+    const routingEnabled = hasAutoRole ? true : routingAnswer === "yes";
+
+    const memoryBackend = await promptForChoice({
+      rl,
+      label: "Memory backend",
+      choices: ["local-file", "openmemory"],
+      defaultValue:
+        inspection.effectiveRules.memory?.backend === "openmemory" || inspection.effectiveRules.memory?.backend === "local-file"
+          ? inspection.effectiveRules.memory.backend
+          : "openmemory"
+    });
+
+    let openMemoryBaseUrl = envValues.AI_SYSTEM_OPENMEMORY_BASE_URL || "http://127.0.0.1:9080";
+    let openMemoryApiKey: string | undefined;
+
+    if (memoryBackend === "openmemory") {
+      openMemoryBaseUrl = await promptForInput({
+        rl,
+        label: "OpenMemory base URL",
+        defaultValue: openMemoryBaseUrl
+      });
+
+      const apiKeyInput = await promptForInput({
+        rl,
+        label: "OpenMemory API key",
+        defaultValue: envValues.AI_SYSTEM_OPENMEMORY_API_KEY ? "(keep existing)" : "",
+        allowEmpty: true
+      });
+      if (apiKeyInput !== "" && apiKeyInput !== "(keep existing)") {
+        openMemoryApiKey = apiKeyInput;
+      }
+    }
+
+    console.log("");
+    console.log("Apply");
+    console.log(`- planner: ${plannerProvider}`);
+    console.log(`- reviewer: ${reviewerProvider}`);
+    console.log(`- generator: ${generatorProvider}`);
+    console.log(`- fixer: ${fixerProvider}`);
+    console.log(`- dynamic routing: ${routingEnabled}${hasAutoRole && routingAnswer === "no" ? " (forced on because at least one role is auto)" : ""}`);
+    console.log(`- memory backend: ${memoryBackend}`);
+    if (memoryBackend === "openmemory") {
+      console.log(`- OpenMemory base URL: ${openMemoryBaseUrl}`);
+      console.log(`- OpenMemory API key: ${openMemoryApiKey ? "(updated)" : envValues.AI_SYSTEM_OPENMEMORY_API_KEY ? "(keep existing)" : "(empty)"}`);
+    }
+
+    const confirmation = await promptForInput({
+      rl,
+      label: "Continue",
+      defaultValue: "yes"
+    });
+
+    if (!["y", "yes"].includes(confirmation.trim().toLowerCase())) {
+      console.log("Setup cancelled.");
+      return;
+    }
+
+    await workflow.applySetupChoices({
+      repoRoot: cwd,
+      explicitConfigPath: configPath,
+      explicitGlobalConfigPath,
+      choices: {
+        providers: {
+          planner: plannerProvider,
+          reviewer: reviewerProvider,
+          generator: generatorProvider,
+          fixer: fixerProvider
+        },
+        routingEnabled,
+        memoryBackend,
+        openMemoryBaseUrl,
+        openMemoryApiKey
+      }
+    });
+
+    const result = await workflow.runSetupCheck({
+      repoRoot: cwd,
+      explicitConfigPath: configPath,
+      explicitGlobalConfigPath,
+      ignoreProjectConfig
+    });
+
+    console.log("");
+    console.log("Setup Saved");
+    printSetupCheck(result);
   } finally {
     rl.close();
   }
@@ -527,6 +826,15 @@ function buildPrompt(state: InteractiveState): string {
 function printHelp(): void {
   console.log(`Usage:
   ai "task description"
+  ai setup
+  ai setup --global
+  ai setup --check
+  ai config show
+  ai config show --global
+  ai config use codex-all
+  ai config use codex-all --global
+  ai doctor
+  ai doctor --global
   ai --cwd /path/to/repo --dry-run "task description"
   ai --interactive "task description"
   ai --pause-after-plan "task description"
@@ -540,6 +848,15 @@ function printHelp(): void {
 
 Examples:
   ai "Refactor the auth flow"
+  ai setup
+  ai setup --global
+  ai setup --check
+  ai config show
+  ai config show --global
+  ai config use codex-all
+  ai config use codex-all --global
+  ai doctor
+  ai doctor --global
   ai --dry-run "Add a reusable loading state component"
   ai --interactive "Review the plan before changing files"
   ai --pause-after-plan "Pause after planner checkpoint"
@@ -571,7 +888,15 @@ Provider presets:
 
 Project config:
   The CLI auto-loads .ai-system.json from the current repo when present.
+  The CLI also auto-loads a global config from ~/.config/ai-system/config.json when present.
   You can override it with --config /path/to/config.json
+  Use \`ai setup\` for an interactive setup wizard.
+  Use \`ai setup --global\` to write global defaults used across repos.
+  Use \`ai setup --check\` to validate CLIs and OpenMemory connectivity.
+  Use \`ai config use codex-all|hybrid|safe-review\` to set a project preset.
+  Add \`--global\` to \`ai config show\`, \`ai config use\`, or \`ai doctor\` to inspect or write the global config layer directly.
+  Use \`ai config show\` to inspect the effective config after preset/env merges.
+  Use \`ai doctor\` to explain overrides and likely sources of surprising behavior.
 
 Environment overrides:
   AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli
@@ -603,6 +928,210 @@ Environment overrides:
   AI_SYSTEM_9ROUTER_API_KEY=...
   AI_SYSTEM_9ROUTER_MODEL=model-from-your-9router-dashboard
 `);
+}
+
+function printConfigShow(inspection: ConfigInspection): void {
+  console.log("");
+  console.log("Config");
+  console.log(`- repo: ${inspection.repoRoot}`);
+  console.log(`- global config: ${inspection.globalConfigPath ?? "(none)"}`);
+  console.log(`- config: ${inspection.configPath ?? "(none, using internal defaults)"}`);
+  console.log(`- global profile: ${inspection.globalProfile ?? "(none)"}`);
+  console.log(`- profile: ${inspection.profile ?? "(none)"}`);
+  console.log(
+    `- effective providers: planner=${inspection.effectiveRules.providers.planner.type}, reviewer=${inspection.effectiveRules.providers.reviewer.type}, generator=${inspection.effectiveRules.providers.generator.type}, fixer=${inspection.effectiveRules.providers.fixer.type}`
+  );
+  console.log(
+    `- routing: enabled=${inspection.effectiveRules.routing?.enabled !== false}, default_profile=${inspection.effectiveRules.routing?.default_profile ?? "(unset)"}, planning_profile=${inspection.routing.profile}`
+  );
+  console.log(
+    `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
+  );
+  console.log(`- env overrides: ${inspection.activeEnvOverrides.length}`);
+  if (inspection.projectConfig) {
+    console.log("- project config:");
+    console.log(formatDisplayJson(inspection.projectConfig));
+  }
+}
+
+function printConfigUseResult(
+  preset: string,
+  configPath: string,
+  inspection: ConfigInspection
+): void {
+  console.log("");
+  console.log("Config Updated");
+  console.log(`- config: ${configPath}`);
+  console.log(`- profile: ${preset}`);
+  console.log(
+    `- effective providers: planner=${inspection.effectiveRules.providers.planner.type}, reviewer=${inspection.effectiveRules.providers.reviewer.type}, generator=${inspection.effectiveRules.providers.generator.type}, fixer=${inspection.effectiveRules.providers.fixer.type}`
+  );
+  console.log(`- routing: enabled=${inspection.effectiveRules.routing?.enabled !== false}`);
+  console.log("- next step: keep provider/routing behavior in `.ai-system.json`; keep secrets in `.env`.");
+}
+
+function printDoctor(
+  inspection: ConfigInspection,
+  presets: Array<{ name: string; summary: string }>
+): void {
+  console.log("");
+  console.log("Doctor");
+  console.log(`- repo: ${inspection.repoRoot}`);
+  console.log(`- global config: ${inspection.globalConfigPath ?? "(none)"}`);
+  console.log(`- config: ${inspection.configPath ?? "(none)"}`);
+  console.log(`- global profile: ${inspection.globalProfile ?? "(none)"}`);
+  console.log(`- profile: ${inspection.profile ?? "(none)"}`);
+  console.log(
+    `- effective providers: planner=${inspection.effectiveRules.providers.planner.type}, reviewer=${inspection.effectiveRules.providers.reviewer.type}, generator=${inspection.effectiveRules.providers.generator.type}, fixer=${inspection.effectiveRules.providers.fixer.type}`
+  );
+  console.log(
+    `- routing decision: stage=${inspection.routing.stage}, enabled=${inspection.routing.enabled}, profile=${inspection.routing.profile}, reason=${inspection.routing.reason}`
+  );
+  console.log(
+    `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
+  );
+
+  if (inspection.activeEnvOverrides.length > 0) {
+    console.log("- active env overrides:");
+    for (const entry of inspection.activeEnvOverrides) {
+      console.log(`  - ${entry.key}=${entry.value} (${entry.category})`);
+    }
+  } else {
+    console.log("- active env overrides: (none)");
+  }
+
+  console.log("- preset catalog:");
+  for (const preset of presets) {
+    console.log(`  - ${preset.name}: ${preset.summary}`);
+  }
+
+  if (inspection.recommendations.length > 0) {
+    console.log("- recommendations:");
+    for (const recommendation of inspection.recommendations) {
+      console.log(`  - ${recommendation}`);
+    }
+  }
+}
+
+function printSetupCheck(result: SetupCheckResult): void {
+  console.log("");
+  console.log("Setup Check");
+  console.log(`- repo: ${result.inspection.repoRoot}`);
+  console.log(`- config: ${result.configPath ?? "(none)"}`);
+  console.log(`- env: ${result.envPath}`);
+  console.log(`- profile: ${result.inspection.profile ?? "(none)"}`);
+  console.log(
+    `- effective providers: planner=${result.inspection.effectiveRules.providers.planner.type}, reviewer=${result.inspection.effectiveRules.providers.reviewer.type}, generator=${result.inspection.effectiveRules.providers.generator.type}, fixer=${result.inspection.effectiveRules.providers.fixer.type}`
+  );
+  console.log(`- codex CLI: ${result.cliAvailability.codex ? "ok" : "missing"}`);
+  console.log(`- gemini CLI: ${result.cliAvailability.gemini ? "ok" : "missing"}`);
+  console.log(`- claude CLI: ${result.cliAvailability.claude ? "ok" : "missing"}`);
+
+  if (result.openmemory.enabled) {
+    console.log(`- OpenMemory base URL: ${result.openmemory.baseUrl ?? "(missing)"}`);
+    console.log(`- OpenMemory API key: ${result.openmemory.hasApiKey ? "present" : "missing"}`);
+    console.log(`- OpenMemory health: ${formatProbeResult(result.openmemory.health)}`);
+    console.log(`- OpenMemory query: ${formatProbeResult(result.openmemory.query)}`);
+    console.log(`- OpenMemory add: ${formatProbeResult(result.openmemory.add)}`);
+  } else {
+    console.log("- OpenMemory: disabled");
+  }
+}
+
+function formatProbeResult(result: { ok: boolean; status: number | null; message: string }): string {
+  const status = result.status === null ? "n/a" : String(result.status);
+  return `${result.ok ? "ok" : "failed"} (status=${status}) ${result.message}`;
+}
+
+function providerChoiceDescriptions(): Record<string, string> {
+  return {
+    auto: "Let the system decide this role dynamically from the task and routing rules.",
+    "codex-cli": "Best fit when you want Codex to own code generation inside this project.",
+    "gemini-cli": "Useful for planning or review when you want Gemini CLI in the loop.",
+    "claude-cli": "Useful for review or planning when Claude CLI is available on the machine."
+  };
+}
+
+function currentSetupProviderChoice(
+  inspection: ConfigInspection,
+  role: "planner" | "reviewer" | "generator" | "fixer"
+): string {
+  const configuredType = inspection.projectConfig?.providers?.[role]?.type;
+  return typeof configuredType === "string" && configuredType.trim() !== "" ? configuredType : "auto";
+}
+
+async function promptForChoice({
+  rl,
+  label,
+  choices,
+  defaultValue,
+  descriptions
+}: {
+  rl: readline.Interface;
+  label: string;
+  choices: string[];
+  defaultValue: string;
+  descriptions?: Record<string, string>;
+}): Promise<any> {
+  console.log("");
+  console.log(label);
+  for (const choice of choices) {
+    console.log(`- ${choice}${descriptions?.[choice] ? `: ${descriptions[choice]}` : ""}`);
+  }
+  const value = await promptForInput({ rl, label, defaultValue });
+  const normalized = value.trim();
+  if (!choices.includes(normalized)) {
+    throw new Error(`Unsupported ${label.toLowerCase()} "${normalized}". Expected one of: ${choices.join(", ")}.`);
+  }
+  return normalized;
+}
+
+async function promptForInput({
+  rl,
+  label,
+  defaultValue,
+  allowEmpty = false
+}: {
+  rl: readline.Interface;
+  label: string;
+  defaultValue?: string;
+  allowEmpty?: boolean;
+}): Promise<string> {
+  while (true) {
+    const suffix = typeof defaultValue === "string" && defaultValue !== "" ? ` [${defaultValue}]` : "";
+    const answer = (await rl.question(`${label}${suffix}: `)).trim();
+    if (answer) {
+      return answer;
+    }
+    if (typeof defaultValue === "string") {
+      return defaultValue;
+    }
+    if (allowEmpty) {
+      return "";
+    }
+  }
+}
+
+function formatDisplayJson(value: unknown): string {
+  return JSON.stringify(sanitizeForDisplay(value), null, 2);
+}
+
+function sanitizeForDisplay(value: unknown): unknown {
+  if (typeof value === "string") {
+    return maskSecrets(value);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeForDisplay(item));
+  }
+
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entryValue]) => [key, sanitizeForDisplay(entryValue)])
+    );
+  }
+
+  return value;
 }
 
 async function readTaskFromStdin(): Promise<string> {
