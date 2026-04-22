@@ -55,6 +55,8 @@ Delivered so far:
 - `ai explain-routing` explains routing from either the current task/config or the latest artifact-backed run
 - run-state and artifact index now persist execution timing and failure classification
 - `ai runs latest` now shows execution total, failure class, and per-step durations
+- `ai runs list` and `ai runs show <target>` let operators browse specific runs without opening artifact folders manually
+- run inspection commands now support `--json` for machine-readable output
 
 Why this is next:
 - The runtime now executes real checks, but operators still have to inspect raw artifacts too often.
@@ -115,6 +117,11 @@ Scope:
 - `ai fix`
 - `ai apply --from-artifact`
 - better resume/run selection UX
+
+Delivered so far:
+- `ai implement` for the standard write-enabled flow
+- `ai review` for a dry-run review-first flow
+- `ai fix` for an interactive fix-oriented flow
 
 Why this matters:
 - The engine already supports much of the behavior, but explicit workflows will reduce operator overhead.

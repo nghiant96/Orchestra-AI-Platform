@@ -108,6 +108,9 @@ ai --chat
 Inspect or change the active project config without editing JSON by hand:
 
 ```bash
+ai implement "Refactor the auth flow"
+ai review "Propose and review auth changes"
+ai fix "Fix the auth flow regression"
 ai setup
 ai setup --check
 ai config show
@@ -115,6 +118,9 @@ ai config use codex-all
 ai doctor
 ai explain-routing "Refactor the auth flow"
 ai runs latest
+ai runs list
+ai runs show last
+ai runs show last --json
 ```
 
 Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
@@ -148,6 +154,9 @@ ai --chat
 
 Recommended config workflow:
 
+- Use `ai implement "task"` for the standard write-enabled implementation flow
+- Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint
+- Use `ai fix "task"` for an interactive fix-focused flow that still writes files when approved
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
 - `ai setup` also configures the project tool checks (`lint`, `typecheck`, `build`, `test`) and changed-file scoping preferences
 - Use `ai setup --check` to verify CLI availability and OpenMemory connectivity without changing files
@@ -158,6 +167,9 @@ Recommended config workflow:
 - Use `ai doctor` when behavior is surprising and you need to see env/routing overrides
 - Use `ai explain-routing "task"` to see why the current config would pick specific providers for that task
 - Use `ai runs latest` to inspect the latest artifact-backed run summary quickly, including execution time, failure class, and step durations
+- Use `ai runs list` to browse recent artifact-backed runs
+- Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
+- Add `--json` to run inspection commands when you want machine-readable output
 
 Tool execution workflow:
 

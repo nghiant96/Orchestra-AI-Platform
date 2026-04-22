@@ -7,7 +7,9 @@ import {
   createArtifactState,
   finalizeArtifactState,
   loadSavedContextArtifacts,
+  loadRunSummary,
   loadRecentRunSummary,
+  listRecentRunSummaries,
   persistContextArtifacts,
   persistIterationArtifacts,
   persistPlanArtifacts,
@@ -415,6 +417,85 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     assert.equal(summary.routing.implementation?.profile, "safe");
     assert.equal(summary.runState.latestToolResults?.[0]?.name, "typecheck");
     assert.equal(summary.runState.execution?.totalDurationMs, 60);
+    assert.equal(summary.runState.execution?.failure?.class, "tool-check-failed");
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("listRecentRunSummaries and loadRunSummary support browsing multiple runs", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-run-list-"));
+  const rules = createRules();
+  const artifactsDir = path.join(tempDir, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  const olderRunDir = path.join(artifactsDir, "run-2026-04-22T10-00-00-000Z-aaaaaa");
+  const newerRunDir = path.join(artifactsDir, "run-2026-04-22T10-05-00-000Z-bbbbbb");
+
+  try {
+    await fs.mkdir(olderRunDir, { recursive: true });
+    await fs.mkdir(newerRunDir, { recursive: true });
+
+    await fs.writeFile(
+      path.join(olderRunDir, "run-state.json"),
+      JSON.stringify({
+        status: "failed",
+        task: "Older run",
+        iterations: [{ iteration: 1, summary: "older", issues: [] }],
+        execution: {
+          totalDurationMs: 50,
+          steps: [{ name: "planner", durationMs: 50, status: "completed" }],
+          failure: { class: "tool-check-failed", reason: "Tool checks failed: lint." }
+        }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(olderRunDir, "artifact-index.json"),
+      JSON.stringify({
+        updatedAt: "2026-04-22T10:00:00.000Z",
+        runPath: olderRunDir,
+        latestStatus: "failed",
+        latestTask: "Older run",
+        latestFiles: ["src/older.ts"],
+        iterationCount: 1
+      }),
+      "utf8"
+    );
+
+    await fs.writeFile(
+      path.join(newerRunDir, "run-state.json"),
+      JSON.stringify({
+        status: "completed",
+        task: "Newer run",
+        iterations: [{ iteration: 1, summary: "newer", issues: [] }],
+        execution: {
+          totalDurationMs: 25,
+          steps: [{ name: "planner", durationMs: 25, status: "completed" }],
+          failure: null
+        }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(newerRunDir, "artifact-index.json"),
+      JSON.stringify({
+        updatedAt: "2026-04-22T10:05:00.000Z",
+        runPath: newerRunDir,
+        latestStatus: "completed",
+        latestTask: "Newer run",
+        latestFiles: ["src/newer.ts"],
+        iterationCount: 1
+      }),
+      "utf8"
+    );
+
+    const runs = await listRecentRunSummaries(tempDir, rules, 10);
+    assert.equal(runs.length, 2);
+    assert.equal(runs[0]?.runName, "run-2026-04-22T10-05-00-000Z-bbbbbb");
+    assert.equal(runs[0]?.status, "completed");
+    assert.equal(runs[1]?.execution?.failure?.class, "tool-check-failed");
+
+    const summary = await loadRunSummary(tempDir, rules, "run-2026-04-22T10-00-00-000Z-aaaaaa");
+    assert.equal(summary.runState.task, "Older run");
     assert.equal(summary.runState.execution?.failure?.class, "tool-check-failed");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });

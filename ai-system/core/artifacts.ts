@@ -77,6 +77,18 @@ export interface RecentRunSummary {
   };
 }
 
+export interface RunListEntry {
+  statePath: string;
+  runPath: string;
+  runName: string;
+  status: string;
+  task: string;
+  updatedAt: string | null;
+  iterationCount: number;
+  latestFiles: string[];
+  execution: ExecutionSummary | null;
+}
+
 export function buildStoppedResult({
   status,
   dryRun,
@@ -585,6 +597,47 @@ export async function loadRecentRunSummary(repoRoot: string, rules: RulesConfig,
   };
 }
 
+export async function listRecentRunSummaries(repoRoot: string, rules: RulesConfig, limit = 10): Promise<RunListEntry[]> {
+  const runDirs = await listRunDirectories(repoRoot, rules);
+  const summaries: RunListEntry[] = [];
+
+  for (const runDir of runDirs.slice(0, Math.max(0, limit))) {
+    const summary = await loadRunSummaryFromDirectory(runDir);
+    if (summary) {
+      summaries.push(summary);
+    }
+  }
+
+  return summaries;
+}
+
+export async function loadRunSummary(repoRoot: string, rules: RulesConfig, target: string): Promise<RecentRunSummary> {
+  const normalizedTarget = String(target || "").trim();
+  if (!normalizedTarget || normalizedTarget === "last") {
+    return await loadRecentRunSummary(repoRoot, rules, "last");
+  }
+
+  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  const repoRelativeTarget = path.resolve(repoRoot, normalizedTarget);
+  const artifactRelativeTarget = path.join(artifactsDir, normalizedTarget);
+  const absoluteTarget = path.isAbsolute(normalizedTarget)
+    ? normalizedTarget
+    : (await pathExists(repoRelativeTarget))
+      ? repoRelativeTarget
+      : artifactRelativeTarget;
+
+  try {
+    const stat = await fs.stat(absoluteTarget);
+    if (stat.isDirectory()) {
+      return await loadRecentRunSummary(repoRoot, rules, absoluteTarget);
+    }
+  } catch {
+    // Fall through and let resolveResumeStatePath-style handling report a better error below.
+  }
+
+  return await loadRecentRunSummary(repoRoot, rules, absoluteTarget);
+}
+
 export async function loadSavedContextArtifacts(state: ArtifactState, expectedPaths: string[]): Promise<ContextFile[]> {
   const contextDir = state.stepPaths.context ? path.join(state.stepPaths.context, "files") : null;
   if (!contextDir) {
@@ -724,14 +777,17 @@ async function readJsonIfExists<T>(filePath: string): Promise<T | null> {
   }
 }
 
-async function resolveLatestRunStatePath(repoRoot: string, rules: RulesConfig, missingMessage: string): Promise<string> {
-  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
-  const entries = await fs.readdir(artifactsDir, { withFileTypes: true });
-  const runDirs = entries
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("run-"))
-    .map((entry) => path.join(artifactsDir, entry.name))
-    .sort((left, right) => right.localeCompare(left));
+async function pathExists(targetPath: string): Promise<boolean> {
+  try {
+    await fs.access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
+async function resolveLatestRunStatePath(repoRoot: string, rules: RulesConfig, missingMessage: string): Promise<string> {
+  const runDirs = await listRunDirectories(repoRoot, rules);
   for (const runDir of runDirs) {
     const statePath = path.join(runDir, "run-state.json");
     try {
@@ -742,5 +798,44 @@ async function resolveLatestRunStatePath(repoRoot: string, rules: RulesConfig, m
     }
   }
 
+  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
   throw new Error(`${missingMessage} in ${artifactsDir}`);
+}
+
+async function listRunDirectories(repoRoot: string, rules: RulesConfig): Promise<string[]> {
+  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  let entries: Awaited<ReturnType<typeof fs.readdir>> | Array<{ isDirectory(): boolean; name: string }>;
+  try {
+    entries = await fs.readdir(artifactsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("run-"))
+    .map((entry) => path.join(artifactsDir, entry.name))
+    .sort((left, right) => right.localeCompare(left));
+}
+
+async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry | null> {
+  const statePath = path.join(runDir, "run-state.json");
+  const indexPath = path.join(runDir, "artifact-index.json");
+
+  try {
+    const runState = JSON.parse(await fs.readFile(statePath, "utf8")) as RecentRunSummary["runState"];
+    const artifactIndex = await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath);
+    return {
+      statePath,
+      runPath: runDir,
+      runName: path.basename(runDir),
+      status: runState.status ?? artifactIndex?.latestStatus ?? "unknown",
+      task: runState.task ?? artifactIndex?.latestTask ?? "",
+      updatedAt: artifactIndex?.updatedAt ?? null,
+      iterationCount: artifactIndex?.iterationCount ?? runState.iterations?.length ?? 0,
+      latestFiles: runState.result?.files?.map((file) => file.path) ?? artifactIndex?.latestFiles ?? [],
+      execution: runState.execution ?? artifactIndex?.execution ?? null
+    };
+  } catch {
+    return null;
+  }
 }

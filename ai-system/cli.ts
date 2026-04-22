@@ -6,7 +6,8 @@ import { createLogger } from "./utils/logger.js";
 import type { OrchestratorResult, RoutingDecision } from "./types.js";
 import { maskSecrets } from "./utils/string.js";
 import type { ConfigInspection, SetupCheckResult } from "./core/config-workflow.js";
-import type { RecentRunSummary } from "./core/artifacts.js";
+import type { RecentRunSummary, RunListEntry } from "./core/artifacts.js";
+import { applyWorkflowModeDefaults, type WorkflowMode } from "./core/workflow-modes.js";
 
 const PRESET_ENV_KEYS = [
   "AI_SYSTEM_PROVIDER",
@@ -36,10 +37,12 @@ interface CliOptions {
   providerPreset: string | null;
   resumeTarget: string | null;
   command: CliCommand | null;
+  outputJson: boolean;
+  workflowMode: WorkflowMode;
   task: string;
 }
 
-type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig">;
+type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "outputJson" | "workflowMode">;
 type CliCommand =
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
@@ -47,7 +50,9 @@ type CliCommand =
   | { kind: "explain-routing" }
   | { kind: "setup" }
   | { kind: "setup-check" }
-  | { kind: "runs-latest" };
+  | { kind: "runs-latest" }
+  | { kind: "runs-list" }
+  | { kind: "runs-show"; target: string };
 
 interface InteractiveState {
   cwd: string;
@@ -97,18 +102,36 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let confirmPlan = false;
   let pauseAfterPlan = false;
   let pauseAfterGenerate = false;
+  let outputJson = false;
   let help = false;
   let configPath: string | null = null;
   let globalConfig = false;
   let providerPreset: string | null = null;
   let resumeTarget: string | null = null;
   let command: CliCommand | null = null;
+  let workflowMode: WorkflowMode = "standard";
+  let dryRunExplicit = false;
+  let interactiveExplicit = false;
+  let pauseAfterPlanExplicit = false;
+  let pauseAfterGenerateExplicit = false;
   const taskParts: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
 
     if (arg === "--") {
+      continue;
+    }
+    if (arg === "implement") {
+      workflowMode = "implement";
+      continue;
+    }
+    if (arg === "review") {
+      workflowMode = "review";
+      continue;
+    }
+    if (arg === "fix") {
+      workflowMode = "fix";
       continue;
     }
     if (arg === "--help" || arg === "-h") {
@@ -130,7 +153,21 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
         index += 1;
         continue;
       }
-      throw new Error("Unsupported runs subcommand. Use `runs latest`.");
+      if (nextArg === "list") {
+        command = { kind: "runs-list" };
+        index += 1;
+        continue;
+      }
+      if (nextArg === "show") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error("Missing target for `runs show`. Use a run directory, run-state path, or `last`.");
+        }
+        command = { kind: "runs-show", target };
+        index += 2;
+        continue;
+      }
+      throw new Error("Unsupported runs subcommand. Use `runs latest`, `runs list`, or `runs show <target>`.");
     }
     if (arg === "setup") {
       const nextArg = args[index + 1];
@@ -213,6 +250,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     }
     if (arg === "--dry-run") {
       dryRun = true;
+      dryRunExplicit = true;
       continue;
     }
     if (arg === "--chat") {
@@ -221,20 +259,30 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     }
     if (arg === "--interactive" || arg === "--approve-plan") {
       confirmPlan = true;
+      interactiveExplicit = true;
       continue;
     }
     if (arg === "--pause-after-plan") {
       pauseAfterPlan = true;
+      pauseAfterPlanExplicit = true;
       continue;
     }
     if (arg === "--pause-after-generate") {
       pauseAfterGenerate = true;
+      pauseAfterGenerateExplicit = true;
       continue;
     }
     if (arg === "--manual-review") {
       confirmPlan = true;
       pauseAfterPlan = true;
       pauseAfterGenerate = true;
+      interactiveExplicit = true;
+      pauseAfterPlanExplicit = true;
+      pauseAfterGenerateExplicit = true;
+      continue;
+    }
+    if (arg === "--json") {
+      outputJson = true;
       continue;
     }
 
@@ -243,24 +291,32 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
 
   const pipedTask = command ? "" : await readTaskFromStdin();
   const task = taskParts.join(" ").trim() || pipedTask;
+  const workflowFlags = applyWorkflowModeDefaults(workflowMode, {
+    dryRun: dryRunExplicit ? dryRun : undefined,
+    interactive: interactiveExplicit ? confirmPlan : undefined,
+    pauseAfterPlan: pauseAfterPlanExplicit ? pauseAfterPlan : undefined,
+    pauseAfterGenerate: pauseAfterGenerateExplicit ? pauseAfterGenerate : undefined
+  });
 
-  if (!task && !chat && process.stdin.isTTY && process.stdout.isTTY) {
+  if (!task && !chat && process.stdin.isTTY && process.stdout.isTTY && workflowMode === "standard") {
     chat = true;
   }
 
   return {
     cwd,
-    dryRun,
+    dryRun: workflowFlags.dryRun,
     chat,
-    interactive: confirmPlan,
-    pauseAfterPlan,
-    pauseAfterGenerate,
+    interactive: workflowFlags.interactive,
+    pauseAfterPlan: workflowFlags.pauseAfterPlan,
+    pauseAfterGenerate: workflowFlags.pauseAfterGenerate,
     help,
     configPath,
     globalConfig,
     providerPreset,
     resumeTarget,
     command,
+    outputJson,
+    workflowMode,
     task
   };
 }
@@ -350,7 +406,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
   }
 }
 
-async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task }: CliOptions): Promise<void> {
+async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task, outputJson }: CliOptions): Promise<void> {
   if (!command) {
     return;
   }
@@ -460,6 +516,34 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
       const { loadRecentRunSummary } = await import("./core/artifacts.js");
       const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
       const summary = await loadRecentRunSummary(cwd, rules, "last");
+      if (outputJson) {
+        printJson(summary);
+        return;
+      }
+      printRecentRunSummary(summary);
+      return;
+    }
+    case "runs-list": {
+      const { loadRules } = await import("./core/orchestrator-runtime.js");
+      const { listRecentRunSummaries } = await import("./core/artifacts.js");
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const summaries = await listRecentRunSummaries(cwd, rules, 10);
+      if (outputJson) {
+        printJson(summaries);
+        return;
+      }
+      printRunList(summaries, cwd);
+      return;
+    }
+    case "runs-show": {
+      const { loadRules } = await import("./core/orchestrator-runtime.js");
+      const { loadRunSummary } = await import("./core/artifacts.js");
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const summary = await loadRunSummary(cwd, rules, command.target);
+      if (outputJson) {
+        printJson(summary);
+        return;
+      }
       printRecentRunSummary(summary);
       return;
     }
@@ -898,9 +982,15 @@ function buildPrompt(state: InteractiveState): string {
 function printHelp(): void {
   console.log(`Usage:
   ai "task description"
+  ai implement "task description"
+  ai review "task description"
+  ai fix "task description"
   ai explain-routing "task description"
   ai explain-routing
   ai runs latest
+  ai runs list
+  ai runs show last
+  ai runs show last --json
   ai setup
   ai setup --global
   ai setup --check
@@ -923,9 +1013,15 @@ function printHelp(): void {
 
 Examples:
   ai "Refactor the auth flow"
+  ai implement "Refactor the auth flow"
+  ai review "Propose and review auth changes"
+  ai fix "Fix the auth flow regression"
   ai explain-routing "Refactor the auth flow"
   ai explain-routing
   ai runs latest
+  ai runs list
+  ai runs show run-2026-...
+  ai runs show last --json
   ai setup
   ai setup --global
   ai setup --check
@@ -955,6 +1051,11 @@ Interactive mode:
   Use --manual-review to enable plan approval plus both pause checkpoints.
   Use --resume or --resume-last to continue a paused run from checkpoint artifacts.
 
+Workflow modes:
+  Use \`ai implement "task"\` for the standard write-enabled flow.
+  Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint.
+  Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
+
 Provider presets:
   --provider local-cli
   --provider 9router
@@ -978,6 +1079,9 @@ Project config:
   Use \`ai explain-routing "task"\` to see why the current config would choose specific providers.
   Use \`ai explain-routing\` with no task to inspect routing from the latest artifact-backed run.
   Use \`ai runs latest\` to inspect the newest artifact-backed run without opening JSON files manually.
+  Use \`ai runs list\` to browse recent runs quickly.
+  Use \`ai runs show <target>\` to inspect a specific run directory or run-state file.
+  Add \`--json\` to run inspection commands when you want machine-readable output.
 
 Environment overrides:
   AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli
@@ -1291,6 +1395,10 @@ function formatDisplayJson(value: unknown): string {
   return JSON.stringify(sanitizeForDisplay(value), null, 2);
 }
 
+function printJson(value: unknown): void {
+  console.log(formatDisplayJson(value));
+}
+
 function sanitizeForDisplay(value: unknown): unknown {
   if (typeof value === "string") {
     return maskSecrets(value);
@@ -1486,6 +1594,31 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   }
   if (summary.artifactIndex?.runPath) {
     console.log(`- artifact run: ${summary.artifactIndex.runPath}`);
+  }
+}
+
+function printRunList(runs: RunListEntry[], repoRoot: string): void {
+  console.log("");
+  console.log("Recent Runs");
+  console.log(`- repo: ${repoRoot}`);
+  if (runs.length === 0) {
+    console.log("- runs: none");
+    return;
+  }
+
+  for (const run of runs) {
+    const execution = run.execution;
+    console.log(
+      `- ${run.runName}: status=${run.status}, iterations=${run.iterationCount}, updated=${run.updatedAt ?? "(unknown)"}`
+    );
+    console.log(`  task: ${run.task || "(unknown)"}`);
+    console.log(`  state: ${run.statePath}`);
+    if (execution) {
+      console.log(
+        `  execution: total=${formatDuration(execution.totalDurationMs)}, failure=${execution.failure ? execution.failure.class : "none"}`
+      );
+    }
+    console.log(`  files: ${run.latestFiles.join(", ") || "(none)"}`);
   }
 }
 
