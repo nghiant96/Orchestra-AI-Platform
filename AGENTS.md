@@ -1,7 +1,7 @@
 <claude-mem-context>
 # Memory Context
 
-# [AI-CODING-SYSTEM] recent context, 2026-04-22 11:00am GMT+7
+# [AI-CODING-SYSTEM] recent context, 2026-04-22 2:29pm GMT+7
 
 No previous sessions found.
 </claude-mem-context>
@@ -26,7 +26,7 @@ These notes define the expected working style for agents operating in this repos
 
 ## 3. Self-Improvement Loop
 
-- After any correction from the user, capture the lesson in `tasks/lessons.md`.
+- After any correction from the user, capture the lesson in `tasks/lessons.md` for the active project/workspace, not automatically in AI-CODING-SYSTEM unless this repo is the project being changed.
 - Turn recurring mistakes into explicit rules that prevent the same failure mode.
 - Iterate on these lessons until the same class of mistake stops recurring.
 - Review relevant lessons before starting work in this project.
@@ -54,12 +54,12 @@ These notes define the expected working style for agents operating in this repos
 
 ## Task Management
 
-1. Write the current plan to `tasks/todo.md` using checkable items for non-trivial work.
+1. Write the current plan to `tasks/todo.md` in the active project/workspace root using checkable items for non-trivial work.
 2. Confirm the plan before deep implementation work when the task is ambiguous, risky, or large.
-3. Mark progress in `tasks/todo.md` as work advances.
+3. Mark progress in that workspace's `tasks/todo.md` as work advances.
 4. Summarize important changes at a high level as milestones complete.
-5. Add a short review/result section to `tasks/todo.md` when the task finishes.
-6. Update `tasks/lessons.md` after meaningful corrections or newly learned project rules.
+5. Add a short review/result section to that workspace's `tasks/todo.md` when the task finishes.
+6. Update `tasks/lessons.md` in the active project/workspace after meaningful corrections or newly learned project rules.
 
 ## Core Principles
 
