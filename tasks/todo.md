@@ -4,21 +4,20 @@ Use this file for non-trivial work that benefits from an explicit execution plan
 
 ## Active Task
 
-Task: Improve the AI Coding System runtime by tightening TypeScript safety, hardening command timeout handling, and adding regression tests.
+Task: Continue the orchestrator refactor by extracting persistence and execution logic into dedicated modules.
 
 - [x] Define the current task
 - [x] Read project guidance and existing lessons
-- [x] Enable stricter TypeScript settings and fix the resulting compiler errors
-- [x] Add timeout escalation so stuck child processes are force-killed after a grace period
-- [x] Add project-level tests for JSON extraction, schema validation, and env loading behavior
+- [x] Extract artifact/state persistence helpers into a dedicated module
+- [x] Extract the generation/review loop into `run-executor.ts`
+- [x] Simplify `orchestrator.ts` to coordinator-only flow where practical
 - [x] Run verification and record the final result
 
 ## Review
 
-- Result: `strict` is now enabled in `tsconfig.json`, the codebase passes `pnpm exec tsc --noEmit`, command execution escalates from `SIGTERM` to `SIGKILL` after a configurable grace period, and new project-level tests cover env parsing/loading, JSON extraction, schema validation, and timeout cleanup.
+- Result: Artifact/state persistence now lives in `ai-system/core/artifacts.ts`, the generation/review loop now lives in `ai-system/core/run-executor.ts`, and `ai-system/core/orchestrator.ts` primarily coordinates planning, resume loading, and high-level control flow.
 - Verification:
   - `pnpm exec tsc --noEmit`
   - `pnpm test`
   - `pnpm run ai:help`
-  - `node --import tsx ./bin/ai.js --help`
-- Notes: Added `test` and `typecheck` scripts, plus a pure `parseEnvFileContent` helper to make env-loading behavior testable without depending on Node runtime internals.
+- Notes: `orchestrator.ts` is now much smaller and the risky duplicated control flow has been moved behind module boundaries, which makes the next round of refinement safer.
