@@ -4,13 +4,14 @@ Use this file for non-trivial work that benefits from an explicit execution plan
 
 ## Active Task
 
-Task: Add orchestration-level resume integration tests and extract interactive confirmation out of the orchestrator.
+Task: Improve runtime visibility with artifact timeline and artifact index while keeping run/resume compatibility.
 
 - [x] Define the current task
 - [x] Read project guidance and existing lessons
-- [x] Extract interactive confirmation helpers into a dedicated module
-- [x] Wire `orchestrator.ts` to the confirmation module
-- [x] Add integration tests for `Orchestrator.resume()` with fake providers
+- [x] Add artifact timeline and artifact index outputs in the persistence layer
+- [x] Wire plan/context/iteration/run-state persistence to update visibility files
+- [x] Preserve compatibility with restore/resume and existing artifact summaries
+- [x] Add tests for timeline/index behavior
 - [x] Run verification and record the final result
 
 ## Review
@@ -20,4 +21,4 @@ Task: Add orchestration-level resume integration tests and extract interactive c
   - Passed `pnpm exec tsc --noEmit`
   - Passed `pnpm test`
   - Passed `pnpm run ai:help`
-- Notes: `orchestrator.ts` now delegates interactive prompts to a dedicated confirmation module, and `resume()` is covered at the orchestration layer for both `paused_after_plan` and `paused_after_generate` flows using fake CLI providers in temp repos.
+- Notes: Every persisted run now emits `timeline.jsonl` and `artifact-index.json` alongside existing checkpoints, making it much easier to inspect step order, last known status, and artifact paths without changing the execution flow.

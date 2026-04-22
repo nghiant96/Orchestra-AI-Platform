@@ -28,7 +28,7 @@ import {
   type PersistedRunState
 } from "./artifacts.js";
 import { confirmCheckpoint, confirmPlan } from "./orchestrator-confirmation.js";
-import { loadOrchestratorRuntime } from "./orchestrator-runtime.js";
+import { loadOrchestratorRuntime, loadRules } from "./orchestrator-runtime.js";
 import {
   executeGenerationLoop,
   finalizeFailedRun,
@@ -63,7 +63,8 @@ export class Orchestrator {
     const { rules, configPath, runtime } = await loadOrchestratorRuntime({
       repoRoot,
       explicitConfigPath: this.configPath,
-      logger: this.logger
+      logger: this.logger,
+      task
     });
 
     const memoryStats: MemoryStats = {
@@ -221,11 +222,7 @@ export class Orchestrator {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
-    const { rules, configPath, runtime } = await loadOrchestratorRuntime({
-      repoRoot,
-      explicitConfigPath: this.configPath,
-      logger: this.logger
-    });
+    const { rules, configPath } = await loadRules(repoRoot, this.configPath);
 
     const statePath = await resolveResumeStatePath(repoRoot, rules, resumeTarget);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8")) as PersistedRunState;
@@ -234,6 +231,12 @@ export class Orchestrator {
     }
 
     const task = saved.task ?? "";
+    const { runtime } = await loadOrchestratorRuntime({
+      repoRoot,
+      explicitConfigPath: this.configPath,
+      logger: this.logger,
+      task
+    });
     const dryRun = saved.dryRun ?? false;
     const plan = saved.plan;
     let skippedFiles: string[] = saved.skippedContextFiles ?? [];

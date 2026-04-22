@@ -128,12 +128,33 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
 
     const restored = restoreArtifactState(tempDir, rules, saved.artifacts, statePath as string);
     const restoredContexts = await loadSavedContextArtifacts(restored, plan.readFiles);
+    const timelineRaw = await fs.readFile(path.join(state.runDir as string, "timeline.jsonl"), "utf8");
+    const timeline = timelineRaw
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { step: string; status: string });
+    const index = JSON.parse(await fs.readFile(path.join(state.runDir as string, "artifact-index.json"), "utf8")) as {
+      latestStatus: string;
+      latestStep: string;
+      iterationCount: number;
+      stepPaths: Record<string, string>;
+    };
 
     assert.deepEqual(restoredContexts, contextFiles);
     assert.equal(restored.runDir, state.runDir);
     assert.equal(restored.stepPaths.plan, state.stepPaths.plan);
     assert.equal(restored.stepPaths.context, state.stepPaths.context);
     assert.equal(restored.latestIterationPath, state.latestIterationPath);
+    assert.deepEqual(
+      timeline.map((entry) => entry.step),
+      ["01-plan", "02-context", "iteration-1", "run-state"]
+    );
+    assert.equal(index.latestStatus, "paused_after_generate");
+    assert.equal(index.latestStep, "run-state");
+    assert.equal(index.iterationCount, 1);
+    assert.ok(index.stepPaths.timeline);
+    assert.ok(index.stepPaths.index);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

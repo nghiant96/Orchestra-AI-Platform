@@ -27,6 +27,64 @@
     "query_timeout_ms": 15000,
     "store_timeout_ms": 15000
   },
+  "routing": {
+    "enabled": true,
+    "default_profile": "balanced",
+    "profiles": {
+      "fast": {
+        "planner": "gemini-cli",
+        "reviewer": "codex-cli",
+        "generator": "codex-cli",
+        "fixer": "codex-cli"
+      },
+      "balanced": {
+        "planner": "gemini-cli",
+        "reviewer": "gemini-cli",
+        "generator": "codex-cli",
+        "fixer": "codex-cli"
+      },
+      "safe": {
+        "planner": "gemini-cli",
+        "reviewer": "claude-cli",
+        "generator": "codex-cli",
+        "fixer": "codex-cli"
+      }
+    },
+    "heuristics": {
+      "fast": [
+        "readme",
+        "docs",
+        "documentation",
+        "comment",
+        "comments",
+        "typo",
+        "wording",
+        "copy",
+        "text",
+        "logging"
+      ],
+      "safe": [
+        "auth",
+        "permission",
+        "security",
+        "secret",
+        "token",
+        "credential",
+        "payment",
+        "billing",
+        "checkout",
+        "database",
+        "db",
+        "schema",
+        "migration",
+        "sql",
+        "production",
+        "deploy",
+        "delete",
+        "drop"
+      ]
+    }
+  },
   "providers": {
     "planner": {
       "type": "gemini-cli",

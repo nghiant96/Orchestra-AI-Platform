@@ -41,6 +41,22 @@ export interface ProviderConfigMap extends Record<string, ProviderConfig> {
   fixer: ProviderConfig;
 }
 
+export type ProviderRole = "planner" | "reviewer" | "generator" | "fixer";
+
+export interface ProviderRoutingProfile extends Partial<Record<ProviderRole, string>> {}
+
+export interface RoutingConfig {
+  enabled?: boolean;
+  default_profile?: string;
+  profiles?: Record<string, ProviderRoutingProfile>;
+  heuristics?: {
+    fast?: string[];
+    safe?: string[];
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 export interface MemoryConfig {
   enabled?: boolean;
   backend?: string;
@@ -78,6 +94,7 @@ export interface RulesConfig {
   };
   memory: MemoryConfig;
   providers: ProviderConfigMap;
+  routing?: RoutingConfig;
   excluded_directories?: string[];
   sensitive_file_names?: string[];
   [key: string]: unknown;

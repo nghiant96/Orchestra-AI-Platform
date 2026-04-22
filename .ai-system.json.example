@@ -13,11 +13,11 @@
       "type": "gemini-cli"
     },
     "generator": {
-      "type": "gemini-cli",
+      "type": "codex-cli",
       "timeout_ms": 0
     },
     "fixer": {
-      "type": "gemini-cli",
+      "type": "codex-cli",
       "timeout_ms": 0
     }
   }

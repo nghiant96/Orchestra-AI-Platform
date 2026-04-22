@@ -110,6 +110,7 @@ export function restoreArtifactState(
   state.runDir = runPath;
   state.latestIterationPath = savedArtifacts?.latestIterationPath ? path.resolve(savedArtifacts.latestIterationPath) : null;
   state.stepPaths = normalizeStepPaths(savedArtifacts?.stepPaths ?? {}, runPath);
+  ensureArtifactVisibilityPaths(state);
   return state;
 }
 
@@ -128,6 +129,7 @@ export async function persistPlanArtifacts(
   }
 
   const stepPath = await ensureArtifactStepDirectory(state, "01-plan");
+  ensureArtifactVisibilityPaths(state);
   const manifest = {
     savedAt: new Date().toISOString(),
     provider: payload.provider,
@@ -137,6 +139,19 @@ export async function persistPlanArtifacts(
   };
   await fs.writeFile(path.join(stepPath, "plan.json"), JSON.stringify(manifest, null, 2), "utf8");
   state.stepPaths.plan = stepPath;
+  await appendArtifactTimeline(state, {
+    step: "01-plan",
+    status: "saved",
+    message: "Planner checkpoint persisted.",
+    task: payload.task,
+    provider: payload.provider,
+    artifactPath: stepPath
+  });
+  await writeArtifactIndex(state, {
+    latestStep: "01-plan",
+    latestTask: payload.task,
+    latestProvider: payload.provider
+  });
   logger?.info(`Saved planner checkpoint at ${stepPath}`);
   return stepPath;
 }
@@ -151,6 +166,7 @@ export async function persistContextArtifacts(
   }
 
   const stepPath = await ensureArtifactStepDirectory(state, "02-context");
+  ensureArtifactVisibilityPaths(state);
   const filesRoot = path.join(stepPath, "files");
   await fs.mkdir(filesRoot, { recursive: true });
 
@@ -168,6 +184,19 @@ export async function persistContextArtifacts(
   };
   await fs.writeFile(path.join(stepPath, "context.json"), JSON.stringify(manifest, null, 2), "utf8");
   state.stepPaths.context = stepPath;
+  await appendArtifactTimeline(state, {
+    step: "02-context",
+    status: "saved",
+    message: `Context checkpoint persisted with ${payload.contexts.length} file(s).`,
+    artifactPath: stepPath,
+    metadata: {
+      readFiles: payload.readFiles,
+      skippedFiles: payload.skippedFiles
+    }
+  });
+  await writeArtifactIndex(state, {
+    latestStep: "02-context"
+  });
   logger?.info(`Saved context checkpoint at ${stepPath}`);
   return stepPath;
 }
@@ -197,6 +226,7 @@ export async function persistIterationArtifacts(
   if (!state.runDir) {
     state.runDir = path.join(state.baseDir, createRunDirectoryName());
   }
+  ensureArtifactVisibilityPaths(state);
 
   const iterationPath = path.join(state.runDir, `iteration-${payload.iteration}`);
   const filesRoot = path.join(iterationPath, "files");
@@ -239,6 +269,25 @@ export async function persistIterationArtifacts(
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   state.latestIterationPath = iterationPath;
   state.stepPaths[`iteration-${payload.iteration}`] = iterationPath;
+  await appendArtifactTimeline(state, {
+    step: `iteration-${payload.iteration}`,
+    status: "saved",
+    message: `Iteration ${payload.iteration} artifacts persisted.`,
+    task: payload.task,
+    provider: payload.provider,
+    iteration: payload.iteration,
+    artifactPath: iterationPath,
+    metadata: {
+      candidateFiles: payload.candidateFiles.map((file) => file.path),
+      issueCount: payload.issues.length
+    }
+  });
+  await writeArtifactIndex(state, {
+    latestStep: `iteration-${payload.iteration}`,
+    latestTask: payload.task,
+    latestProvider: payload.provider,
+    latestFiles: payload.candidateFiles.map((file) => file.path)
+  });
   logger?.info(`Saved candidate artifacts for manual review at ${iterationPath}`);
   return { iterationPath, manifestPath };
 }
@@ -273,6 +322,8 @@ export async function persistRunState(
   }
 
   const statePath = path.join(state.runDir, "run-state.json");
+  ensureArtifactVisibilityPaths(state);
+  state.stepPaths.runState = statePath;
   const serializable = {
     version: 1,
     status: payload.status ?? (payload.ok ? "completed" : "failed"),
@@ -296,7 +347,23 @@ export async function persistRunState(
   };
 
   await fs.writeFile(statePath, JSON.stringify(serializable, null, 2), "utf8");
-  state.stepPaths.runState = statePath;
+  await appendArtifactTimeline(state, {
+    step: "run-state",
+    status: serializable.status,
+    message: `Run state persisted with status ${serializable.status}.`,
+    task: payload.task,
+    artifactPath: statePath,
+    metadata: {
+      iterations: serializable.iterations.length,
+      wroteFiles: serializable.wroteFiles
+    }
+  });
+  await writeArtifactIndex(state, {
+    latestStep: "run-state",
+    latestStatus: serializable.status,
+    latestTask: payload.task,
+    latestFiles: serializable.artifacts?.latestFiles ?? []
+  });
   logger?.info(`Saved resumable run state at ${statePath}`);
   return statePath;
 }
@@ -388,10 +455,89 @@ async function ensureArtifactStepDirectory(state: ArtifactState, name: string): 
   if (!state.runDir) {
     state.runDir = path.join(state.baseDir, createRunDirectoryName());
   }
+  ensureArtifactVisibilityPaths(state);
 
   const stepPath = path.join(state.runDir, name);
   await fs.mkdir(stepPath, { recursive: true });
   return stepPath;
+}
+
+function ensureArtifactVisibilityPaths(state: ArtifactState): void {
+  if (!state.runDir) {
+    return;
+  }
+
+  if (!state.stepPaths.timeline) {
+    state.stepPaths.timeline = path.join(state.runDir, "timeline.jsonl");
+  }
+  if (!state.stepPaths.index) {
+    state.stepPaths.index = path.join(state.runDir, "artifact-index.json");
+  }
+}
+
+async function appendArtifactTimeline(
+  state: ArtifactState,
+  entry: {
+    step: string;
+    status: string;
+    message: string;
+    task?: string;
+    provider?: string;
+    iteration?: number;
+    artifactPath?: string | null;
+    metadata?: Record<string, unknown>;
+  }
+): Promise<void> {
+  if (!state.enabled || !state.runDir) {
+    return;
+  }
+
+  ensureArtifactVisibilityPaths(state);
+  const timelinePath = state.stepPaths.timeline;
+  if (!timelinePath) {
+    return;
+  }
+
+  const record = {
+    timestamp: new Date().toISOString(),
+    ...entry
+  };
+  await fs.appendFile(timelinePath, `${JSON.stringify(record)}\n`, "utf8");
+}
+
+async function writeArtifactIndex(
+  state: ArtifactState,
+  payload: {
+    latestStep: string;
+    latestStatus?: string;
+    latestTask?: string;
+    latestProvider?: string;
+    latestFiles?: string[];
+  }
+): Promise<void> {
+  if (!state.enabled || !state.runDir) {
+    return;
+  }
+
+  ensureArtifactVisibilityPaths(state);
+  const indexPath = state.stepPaths.index;
+  if (!indexPath) {
+    return;
+  }
+
+  const index = {
+    updatedAt: new Date().toISOString(),
+    runPath: state.runDir,
+    latestIterationPath: state.latestIterationPath,
+    latestStep: payload.latestStep,
+    latestStatus: payload.latestStatus ?? null,
+    latestTask: payload.latestTask ?? null,
+    latestProvider: payload.latestProvider ?? null,
+    latestFiles: payload.latestFiles ?? [],
+    iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
+    stepPaths: state.stepPaths
+  };
+  await fs.writeFile(indexPath, JSON.stringify(index, null, 2), "utf8");
 }
 
 function normalizeStepPaths(stepPaths: Record<string, unknown>, runPath: string): Record<string, string> {
