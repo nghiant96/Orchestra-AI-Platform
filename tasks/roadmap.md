@@ -53,6 +53,8 @@ Delivered so far:
 - `ai doctor` shows effective tool commands and scoping
 - `ai runs latest` reads artifact-backed run summaries directly from the CLI
 - `ai explain-routing` explains routing from either the current task/config or the latest artifact-backed run
+- run-state and artifact index now persist execution timing and failure classification
+- `ai runs latest` now shows execution total, failure class, and per-step durations
 
 Why this is next:
 - The runtime now executes real checks, but operators still have to inspect raw artifacts too often.

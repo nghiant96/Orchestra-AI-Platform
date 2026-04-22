@@ -16,6 +16,7 @@ import {
   resolveResumeStatePath,
   restoreArtifactState
 } from "../ai-system/core/artifacts.js";
+import { buildExecutionSummary } from "../ai-system/core/execution-summary.js";
 import type {
   FileGenerationResult,
   IterationResult,
@@ -150,8 +151,13 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     assert.equal(typeof statePath, "string");
     assert.equal(await resolveResumeStatePath(tempDir, rules, "last"), statePath);
 
-    const saved = JSON.parse(await fs.readFile(statePath as string, "utf8")) as { artifacts: typeof artifacts; status: string };
+    const saved = JSON.parse(await fs.readFile(statePath as string, "utf8")) as {
+      artifacts: typeof artifacts;
+      status: string;
+      execution?: { failure?: { class?: string } | null };
+    };
     assert.equal(saved.status, "paused_after_generate");
+    assert.equal(saved.execution?.failure?.class, "paused");
 
     const restored = restoreArtifactState(tempDir, rules, saved.artifacts, statePath as string);
     const restoredContexts = await loadSavedContextArtifacts(restored, plan.readFiles);
@@ -167,6 +173,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       iterationCount: number;
       latestToolResults: ToolExecutionResult[];
       stepPaths: Record<string, string>;
+      execution?: { failure?: { class?: string } | null };
     };
     const iterationManifest = JSON.parse(
       await fs.readFile(path.join(state.latestIterationPath as string, "manifest.json"), "utf8")
@@ -187,6 +194,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     assert.ok(index.stepPaths.timeline);
     assert.ok(index.stepPaths.index);
     assert.equal(index.latestToolResults.length, 0);
+    assert.equal(index.execution?.failure?.class, "paused");
     assert.equal(iterationManifest.toolResults.length, 1);
     assert.equal(iterationManifest.toolResults[0]?.name, "lint");
   } finally {
@@ -337,6 +345,24 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     reasons: ["Plan targets auth/session.ts."],
     signals: []
   };
+  const execution = buildExecutionSummary({
+    status: "failed",
+    steps: [
+      { name: "planner", durationMs: 18, status: "completed", detail: "Planner generated a plan." },
+      { name: "iteration-1", durationMs: 42, status: "completed", detail: "Blocking issues remained." }
+    ],
+    finalIssues: [
+      {
+        severity: "medium",
+        category: "tool:typecheck",
+        path: "",
+        description: "typecheck failed",
+        suggestedFix: "Fix it"
+      }
+    ],
+    latestToolResults: toolResults,
+    iterations: [{ iteration: 1, summary: "Typecheck failed", issues: [] }]
+  });
 
   try {
     await persistRoutingArtifacts(state, {
@@ -349,7 +375,7 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
       task: "Update auth session handling",
       decision: implementationDecision
     });
-    const artifacts = finalizeArtifactState(state, result, false, toolResults);
+    const artifacts = finalizeArtifactState(state, result, false, toolResults, execution);
     await persistRunState(state, {
       status: "failed",
       task: "Update auth session handling",
@@ -374,7 +400,8 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
       artifacts,
       wroteFiles: false,
       latestReviewSummary: "Typecheck failed after generation",
-      latestToolResults: toolResults
+      latestToolResults: toolResults,
+      execution
     });
 
     const summary = await loadRecentRunSummary(tempDir, rules, "last");
@@ -383,9 +410,12 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     assert.equal(summary.runState.task, "Update auth session handling");
     assert.equal(summary.artifactIndex?.latestStatus, "failed");
     assert.equal(summary.artifactIndex?.latestToolResults?.length, 1);
+    assert.equal(summary.artifactIndex?.execution?.failure?.class, "tool-check-failed");
     assert.equal(summary.routing.planning?.profile, "balanced");
     assert.equal(summary.routing.implementation?.profile, "safe");
     assert.equal(summary.runState.latestToolResults?.[0]?.name, "typecheck");
+    assert.equal(summary.runState.execution?.totalDurationMs, 60);
+    assert.equal(summary.runState.execution?.failure?.class, "tool-check-failed");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

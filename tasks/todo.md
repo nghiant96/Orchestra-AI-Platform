@@ -4,12 +4,11 @@ Use this file for non-trivial work that benefits from an explicit execution plan
 
 ## Active Task
 
-Task: Add `ai explain-routing` so provider routing can be understood without reading raw artifacts or source code internals.
+Task: Add run execution timing and failure classification so the latest run summary explains where time went and why a run stopped.
 
-- [x] Review the current routing data sources and CLI surfaces
-- [x] Add `ai explain-routing` to the CLI
-- [x] Print planning and implementation routing summaries clearly
-- [x] Support both task-based explanation and latest-run fallback
+- [x] Review the current run-state and artifact summary flow
+- [x] Persist execution step durations and failure classification into run-state and artifact index
+- [x] Surface execution timing and failure class in CLI result output and `ai runs latest`
 - [x] Verify with tests and CLI checks
 
 ## Review
@@ -18,5 +17,5 @@ Task: Add `ai explain-routing` so provider routing can be understood without rea
 - Verification:
   - Passed `pnpm exec tsc --noEmit`
   - Passed `pnpm test`
-  - Passed `node --import tsx ./bin/ai.js explain-routing "Update README wording and docs text"`
-- Notes: `ai explain-routing` now provides an operator-facing explanation of provider routing. With a task, it explains the current planning-stage routing decision from the active config. Without a task, it falls back to the latest artifact-backed run and prints the planning and implementation routing decisions stored there.
+  - Passed `node --import /Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/node_modules/.pnpm/tsx@4.21.0/node_modules/tsx/dist/loader.mjs /Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/bin/ai.js runs latest` against a seeded temporary artifact run
+- Notes: Run artifacts now persist an execution summary with total active duration, per-step durations, and a classified failure reason. `ai runs latest` and final CLI result output surface that metadata directly so operators can see where time went and why a run stopped without opening JSON artifacts.

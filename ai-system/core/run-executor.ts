@@ -7,6 +7,7 @@ import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
 import type {
   ContextFile,
+  ExecutionStepSummary,
   FileGenerationResult,
   GeneratedFile,
   IterationResult,
@@ -44,6 +45,7 @@ import {
   persistRunState,
   type ArtifactState
 } from "./artifacts.js";
+import { buildExecutionSummary, measureExecutionStep, recordExecutionStep } from "./execution-summary.js";
 
 export interface RuntimeDependencies {
   plannerProvider: JsonProvider;
@@ -64,6 +66,7 @@ export interface LoopExecutionState {
   latestReviewSummary: string;
   iterationResults: IterationResult[];
   latestToolResults: import("../types.js").ToolExecutionResult[];
+  executionSteps: ExecutionStepSummary[];
 }
 
 export function createRuntimeDependencies(repoRoot: string, rules: RulesConfig, logger: Logger): RuntimeDependencies {
@@ -104,20 +107,23 @@ export async function readAndPersistContext(
   rules: RulesConfig,
   artifactState: ArtifactState,
   logger: Logger
-): Promise<{ contextFiles: ContextFile[]; skippedFiles: string[] }> {
+): Promise<{ contextFiles: ContextFile[]; skippedFiles: string[]; durationMs: number }> {
+  const startedAt = Date.now();
   logger.step(`Reading ${plan.readFiles.length} file(s) of context`);
   const { contexts: contextFiles, skippedFiles } = await readContextFiles(repoRoot, plan.readFiles, rules, logger);
+  const durationMs = Date.now() - startedAt;
   await persistContextArtifacts(
     artifactState,
     {
       readFiles: plan.readFiles,
       skippedFiles,
-      contexts: contextFiles
+      contexts: contextFiles,
+      durationMs
     },
     logger
   );
 
-  return { contextFiles, skippedFiles };
+  return { contextFiles, skippedFiles, durationMs };
 }
 
 export async function executeGenerationLoop({
@@ -168,11 +174,13 @@ export async function executeGenerationLoop({
     acceptedIssues: [...initialState.acceptedIssues],
     latestReviewSummary: initialState.latestReviewSummary,
     iterationResults: [...initialState.iterationResults],
-    latestToolResults: [...initialState.latestToolResults]
+    latestToolResults: [...initialState.latestToolResults],
+    executionSteps: [...initialState.executionSteps]
   };
 
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
     logger.step(`Generation loop ${iteration}/${rules.max_iterations}${startIteration > 1 ? " (resumed)" : ""}`);
+    const iterationStartedAt = Date.now();
 
     state.currentResult = await generateCandidate({
       iteration,
@@ -238,16 +246,19 @@ export async function executeGenerationLoop({
         toolResults: toolExecution.results,
         preReviewIssues,
         reviewSummary: review.summary,
-        issues: state.acceptedIssues
+        issues: state.acceptedIssues,
+        durationMs: Date.now() - iterationStartedAt
       },
       logger
     );
 
+    const iterationDurationMs = Date.now() - iterationStartedAt;
     state.iterationResults.push({
       iteration,
       summary: review.summary,
       issues: state.acceptedIssues,
       toolResults: toolExecution.results,
+      durationMs: iterationDurationMs,
       artifactPath: artifactInfo?.iterationPath ?? null
     });
 
@@ -258,6 +269,13 @@ export async function executeGenerationLoop({
       );
       if (!confirmed) {
         logger.warn("Task paused by user after generation checkpoint.");
+        recordExecutionStep(
+          state.executionSteps,
+          `iteration-${iteration}`,
+          iterationDurationMs,
+          "paused",
+          `Paused after generation checkpoint with ${state.acceptedIssues.length} issue(s).`
+        );
         const result = buildStoppedResult({
           status: "paused_after_generate",
           dryRun,
@@ -271,7 +289,8 @@ export async function executeGenerationLoop({
           providers: runtime.providerSummary,
           memoryStats,
           artifactState,
-          latestToolResults: state.latestToolResults
+          latestToolResults: state.latestToolResults,
+          executionSteps: state.executionSteps
         });
         await persistRunState(
           artifactState,
@@ -281,13 +300,22 @@ export async function executeGenerationLoop({
             pauseAfterPlan,
             pauseAfterGenerate,
             latestReviewSummary: state.latestReviewSummary,
-            latestToolResults: state.latestToolResults
+            latestToolResults: state.latestToolResults,
+            execution: result.execution
           },
           logger
         );
         return { result, state };
       }
     }
+
+    recordExecutionStep(
+      state.executionSteps,
+      `iteration-${iteration}`,
+      iterationDurationMs,
+      "completed",
+      `Issues: high=${summarizeIssueCounts(state.acceptedIssues).high ?? 0}, medium=${summarizeIssueCounts(state.acceptedIssues).medium ?? 0}, low=${summarizeIssueCounts(state.acceptedIssues).low ?? 0}.`
+    );
 
     if (!hasBlockingIssues(state.acceptedIssues)) {
       const result = await finalizeSuccessfulRun({
@@ -354,23 +382,42 @@ export async function finalizeSuccessfulRun({
   const originals = await readOriginalFiles(repoRoot, state.currentResult.files.map((file) => file.path));
   if (!dryRun) {
     logger.step("Writing files atomically");
-    await writeFilesAtomically(repoRoot, state.currentResult.files, originals);
+    await measureExecutionStep(state.executionSteps, "write-files", async () => {
+      await writeFilesAtomically(repoRoot, state.currentResult?.files ?? [], originals);
+    }, `${state.currentResult.files.length} file(s) written.`);
+  } else {
+    recordExecutionStep(state.executionSteps, "write-files", 0, "skipped", "Dry run skipped file writes.");
   }
 
-  memoryStats.stored = await safelyStoreMemory(
-    runtime.memory,
-    {
-      task,
-      plan,
-      result: state.currentResult,
-      iterations: state.iterationResults,
-      issueCounts: summarizeIssueCounts(state.acceptedIssues),
-      providers: runtime.providerSummary,
-      success: true,
-      dryRun
-    },
-    logger
+  const memoryStore = await measureExecutionStep(
+    state.executionSteps,
+    "memory-store",
+    async () =>
+      await safelyStoreMemory(
+        runtime.memory,
+        {
+          task,
+          plan,
+          result: state.currentResult,
+          iterations: state.iterationResults,
+          issueCounts: summarizeIssueCounts(state.acceptedIssues),
+          providers: runtime.providerSummary,
+          success: true,
+          dryRun
+        },
+        logger
+      ),
+    "Persisted successful run summary to memory."
   );
+  memoryStats.stored = memoryStore.result;
+
+  const execution = buildExecutionSummary({
+    status: resultStatus ?? persistedStatus,
+    steps: state.executionSteps,
+    finalIssues: state.acceptedIssues,
+    latestToolResults: state.latestToolResults,
+    iterations: state.iterationResults
+  });
 
   const result: OrchestratorResult = {
     ok: true,
@@ -386,8 +433,9 @@ export async function finalizeSuccessfulRun({
     finalIssues: state.acceptedIssues,
     providers: runtime.providerSummary,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, state.currentResult, true),
+    artifacts: finalizeArtifactState(artifactState, state.currentResult, true, state.latestToolResults, execution),
     latestToolResults: state.latestToolResults,
+    execution,
     wroteFiles: !dryRun
   };
 
@@ -400,7 +448,8 @@ export async function finalizeSuccessfulRun({
       pauseAfterPlan,
       pauseAfterGenerate,
       latestReviewSummary: state.latestReviewSummary,
-      latestToolResults: state.latestToolResults
+      latestToolResults: state.latestToolResults,
+      execution
     },
     logger
   );
@@ -441,20 +490,35 @@ export async function finalizeFailedRun({
   persistedStatus: RunStatus;
   logger: Logger;
 }): Promise<OrchestratorResult> {
-  memoryStats.stored = await safelyStoreMemory(
-    runtime.memory,
-    {
-      task,
-      plan,
-      result: state.currentResult,
-      iterations: state.iterationResults,
-      issueCounts: summarizeIssueCounts(state.acceptedIssues),
-      providers: runtime.providerSummary,
-      success: false,
-      dryRun
-    },
-    logger
+  const memoryStore = await measureExecutionStep(
+    state.executionSteps,
+    "memory-store",
+    async () =>
+      await safelyStoreMemory(
+        runtime.memory,
+        {
+          task,
+          plan,
+          result: state.currentResult,
+          iterations: state.iterationResults,
+          issueCounts: summarizeIssueCounts(state.acceptedIssues),
+          providers: runtime.providerSummary,
+          success: false,
+          dryRun
+        },
+        logger
+      ),
+    "Persisted failed run summary to memory."
   );
+  memoryStats.stored = memoryStore.result;
+
+  const execution = buildExecutionSummary({
+    status: resultStatus ?? persistedStatus,
+    steps: state.executionSteps,
+    finalIssues: state.acceptedIssues,
+    latestToolResults: state.latestToolResults,
+    iterations: state.iterationResults
+  });
 
   const result: OrchestratorResult = {
     ok: false,
@@ -470,8 +534,9 @@ export async function finalizeFailedRun({
     finalIssues: state.acceptedIssues,
     providers: runtime.providerSummary,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, state.currentResult, false),
+    artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, execution),
     latestToolResults: state.latestToolResults,
+    execution,
     wroteFiles: false
   };
 
@@ -484,7 +549,8 @@ export async function finalizeFailedRun({
       pauseAfterPlan,
       pauseAfterGenerate,
       latestReviewSummary: state.latestReviewSummary,
-      latestToolResults: state.latestToolResults
+      latestToolResults: state.latestToolResults,
+      execution
     },
     logger
   );

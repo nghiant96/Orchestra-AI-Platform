@@ -129,6 +129,34 @@ export interface ToolConfigurationSummary {
   summary: string;
 }
 
+export type ExecutionStepStatus = "completed" | "failed" | "paused" | "skipped";
+export type FailureClass =
+  | "paused"
+  | "cancelled"
+  | "tool-check-failed"
+  | "validation-failed"
+  | "iteration-limit"
+  | "review-blocking-issues"
+  | "unknown";
+
+export interface ExecutionStepSummary {
+  name: string;
+  durationMs: number;
+  status: ExecutionStepStatus;
+  detail?: string;
+}
+
+export interface FailureSummary {
+  class: FailureClass;
+  reason: string;
+}
+
+export interface ExecutionSummary {
+  totalDurationMs: number;
+  steps: ExecutionStepSummary[];
+  failure: FailureSummary | null;
+}
+
 export interface MemoryConfig {
   enabled?: boolean;
   backend?: string;
@@ -244,6 +272,7 @@ export interface IterationResult {
   summary: string;
   issues: ReviewIssue[];
   toolResults?: ToolExecutionResult[];
+  durationMs?: number;
   artifactPath?: string | null;
 }
 
@@ -269,6 +298,7 @@ export interface ArtifactSummary {
   stepPaths: Record<string, string>;
   latestFiles: string[];
   latestToolResults?: ToolExecutionResult[];
+  execution?: ExecutionSummary | null;
 }
 
 export type RunStatus =
@@ -296,6 +326,7 @@ export interface OrchestratorResult {
   artifacts: ArtifactSummary | null;
   wroteFiles: boolean;
   latestToolResults?: ToolExecutionResult[];
+  execution?: ExecutionSummary | null;
 }
 
 export interface MemoryMatch {

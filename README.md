@@ -157,7 +157,7 @@ Recommended config workflow:
 - Use `ai config show` to inspect the effective config
 - Use `ai doctor` when behavior is surprising and you need to see env/routing overrides
 - Use `ai explain-routing "task"` to see why the current config would pick specific providers for that task
-- Use `ai runs latest` to inspect the latest artifact-backed run summary quickly
+- Use `ai runs latest` to inspect the latest artifact-backed run summary quickly, including execution time, failure class, and step durations
 
 Tool execution workflow:
 

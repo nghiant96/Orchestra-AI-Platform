@@ -1340,6 +1340,20 @@ function printResult(result: OrchestratorResult): void {
   console.log(
     `- memory: backend=${result.memory?.backend}, planning_matches=${result.memory?.planningMatches ?? 0}, implementation_matches=${result.memory?.implementationMatches ?? 0}, stored=${result.memory?.stored}`
   );
+  if (result.execution) {
+    console.log(`- execution: total=${formatDuration(result.execution.totalDurationMs)}`);
+    console.log(
+      `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
+    );
+    if (result.execution.steps.length > 0) {
+      console.log("- step durations:");
+      for (const step of result.execution.steps) {
+        console.log(
+          `  - ${step.name}: ${step.status} in ${formatDuration(step.durationMs)}${step.detail ? ` - ${step.detail}` : ""}`
+        );
+      }
+    }
+  }
   if ((result.latestToolResults ?? []).length > 0) {
     const toolCounts = summarizeToolResults(result.latestToolResults ?? []);
     console.log(
@@ -1416,6 +1430,7 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   const latestToolResults = summary.runState.latestToolResults ?? summary.artifactIndex?.latestToolResults ?? [];
   const issueCounts = summary.runState.issueCounts ?? summarizeIssueCountsFromIssues(summary.runState.finalIssues ?? []);
   const changedFiles = summary.runState.result?.files?.map((file) => file.path) ?? summary.artifactIndex?.latestFiles ?? [];
+  const execution = summary.runState.execution ?? summary.artifactIndex?.execution ?? null;
 
   console.log("");
   console.log("Latest Run");
@@ -1443,6 +1458,20 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   }
   console.log(`- changed files: ${changedFiles.join(", ") || "(none)"}`);
   console.log(`- issues: high=${issueCounts.high ?? 0}, medium=${issueCounts.medium ?? 0}, low=${issueCounts.low ?? 0}`);
+  if (execution) {
+    console.log(`- execution: total=${formatDuration(execution.totalDurationMs)}`);
+    console.log(
+      `- failure class: ${execution.failure ? `${execution.failure.class} (${execution.failure.reason})` : "none"}`
+    );
+    if (execution.steps.length > 0) {
+      console.log("- step durations:");
+      for (const step of execution.steps) {
+        console.log(
+          `  - ${step.name}: ${step.status} in ${formatDuration(step.durationMs)}${step.detail ? ` - ${step.detail}` : ""}`
+        );
+      }
+    }
+  }
   if (latestToolResults.length > 0) {
     const toolCounts = summarizeToolResults(latestToolResults);
     console.log(`- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`);
@@ -1458,6 +1487,21 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   if (summary.artifactIndex?.runPath) {
     console.log(`- artifact run: ${summary.artifactIndex.runPath}`);
   }
+}
+
+function formatDuration(durationMs: number): string {
+  if (!Number.isFinite(durationMs) || durationMs < 1000) {
+    return `${Math.max(0, Math.round(durationMs || 0))}ms`;
+  }
+
+  const seconds = durationMs / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds >= 10 ? 1 : 2)}s`;
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}m ${remainingSeconds.toFixed(1)}s`;
 }
 
 function printRoutingExplanation({
