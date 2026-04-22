@@ -1,67 +1,131 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { prepareRuntimeRules, resolveProviderRouting } from "../ai-system/core/orchestrator-runtime.js";
+import os from "node:os";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { prepareRuntimeRules } from "../ai-system/core/orchestrator-runtime.js";
+import { buildRoutingDecision } from "../ai-system/core/provider-router.js";
 import type { Logger, RulesConfig } from "../ai-system/types.js";
 
 test("prepareRuntimeRules routes low-risk text tasks to the fast profile", async () => {
   await withEnv({}, async () => {
     const rules = createRules();
-    const decision = prepareRuntimeRules({
+    const repoRoot = await createTempRepo();
+    const decision = await prepareRuntimeRules({
+      repoRoot,
       rules,
       task: "Update the README wording and fix a docs typo",
+      stage: "planning",
       logger: silentLogger()
     });
 
-    assert.equal(decision.profile, "fast");
-    assert.equal(rules.providers.reviewer.type, "codex-cli");
-    assert.equal(rules.providers.reviewer.command, "codex");
-    assert.equal(rules.providers.generator.type, "codex-cli");
+    try {
+      assert.equal(decision.profile, "fast");
+      assert.equal(rules.providers.reviewer.type, "codex-cli");
+      assert.equal(rules.providers.reviewer.command, "codex");
+      assert.equal(rules.providers.generator.type, "codex-cli");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
 test("prepareRuntimeRules routes risky tasks to the safe profile using provider templates", async () => {
   await withEnv({}, async () => {
     const rules = createRules();
-    const decision = prepareRuntimeRules({
+    const repoRoot = await createTempRepo(["prisma/schema.prisma"]);
+    const decision = await prepareRuntimeRules({
+      repoRoot,
       rules,
       task: "Migrate the payment database schema for the auth service",
+      stage: "planning",
       logger: silentLogger()
     });
 
-    assert.equal(decision.profile, "safe");
-    assert.equal(rules.providers.reviewer.type, "claude-cli");
-    assert.equal(rules.providers.reviewer.command, "claude");
-    assert.equal(rules.providers.planner.type, "gemini-cli");
-    assert.equal(rules.providers.generator.type, "codex-cli");
+    try {
+      assert.equal(decision.profile, "safe");
+      assert.equal(rules.providers.reviewer.type, "claude-cli");
+      assert.equal(rules.providers.reviewer.command, "claude");
+      assert.equal(rules.providers.planner.type, "gemini-cli");
+      assert.equal(rules.providers.generator.type, "codex-cli");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
 test("explicit role env overrides stay authoritative after dynamic routing", async () => {
   await withEnv({ AI_SYSTEM_REVIEWER_PROVIDER: "codex-cli" }, async () => {
     const rules = createRules();
-    prepareRuntimeRules({
+    const repoRoot = await createTempRepo();
+    await prepareRuntimeRules({
+      repoRoot,
       rules,
       task: "Rotate auth tokens in production",
+      stage: "planning",
       logger: silentLogger()
     });
-
-    assert.equal(resolveProviderRouting({ rules: createRules(), task: "Rotate auth tokens in production" }).profile, "safe");
-    assert.equal(rules.providers.reviewer.type, "codex-cli");
-    assert.equal(rules.providers.reviewer.command, "codex");
+    try {
+      const decision = await buildRoutingDecision({
+        repoRoot,
+        rules: createRules(),
+        task: "Rotate auth tokens in production",
+        stage: "planning"
+      });
+      assert.equal(decision.profile, "safe");
+      assert.equal(rules.providers.reviewer.type, "codex-cli");
+      assert.equal(rules.providers.reviewer.command, "codex");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
 test("AI_SYSTEM_ROUTING_PROFILE forces the requested routing profile", async () => {
   await withEnv({ AI_SYSTEM_ROUTING_PROFILE: "safe" }, async () => {
     const rules = createRules();
-    const decision = prepareRuntimeRules({
+    const repoRoot = await createTempRepo();
+    const decision = await prepareRuntimeRules({
+      repoRoot,
       rules,
       task: "Fix a tiny README typo",
+      stage: "planning",
       logger: silentLogger()
     });
 
-    assert.equal(decision.profile, "safe");
-    assert.equal(rules.providers.reviewer.type, "claude-cli");
+    try {
+      assert.equal(decision.profile, "safe");
+      assert.equal(rules.providers.reviewer.type, "claude-cli");
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("implementation-stage routing upgrades reviewer when the plan targets risky paths", async () => {
+  await withEnv({}, async () => {
+    const rules = createRules();
+    const repoRoot = await createTempRepo(["docker-compose.yml"]);
+    const decision = await buildRoutingDecision({
+      repoRoot,
+      rules,
+      task: "Refactor shared utilities",
+      stage: "implementation",
+      plan: {
+        prompt: "Refactor shared utilities",
+        readFiles: ["src/shared/util.ts"],
+        writeTargets: ["src/auth/session.ts", "prisma/schema.prisma", "docker-compose.yml"],
+        notes: []
+      }
+    });
+
+    try {
+      assert.equal(decision.profile, "safe");
+      assert.equal(decision.roleProviders.reviewer, "claude-cli");
+      assert.ok(decision.signals.some((signal) => signal.name === "plan:risky-paths"));
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -93,6 +157,18 @@ async function withEnv(env: Record<string, string>, callback: () => Promise<void
       }
     }
   }
+}
+
+async function createTempRepo(files: string[] = []): Promise<string> {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-routing-"));
+  await Promise.all(
+    files.map(async (filePath) => {
+      const targetPath = path.join(repoRoot, filePath);
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, "", "utf8");
+    })
+  );
+  return repoRoot;
 }
 
 function createRules(): RulesConfig {

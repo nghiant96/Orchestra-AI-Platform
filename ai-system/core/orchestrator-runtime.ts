@@ -4,79 +4,20 @@ import type {
   Logger,
   ProviderConfig,
   ProviderRole,
-  ProviderRoutingProfile,
-  RoutingConfig,
+  RoutingDecision,
   RulesConfig
 } from "../types.js";
+import { buildRoutingDecision } from "./provider-router.js";
 import { createRuntimeDependencies, type RuntimeDependencies } from "./run-executor.js";
 
 const PROVIDER_ROLES: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
 const ROUTING_CONTROL_KEYS = ["timeout_ms", "retries", "base_delay_ms", "monitor_interval_ms", "temperature", "response_format"] as const;
-const DEFAULT_ROUTING_PROFILES: Record<string, ProviderRoutingProfile> = {
-  fast: {
-    planner: "gemini-cli",
-    reviewer: "codex-cli",
-    generator: "codex-cli",
-    fixer: "codex-cli"
-  },
-  balanced: {
-    planner: "gemini-cli",
-    reviewer: "gemini-cli",
-    generator: "codex-cli",
-    fixer: "codex-cli"
-  },
-  safe: {
-    planner: "gemini-cli",
-    reviewer: "claude-cli",
-    generator: "codex-cli",
-    fixer: "codex-cli"
-  }
-};
-const DEFAULT_FAST_KEYWORDS = [
-  "readme",
-  "docs",
-  "documentation",
-  "comment",
-  "comments",
-  "typo",
-  "wording",
-  "copy",
-  "text",
-  "logging"
-];
-const DEFAULT_SAFE_KEYWORDS = [
-  "auth",
-  "permission",
-  "security",
-  "secret",
-  "token",
-  "credential",
-  "payment",
-  "billing",
-  "checkout",
-  "database",
-  "db",
-  "schema",
-  "migration",
-  "sql",
-  "production",
-  "deploy",
-  "delete",
-  "drop"
-];
 
 export interface LoadedOrchestratorRuntime {
   rules: RulesConfig;
   configPath: string | null;
   runtime: RuntimeDependencies;
   routing: RoutingDecision;
-}
-
-export interface RoutingDecision {
-  enabled: boolean;
-  profile: string;
-  reason: string;
-  appliedRoles: Partial<Record<ProviderRole, string>>;
 }
 
 export async function loadOrchestratorRuntime({
@@ -91,11 +32,39 @@ export async function loadOrchestratorRuntime({
   task?: string;
 }): Promise<LoadedOrchestratorRuntime> {
   const { rules, configPath } = await loadRules(repoRoot, explicitConfigPath);
-  const routing = prepareRuntimeRules({ rules, task, logger });
+  const routing = await prepareRuntimeRules({ repoRoot, rules, task, stage: "planning", logger });
 
   return {
     rules,
     configPath,
+    runtime: createRuntimeDependencies(repoRoot, rules, logger),
+    routing
+  };
+}
+
+export async function rerouteRuntimeForPlan({
+  repoRoot,
+  rules,
+  task,
+  plan,
+  logger
+}: {
+  repoRoot: string;
+  rules: RulesConfig;
+  task?: string;
+  plan: import("../types.js").PlanResult;
+  logger: Logger;
+}): Promise<{ runtime: RuntimeDependencies; routing: RoutingDecision }> {
+  const routing = await prepareRuntimeRules({
+    repoRoot,
+    rules,
+    task,
+    stage: "implementation",
+    plan,
+    logger
+  });
+
+  return {
     runtime: createRuntimeDependencies(repoRoot, rules, logger),
     routing
   };
@@ -117,91 +86,26 @@ export async function loadRules(
   };
 }
 
-export function prepareRuntimeRules({
+export async function prepareRuntimeRules({
+  repoRoot,
   rules,
   task,
+  stage,
+  plan,
   logger
 }: {
+  repoRoot: string;
   rules: RulesConfig;
   task?: string;
+  stage: "planning" | "implementation";
+  plan?: import("../types.js").PlanResult | null;
   logger?: Logger;
-}): RoutingDecision {
+}): Promise<RoutingDecision> {
   applyGenericEnvOverrides(rules);
-  const routing = resolveProviderRouting({ rules, task });
+  const routing = await buildRoutingDecision({ repoRoot, rules, task, stage, plan });
   const appliedRouting = applyDynamicProviderRouting(rules, routing, logger);
   applyExplicitEnvOverrides(rules);
   return appliedRouting;
-}
-
-export function resolveProviderRouting({
-  rules,
-  task
-}: {
-  rules: RulesConfig;
-  task?: string;
-}): RoutingDecision {
-  const routing = rules.routing ?? {};
-  const enabled = normalizeBooleanEnv(process.env.AI_SYSTEM_ROUTING_ENABLED, routing.enabled ?? true);
-  const defaultProfile = normalizeRoutingProfileName(routing.default_profile) || "balanced";
-
-  if (!enabled) {
-    return {
-      enabled: false,
-      profile: defaultProfile,
-      reason: "routing disabled",
-      appliedRoles: {}
-    };
-  }
-
-  const forcedProfile = normalizeRoutingProfileName(process.env.AI_SYSTEM_ROUTING_PROFILE) || mapRiskToRoutingProfile(process.env.AI_SYSTEM_RISK_PROFILE);
-  if (forcedProfile) {
-    return {
-      enabled: true,
-      profile: forcedProfile,
-      reason: `forced by environment (${process.env.AI_SYSTEM_ROUTING_PROFILE ? "AI_SYSTEM_ROUTING_PROFILE" : "AI_SYSTEM_RISK_PROFILE"})`,
-      appliedRoles: {}
-    };
-  }
-
-  if (!task || !task.trim()) {
-    return {
-      enabled: true,
-      profile: defaultProfile,
-      reason: "no task provided",
-      appliedRoles: {}
-    };
-  }
-
-  const normalizedTask = task.toLowerCase();
-  const safeKeywords = collectRoutingKeywords(routing, "safe", DEFAULT_SAFE_KEYWORDS);
-  const fastKeywords = collectRoutingKeywords(routing, "fast", DEFAULT_FAST_KEYWORDS);
-
-  const matchedSafeKeyword = safeKeywords.find((keyword) => normalizedTask.includes(keyword));
-  if (matchedSafeKeyword) {
-    return {
-      enabled: true,
-      profile: "safe",
-      reason: `matched safe keyword "${matchedSafeKeyword}"`,
-      appliedRoles: {}
-    };
-  }
-
-  const matchedFastKeyword = fastKeywords.find((keyword) => normalizedTask.includes(keyword));
-  if (matchedFastKeyword) {
-    return {
-      enabled: true,
-      profile: "fast",
-      reason: `matched fast keyword "${matchedFastKeyword}"`,
-      appliedRoles: {}
-    };
-  }
-
-  return {
-    enabled: true,
-    profile: defaultProfile,
-    reason: "default profile",
-    appliedRoles: {}
-  };
 }
 
 export function applyDynamicProviderRouting(rules: RulesConfig, decision: RoutingDecision, logger?: Logger): RoutingDecision {
@@ -210,7 +114,6 @@ export function applyDynamicProviderRouting(rules: RulesConfig, decision: Routin
     return decision;
   }
 
-  const profile = getRoutingProfile(rules, decision.profile);
   const appliedRoles: Partial<Record<ProviderRole, string>> = {};
 
   for (const role of PROVIDER_ROLES) {
@@ -218,7 +121,7 @@ export function applyDynamicProviderRouting(rules: RulesConfig, decision: Routin
       continue;
     }
 
-    const targetProviderType = normalizeProviderType(profile[role]);
+    const targetProviderType = normalizeProviderType(decision.roleProviders[role]);
     if (!targetProviderType) {
       continue;
     }
@@ -238,7 +141,9 @@ export function applyDynamicProviderRouting(rules: RulesConfig, decision: Routin
     appliedRoles
   };
   const appliedSummary = PROVIDER_ROLES.filter((role) => appliedRoles[role]).map((role) => `${role}=${appliedRoles[role]}`).join(", ");
-  logger?.info(`Dynamic provider routing selected profile "${decision.profile}" (${decision.reason})${appliedSummary ? ` -> ${appliedSummary}` : ""}.`);
+  logger?.info(
+    `Dynamic provider routing selected ${decision.stage} profile "${decision.profile}" (${decision.reason})${appliedSummary ? ` -> ${appliedSummary}` : ""}.`
+  );
   return nextDecision;
 }
 
@@ -431,26 +336,6 @@ function applyOpenAICompatibleOverride(
   }
 }
 
-function getRoutingProfile(rules: RulesConfig, profileName: string): ProviderRoutingProfile {
-  const normalizedProfile = normalizeRoutingProfileName(profileName) || "balanced";
-  return {
-    ...(DEFAULT_ROUTING_PROFILES[normalizedProfile] ?? {}),
-    ...(rules.routing?.profiles?.[normalizedProfile] ?? {})
-  };
-}
-
-function collectRoutingKeywords(routing: RoutingConfig, profileName: "fast" | "safe", fallback: string[]): string[] {
-  const configured = routing.heuristics?.[profileName];
-  if (!Array.isArray(configured)) {
-    return fallback;
-  }
-
-  const normalized = configured
-    .map((keyword) => String(keyword).trim().toLowerCase())
-    .filter(Boolean);
-  return normalized.length > 0 ? normalized : fallback;
-}
-
 function resolveProviderTemplate(rules: RulesConfig, role: ProviderRole, providerType: string): ProviderConfig | null {
   const directRoleMatch = rules.providers[role];
   if (directRoleMatch?.type === providerType) {
@@ -502,37 +387,4 @@ function hasExplicitRoleProviderOverride(role: ProviderRole): boolean {
 
 function normalizeProviderType(value?: string): string {
   return String(value || "").trim().toLowerCase();
-}
-
-function normalizeRoutingProfileName(value?: string): string {
-  return String(value || "").trim().toLowerCase();
-}
-
-function mapRiskToRoutingProfile(value?: string): string {
-  const normalized = normalizeRoutingProfileName(value);
-  switch (normalized) {
-    case "low":
-      return "fast";
-    case "medium":
-      return "balanced";
-    case "high":
-      return "safe";
-    default:
-      return normalized;
-  }
-}
-
-function normalizeBooleanEnv(value: string | undefined, fallback: boolean): boolean {
-  if (typeof value === "undefined") {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (["0", "false", "off", "no", "disabled"].includes(normalized)) {
-    return false;
-  }
-  if (["1", "true", "on", "yes", "enabled"].includes(normalized)) {
-    return true;
-  }
-  return fallback;
 }

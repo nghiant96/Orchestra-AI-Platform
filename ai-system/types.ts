@@ -42,12 +42,31 @@ export interface ProviderConfigMap extends Record<string, ProviderConfig> {
 }
 
 export type ProviderRole = "planner" | "reviewer" | "generator" | "fixer";
+export type RoutingProfileName = "fast" | "balanced" | "safe";
 
 export interface ProviderRoutingProfile extends Partial<Record<ProviderRole, string>> {}
 
+export interface RoutingSignal {
+  name: string;
+  matched: boolean;
+  details?: string;
+  scores?: Partial<Record<RoutingProfileName, number>>;
+}
+
+export interface RoutingDecision {
+  stage: "planning" | "implementation";
+  enabled: boolean;
+  profile: RoutingProfileName;
+  reason: string;
+  roleProviders: Record<ProviderRole, string>;
+  appliedRoles: Partial<Record<ProviderRole, string>>;
+  reasons: string[];
+  signals: RoutingSignal[];
+}
+
 export interface RoutingConfig {
   enabled?: boolean;
-  default_profile?: string;
+  default_profile?: RoutingProfileName | string;
   profiles?: Record<string, ProviderRoutingProfile>;
   heuristics?: {
     fast?: string[];

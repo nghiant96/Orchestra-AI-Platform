@@ -11,6 +11,7 @@ import type {
   PlanResult,
   ProviderSummary,
   ReviewIssue,
+  RoutingDecision,
   RunStatus,
   RulesConfig
 } from "../types.js";
@@ -154,6 +155,56 @@ export async function persistPlanArtifacts(
   });
   logger?.info(`Saved planner checkpoint at ${stepPath}`);
   return stepPath;
+}
+
+export async function persistRoutingArtifacts(
+  state: ArtifactState,
+  payload: {
+    stage: RoutingDecision["stage"];
+    task: string;
+    decision: RoutingDecision;
+  },
+  logger?: Logger
+): Promise<string | null> {
+  if (!state.enabled) {
+    return null;
+  }
+
+  const stepPath = await ensureArtifactStepDirectory(state, "00-routing");
+  ensureArtifactVisibilityPaths(state);
+  const filePath = path.join(stepPath, `${payload.stage}.json`);
+  await fs.writeFile(
+    filePath,
+    JSON.stringify(
+      {
+        savedAt: new Date().toISOString(),
+        stage: payload.stage,
+        task: payload.task,
+        decision: payload.decision
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+  state.stepPaths[`routing-${payload.stage}`] = filePath;
+  await appendArtifactTimeline(state, {
+    step: `routing-${payload.stage}`,
+    status: "saved",
+    message: `Routing decision persisted for ${payload.stage}.`,
+    task: payload.task,
+    artifactPath: filePath,
+    metadata: {
+      profile: payload.decision.profile,
+      appliedRoles: payload.decision.appliedRoles
+    }
+  });
+  await writeArtifactIndex(state, {
+    latestStep: `routing-${payload.stage}`,
+    latestTask: payload.task
+  });
+  logger?.info(`Saved ${payload.stage} routing decision at ${filePath}`);
+  return filePath;
 }
 
 export async function persistContextArtifacts(

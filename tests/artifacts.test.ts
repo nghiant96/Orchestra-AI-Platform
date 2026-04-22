@@ -10,11 +10,12 @@ import {
   persistContextArtifacts,
   persistIterationArtifacts,
   persistPlanArtifacts,
+  persistRoutingArtifacts,
   persistRunState,
   resolveResumeStatePath,
   restoreArtifactState
 } from "../ai-system/core/artifacts.js";
-import type { FileGenerationResult, IterationResult, MemoryStats, PlanResult, ProviderSummary, ReviewIssue, RulesConfig } from "../ai-system/types.js";
+import type { FileGenerationResult, IterationResult, MemoryStats, PlanResult, ProviderSummary, ReviewIssue, RoutingDecision, RulesConfig } from "../ai-system/types.js";
 
 test("artifact checkpoints can be restored into resume-ready state", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-artifacts-"));
@@ -181,6 +182,53 @@ test("resolveResumeStatePath('last') returns the newest resumable run", async ()
       await resolveResumeStatePath(tempDir, rules, earlierRunDir),
       path.join(earlierRunDir, "run-state.json")
     );
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("persistRoutingArtifacts writes stage-specific routing manifests", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-routing-artifacts-"));
+  const rules = createRules();
+  const state = createArtifactState(tempDir, rules);
+  const decision: RoutingDecision = {
+    stage: "implementation",
+    enabled: true,
+    profile: "safe",
+    reason: "Plan targets risky paths.",
+    roleProviders: {
+      planner: "gemini-cli",
+      reviewer: "claude-cli",
+      generator: "codex-cli",
+      fixer: "codex-cli"
+    },
+    appliedRoles: {},
+    reasons: ["Plan targets risky paths."],
+    signals: [
+      {
+        name: "plan:risky-paths",
+        matched: true,
+        details: "Plan targets auth/session.ts.",
+        scores: { safe: 4 }
+      }
+    ]
+  };
+
+  try {
+    const artifactPath = await persistRoutingArtifacts(
+      state,
+      {
+        stage: decision.stage,
+        task: "Update auth session handling",
+        decision
+      }
+    );
+    assert.equal(typeof artifactPath, "string");
+    const saved = JSON.parse(await fs.readFile(artifactPath as string, "utf8")) as { stage: string; decision: RoutingDecision };
+
+    assert.equal(saved.stage, "implementation");
+    assert.equal(saved.decision.profile, "safe");
+    assert.equal(state.stepPaths["routing-implementation"], artifactPath);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

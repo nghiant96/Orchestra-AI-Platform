@@ -22,13 +22,14 @@ import {
   createArtifactState,
   loadSavedContextArtifacts,
   persistPlanArtifacts,
+  persistRoutingArtifacts,
   persistRunState,
   resolveResumeStatePath,
   restoreArtifactState,
   type PersistedRunState
 } from "./artifacts.js";
 import { confirmCheckpoint, confirmPlan } from "./orchestrator-confirmation.js";
-import { loadOrchestratorRuntime, loadRules } from "./orchestrator-runtime.js";
+import { loadOrchestratorRuntime, loadRules, rerouteRuntimeForPlan } from "./orchestrator-runtime.js";
 import {
   executeGenerationLoop,
   finalizeFailedRun,
@@ -60,7 +61,7 @@ export class Orchestrator {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
-    const { rules, configPath, runtime } = await loadOrchestratorRuntime({
+    const { rules, configPath, runtime, routing } = await loadOrchestratorRuntime({
       repoRoot,
       explicitConfigPath: this.configPath,
       logger: this.logger,
@@ -74,6 +75,15 @@ export class Orchestrator {
       stored: false
     };
     const artifactState = createArtifactState(repoRoot, rules);
+    await persistRoutingArtifacts(
+      artifactState,
+      {
+        stage: routing.stage,
+        task,
+        decision: routing
+      },
+      this.logger
+    );
 
     this.logger.step(`Building project tree for ${repoRoot}`);
     const treeString = await buildProjectTree(repoRoot, rules);
@@ -106,6 +116,23 @@ export class Orchestrator {
       },
       this.logger
     );
+    const implementationRouting = await rerouteRuntimeForPlan({
+      repoRoot,
+      rules,
+      task,
+      plan,
+      logger: this.logger
+    });
+    await persistRoutingArtifacts(
+      artifactState,
+      {
+        stage: implementationRouting.routing.stage,
+        task,
+        decision: implementationRouting.routing
+      },
+      this.logger
+    );
+    const implementationRuntime = implementationRouting.runtime;
 
     if (pauseAfterPlan) {
       const confirmed = await confirmCheckpoint({
@@ -121,7 +148,7 @@ export class Orchestrator {
           repoRoot,
           configPath,
           plan,
-          providers: runtime.providerSummary,
+          providers: implementationRuntime.providerSummary,
           memoryStats,
           artifactState
         });
@@ -156,7 +183,7 @@ export class Orchestrator {
           issueCounts: { high: 0, medium: 0, low: 0 },
           skippedContextFiles: [],
           finalIssues: [],
-          providers: runtime.providerSummary,
+          providers: implementationRuntime.providerSummary,
           memory: memoryStats,
           artifacts: null,
           wroteFiles: false
@@ -164,7 +191,7 @@ export class Orchestrator {
       }
     }
 
-    const implementationMemoryContext = await loadImplementationMemoryContext(runtime.memory, task, plan, memoryStats, this.logger);
+    const implementationMemoryContext = await loadImplementationMemoryContext(implementationRuntime.memory, task, plan, memoryStats, this.logger);
     const { contextFiles, skippedFiles } = await readAndPersistContext(repoRoot, plan, rules, artifactState, this.logger);
 
     const loopExecution = await executeGenerationLoop({
@@ -178,7 +205,7 @@ export class Orchestrator {
       plan,
       skippedFiles,
       implementationMemoryContext,
-      runtime,
+      runtime: implementationRuntime,
       memoryStats,
       artifactState,
       initialState: {
@@ -208,7 +235,7 @@ export class Orchestrator {
       configPath,
       plan,
       skippedFiles,
-      runtime,
+      runtime: implementationRuntime,
       memoryStats,
       artifactState,
       state: loopExecution.state,
@@ -231,7 +258,7 @@ export class Orchestrator {
     }
 
     const task = saved.task ?? "";
-    const { runtime } = await loadOrchestratorRuntime({
+    const { routing: planningRouting } = await loadOrchestratorRuntime({
       repoRoot,
       explicitConfigPath: this.configPath,
       logger: this.logger,
@@ -246,6 +273,32 @@ export class Orchestrator {
     let latestReviewSummary = typeof saved.latestReviewSummary === "string" ? saved.latestReviewSummary : "";
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
+    await persistRoutingArtifacts(
+      artifactState,
+      {
+        stage: planningRouting.stage,
+        task,
+        decision: planningRouting
+      },
+      this.logger
+    );
+    const implementationRouting = await rerouteRuntimeForPlan({
+      repoRoot,
+      rules,
+      task,
+      plan,
+      logger: this.logger
+    });
+    await persistRoutingArtifacts(
+      artifactState,
+      {
+        stage: implementationRouting.routing.stage,
+        task,
+        decision: implementationRouting.routing
+      },
+      this.logger
+    );
+    const runtime = implementationRouting.runtime;
 
     const memoryStats: MemoryStats = {
       backend: runtime.memory.id,
