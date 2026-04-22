@@ -39,10 +39,11 @@ interface CliOptions {
   command: CliCommand | null;
   outputJson: boolean;
   workflowMode: WorkflowMode;
+  force: boolean;
   task: string;
 }
 
-type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "outputJson" | "workflowMode">;
+type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "outputJson">;
 type CliCommand =
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
@@ -52,7 +53,8 @@ type CliCommand =
   | { kind: "setup-check" }
   | { kind: "runs-latest" }
   | { kind: "runs-list" }
-  | { kind: "runs-show"; target: string };
+  | { kind: "runs-show"; target: string }
+  | { kind: "apply-artifact"; target: string };
 
 interface InteractiveState {
   cwd: string;
@@ -63,6 +65,37 @@ interface InteractiveState {
   configPath: string | null;
   providerPreset: string | null;
   resumeTarget: string | null;
+}
+
+interface CurrentChangeReviewResult {
+  repoRoot: string;
+  configPath: string | null;
+  task: string;
+  changedFiles: string[];
+  providers: {
+    planner: string;
+    reviewer: string;
+    generator: string;
+    fixer: string;
+  };
+  latestToolResults: import("./types.js").ToolExecutionResult[];
+  reviewSummary: string;
+  issues: import("./types.js").ReviewIssue[];
+  issueCounts: Record<"high" | "medium" | "low", number>;
+  execution: import("./types.js").ExecutionSummary;
+}
+
+interface ArtifactApplyResult {
+  repoRoot: string;
+  runPath: string;
+  iterationPath: string;
+  manifestPath: string;
+  task: string;
+  dryRun: boolean;
+  wroteFiles: boolean;
+  appliedFiles: string[];
+  reviewSummary: string;
+  issueCounts: Record<"high" | "medium" | "low", number>;
 }
 
 type SetupToolName = "lint" | "typecheck" | "build" | "test";
@@ -86,8 +119,20 @@ async function main() {
   }
 
   if (!options.task && !options.resumeTarget) {
-    printHelp();
-    throw new Error("Missing task description.");
+    if (options.workflowMode !== "review") {
+      printHelp();
+      throw new Error("Missing task description.");
+    }
+  }
+
+  if (options.workflowMode === "review") {
+    const reviewResult = await runReviewWorkflow(options);
+    if (reviewResult.kind === "task-run") {
+      printResult(reviewResult.result);
+      process.exit(reviewResult.result.ok ? 0 : 1);
+    }
+    printCurrentChangeReviewResult(reviewResult.result);
+    process.exit(reviewResult.result.issueCounts.high > 0 || reviewResult.result.issueCounts.medium > 0 ? 1 : 0);
   }
 
   const result = await runTask(options);
@@ -110,6 +155,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let resumeTarget: string | null = null;
   let command: CliCommand | null = null;
   let workflowMode: WorkflowMode = "standard";
+  let force = false;
   let dryRunExplicit = false;
   let interactiveExplicit = false;
   let pauseAfterPlanExplicit = false;
@@ -120,6 +166,19 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     const arg = args[index];
 
     if (arg === "--") {
+      continue;
+    }
+    if (arg === "apply") {
+      const nextArg = args[index + 1];
+      if (nextArg !== "--from-artifact") {
+        throw new Error("Unsupported apply usage. Use `ai apply --from-artifact <target>`.");
+      }
+      const target = args[index + 2];
+      if (!target) {
+        throw new Error("Missing target for `apply --from-artifact`. Use a run directory, iteration directory, manifest path, or `last`.");
+      }
+      command = { kind: "apply-artifact", target };
+      index += 2;
       continue;
     }
     if (arg === "implement") {
@@ -285,6 +344,10 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
       outputJson = true;
       continue;
     }
+    if (arg === "--force") {
+      force = true;
+      continue;
+    }
 
     taskParts.push(arg);
   }
@@ -317,6 +380,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     command,
     outputJson,
     workflowMode,
+    force,
     task
   };
 }
@@ -330,6 +394,8 @@ async function runTask({
   configPath,
   providerPreset,
   resumeTarget,
+  force: _force,
+  workflowMode: _workflowMode,
   task
 }: TaskRunOptions): Promise<OrchestratorResult> {
   applyProviderPreset(providerPreset);
@@ -347,6 +413,30 @@ async function runTask({
   }
 
   return (await orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate })) as OrchestratorResult;
+}
+
+async function runReviewWorkflow(options: TaskRunOptions): Promise<
+  | { kind: "task-run"; result: OrchestratorResult }
+  | { kind: "current-review"; result: CurrentChangeReviewResult }
+> {
+  const workflow = await import("./core/current-change-review.js");
+  const review = await workflow.reviewCurrentRepoChanges({
+    repoRoot: options.cwd,
+    configPath: options.configPath,
+    providerPreset: options.providerPreset,
+    task: options.task,
+    logger: createLogger()
+  });
+
+  if (review) {
+    return { kind: "current-review", result: review };
+  }
+
+  if (!options.task.trim()) {
+    throw new Error("No working tree changes found to review, and no task was provided.");
+  }
+
+  return { kind: "task-run", result: await runTask(options) };
 }
 
 async function runInteractiveSession(initialOptions: CliOptions): Promise<void> {
@@ -393,6 +483,8 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
           configPath: state.configPath,
           providerPreset: state.providerPreset,
           resumeTarget: state.resumeTarget,
+          workflowMode: "standard",
+          force: false,
           task: line
         });
         printResult(result);
@@ -406,7 +498,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
   }
 }
 
-async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task, outputJson }: CliOptions): Promise<void> {
+async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task, outputJson, dryRun, force }: CliOptions): Promise<void> {
   if (!command) {
     return;
   }
@@ -545,6 +637,19 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
         return;
       }
       printRecentRunSummary(summary);
+      return;
+    }
+    case "apply-artifact": {
+      const workflow = await import("./core/artifact-apply.js");
+      const result = await workflow.applyArtifactCandidate({
+        repoRoot: cwd,
+        configPath,
+        target: command.target,
+        dryRun,
+        force,
+        logger: createLogger()
+      });
+      printArtifactApplyResult(result);
       return;
     }
   }
@@ -991,6 +1096,7 @@ function printHelp(): void {
   ai runs list
   ai runs show last
   ai runs show last --json
+  ai apply --from-artifact last
   ai setup
   ai setup --global
   ai setup --check
@@ -1022,6 +1128,7 @@ Examples:
   ai runs list
   ai runs show run-2026-...
   ai runs show last --json
+  ai apply --from-artifact last
   ai setup
   ai setup --global
   ai setup --check
@@ -1053,7 +1160,8 @@ Interactive mode:
 
 Workflow modes:
   Use \`ai implement "task"\` for the standard write-enabled flow.
-  Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint.
+  Use \`ai review\` to review current working tree changes when the repo is dirty.
+  Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes.
   Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
 
 Provider presets:
@@ -1081,6 +1189,8 @@ Project config:
   Use \`ai runs latest\` to inspect the newest artifact-backed run without opening JSON files manually.
   Use \`ai runs list\` to browse recent runs quickly.
   Use \`ai runs show <target>\` to inspect a specific run directory or run-state file.
+  Use \`ai apply --from-artifact <target>\` to apply a saved candidate without rerunning generation.
+  Add \`--force\` if you intentionally want to apply a candidate with blocking review issues.
   Add \`--json\` to run inspection commands when you want machine-readable output.
 
 Environment overrides:
@@ -1595,6 +1705,55 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   if (summary.artifactIndex?.runPath) {
     console.log(`- artifact run: ${summary.artifactIndex.runPath}`);
   }
+}
+
+function printCurrentChangeReviewResult(result: CurrentChangeReviewResult): void {
+  console.log("");
+  console.log("Current Change Review");
+  console.log(`- repo: ${result.repoRoot}`);
+  console.log(`- config: ${result.configPath ?? "(default rules)"}`);
+  console.log(`- task: ${result.task}`);
+  console.log(
+    `- providers: planner=${result.providers.planner}, reviewer=${result.providers.reviewer}, generator=${result.providers.generator}, fixer=${result.providers.fixer}`
+  );
+  console.log(`- changed files: ${result.changedFiles.join(", ") || "(none)"}`);
+  console.log(`- execution: total=${formatDuration(result.execution.totalDurationMs)}`);
+  console.log(
+    `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
+  );
+  console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
+  if (result.latestToolResults.length > 0) {
+    const toolCounts = summarizeToolResults(result.latestToolResults);
+    console.log(`- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`);
+  }
+  if (result.execution.steps.length > 0) {
+    console.log("- step durations:");
+    for (const step of result.execution.steps) {
+      console.log(`  - ${step.name}: ${step.status} in ${formatDuration(step.durationMs)}${step.detail ? ` - ${step.detail}` : ""}`);
+    }
+  }
+  console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
+  if (result.issues.length > 0) {
+    console.log("- findings:");
+    for (const issue of result.issues.slice(0, 10)) {
+      console.log(`  - [${issue.severity}] ${issue.path || "(unknown file)"}: ${issue.description}`);
+    }
+  }
+}
+
+function printArtifactApplyResult(result: ArtifactApplyResult): void {
+  console.log("");
+  console.log("Artifact Apply");
+  console.log(`- repo: ${result.repoRoot}`);
+  console.log(`- task: ${result.task || "(unknown)"}`);
+  console.log(`- run: ${result.runPath}`);
+  console.log(`- iteration: ${result.iterationPath}`);
+  console.log(`- manifest: ${result.manifestPath}`);
+  console.log(`- dry-run: ${result.dryRun}`);
+  console.log(`- wrote files: ${result.wroteFiles}`);
+  console.log(`- applied files: ${result.appliedFiles.join(", ") || "(none)"}`);
+  console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
+  console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
 }
 
 function printRunList(runs: RunListEntry[], repoRoot: string): void {

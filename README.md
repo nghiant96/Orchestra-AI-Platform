@@ -109,6 +109,7 @@ Inspect or change the active project config without editing JSON by hand:
 
 ```bash
 ai implement "Refactor the auth flow"
+ai review
 ai review "Propose and review auth changes"
 ai fix "Fix the auth flow regression"
 ai setup
@@ -121,6 +122,7 @@ ai runs latest
 ai runs list
 ai runs show last
 ai runs show last --json
+ai apply --from-artifact last
 ```
 
 Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
@@ -155,7 +157,8 @@ ai --chat
 Recommended config workflow:
 
 - Use `ai implement "task"` for the standard write-enabled implementation flow
-- Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint
+- Use `ai review` to review the current working tree when the repo already has changes
+- Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes to inspect
 - Use `ai fix "task"` for an interactive fix-focused flow that still writes files when approved
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
 - `ai setup` also configures the project tool checks (`lint`, `typecheck`, `build`, `test`) and changed-file scoping preferences
@@ -170,6 +173,8 @@ Recommended config workflow:
 - Use `ai runs list` to browse recent artifact-backed runs
 - Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
 - Add `--json` to run inspection commands when you want machine-readable output
+- Use `ai apply --from-artifact <target>` to apply a saved candidate from artifacts without rerunning generation
+- Add `--force` to `ai apply --from-artifact` when you intentionally want to apply a candidate that still has blocking review issues
 
 Tool execution workflow:
 
