@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { runCommand } from "../utils/api.js";
 import { parseJsonResponse } from "../utils/string.js";
 import type {
+  JsonObject,
   MemoryAdapter,
   MemoryConfig,
   MemoryMatch,
@@ -15,6 +16,32 @@ interface OpenMemoryRequestOptions {
   body?: string;
   timeoutMs?: number;
 }
+
+type OpenMemoryItem = JsonObject & {
+  id?: string | number;
+  memory_id?: string | number;
+  kind?: string;
+  type?: string;
+  createdAt?: string;
+  created_at?: string;
+  last_seen_at?: string;
+  score?: number | string;
+  relevance?: number | string;
+  summary?: string;
+  content?: string;
+  text?: string;
+  memory?: string;
+  files?: string[];
+  task?: string;
+  outcome?: string;
+  metadata?: JsonObject & {
+    task?: string;
+    outcome?: string;
+    files?: string[];
+    changedFiles?: string[];
+    writeTargets?: string[];
+  };
+};
 
 export class OpenMemoryAdapter implements MemoryAdapter {
   repoRoot: string;
@@ -68,7 +95,8 @@ export class OpenMemoryAdapter implements MemoryAdapter {
           timeoutMs: this.config.query_timeout_ms ?? 15000
         }
       );
-      return scoreFallbackItems(fallback?.items ?? [], query, stage, this.maxResults);
+      const fallbackItems = (fallback && typeof fallback === "object" ? (fallback as JsonObject).items : []) ?? [];
+      return scoreFallbackItems(fallbackItems, query, stage, this.maxResults);
     }
 
     const args = [
@@ -187,8 +215,8 @@ export class OpenMemoryAdapter implements MemoryAdapter {
     this.healthChecked = true;
   }
 
-  async requestJson(route: string, { method = "GET", body, timeoutMs }: OpenMemoryRequestOptions = {}): Promise<any> {
-    const headers = {
+  async requestJson(route: string, { method = "GET", body, timeoutMs }: OpenMemoryRequestOptions = {}): Promise<unknown> {
+    const headers: Record<string, string> = {
       Accept: "application/json"
     };
 
@@ -215,7 +243,7 @@ export class OpenMemoryAdapter implements MemoryAdapter {
     return raw ? JSON.parse(raw) : {};
   }
 
-  defaultTimeoutForRoute(route) {
+  defaultTimeoutForRoute(route: string): number {
     if (route === "/health") {
       return this.config.health_timeout_ms ?? 10000;
     }
@@ -265,7 +293,7 @@ function normalizeQueryResults(input: unknown): MemoryMatch[] {
   return normalizeJsonResults(input);
 }
 
-function tryParseQueryJson(stdout) {
+function tryParseQueryJson(stdout: string): unknown | null {
   try {
     return parseJsonResponse(stdout, "OpenMemory query output");
   } catch {
@@ -273,20 +301,22 @@ function tryParseQueryJson(stdout) {
   }
 }
 
-function normalizeJsonResults(payload) {
+function normalizeJsonResults(payload: unknown): MemoryMatch[] {
   const items = Array.isArray(payload)
     ? payload
-    : Array.isArray(payload?.matches)
-      ? payload.matches
-      : Array.isArray(payload?.results)
-        ? payload.results
-        : Array.isArray(payload?.memories)
-          ? payload.memories
+    : Array.isArray((payload as JsonObject | null | undefined)?.matches)
+      ? ((payload as JsonObject).matches as unknown[])
+      : Array.isArray((payload as JsonObject | null | undefined)?.results)
+        ? ((payload as JsonObject).results as unknown[])
+        : Array.isArray((payload as JsonObject | null | undefined)?.memories)
+          ? ((payload as JsonObject).memories as unknown[])
           : [];
 
-  return items.map((item, index) => {
+  return items.map((rawItem, index) => {
+    const item = (rawItem && typeof rawItem === "object" ? rawItem : {}) as OpenMemoryItem;
     const summary = item?.summary || item?.content || item?.text || item?.memory || JSON.stringify(item);
-    const metadata = item?.metadata && typeof item.metadata === "object" ? item.metadata : {};
+    const metadata: OpenMemoryItem["metadata"] =
+      item?.metadata && typeof item.metadata === "object" ? item.metadata : {};
     const files = Array.isArray(item?.files)
       ? item.files
       : Array.isArray(metadata?.changedFiles)
@@ -308,7 +338,7 @@ function normalizeJsonResults(payload) {
   });
 }
 
-function scoreFallbackItems(items, query, stage, limit) {
+function scoreFallbackItems(items: unknown, query: string, stage: string, limit: number): MemoryMatch[] {
   const queryTokens = tokenize(query);
   return (Array.isArray(items) ? items : [])
     .map((item, index) => ({
@@ -319,24 +349,28 @@ function scoreFallbackItems(items, query, stage, limit) {
     .filter((entry) => entry.score > 0)
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .slice(0, limit)
-    .map(({ item, score }, index) => ({
-      id: String(item?.id ?? `fallback-${index + 1}`),
-      kind: "openmemory",
-      createdAt: item?.created_at || "",
-      score,
-      summary: item?.content || JSON.stringify(item),
-      files: Array.isArray(item?.metadata?.changedFiles) ? item.metadata.changedFiles : [],
-      task: item?.metadata?.task || "",
-      outcome: item?.metadata?.outcome || "memory"
-    }));
+    .map(({ item, score }, index) => {
+      const normalizedItem = (item && typeof item === "object" ? item : {}) as OpenMemoryItem;
+      return {
+        id: String(normalizedItem.id ?? `fallback-${index + 1}`),
+        kind: "openmemory",
+        createdAt: normalizedItem.created_at || "",
+        score,
+        summary: normalizedItem.content || JSON.stringify(normalizedItem),
+        files: Array.isArray(normalizedItem.metadata?.changedFiles) ? normalizedItem.metadata.changedFiles : [],
+        task: normalizedItem.metadata?.task || "",
+        outcome: normalizedItem.metadata?.outcome || "memory"
+      };
+    });
 }
 
-function scoreItem(item, queryTokens, stage) {
+function scoreItem(item: unknown, queryTokens: Set<string>, stage: string): number {
+  const normalizedItem = (item && typeof item === "object" ? item : {}) as OpenMemoryItem;
   const haystack = [
-    item?.content,
-    item?.metadata?.task,
-    ...(Array.isArray(item?.metadata?.changedFiles) ? item.metadata.changedFiles : []),
-    ...(Array.isArray(item?.metadata?.writeTargets) ? item.metadata.writeTargets : [])
+    normalizedItem.content,
+    normalizedItem.metadata?.task,
+    ...(Array.isArray(normalizedItem.metadata?.changedFiles) ? normalizedItem.metadata.changedFiles : []),
+    ...(Array.isArray(normalizedItem.metadata?.writeTargets) ? normalizedItem.metadata.writeTargets : [])
   ]
     .filter(Boolean)
     .join(" ");
@@ -352,8 +386,8 @@ function scoreItem(item, queryTokens, stage) {
   return overlap + (stage ? 0.1 : 0);
 }
 
-function tokenize(text) {
-  return new Set(
+function tokenize(text: string): Set<string> {
+  return new Set<string>(
     String(text)
       .toLowerCase()
       .split(/[^a-z0-9_./-]+/i)
@@ -362,7 +396,7 @@ function tokenize(text) {
   );
 }
 
-function buildOpenMemoryText({ task, plan, result, iterations, issueCounts, providers, success, dryRun }) {
+function buildOpenMemoryText({ task, plan, result, iterations, issueCounts, providers, success, dryRun }: MemoryStoreInput): string {
   return [
     `Task: ${task}`,
     `Outcome: ${dryRun ? "dry-run" : success ? "success" : "failure"}`,
@@ -375,7 +409,7 @@ function buildOpenMemoryText({ task, plan, result, iterations, issueCounts, prov
   ].join("\n");
 }
 
-function summarizeRun(result, iterations) {
+function summarizeRun(result: MemoryStoreInput["result"], iterations: MemoryStoreInput["iterations"]): string {
   const changedFiles = result?.files?.map((file) => file.path) ?? [];
   const latestSummary = iterations?.at(-1)?.summary ?? "No review summary available.";
   return changedFiles.length > 0
@@ -383,6 +417,6 @@ function summarizeRun(result, iterations) {
     : latestSummary;
 }
 
-function stripTrailingSlash(value) {
+function stripTrailingSlash(value: string): string {
   return String(value || "").replace(/\/+$/, "");
 }

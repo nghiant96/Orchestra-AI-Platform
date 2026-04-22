@@ -4,22 +4,21 @@ Use this file for non-trivial work that benefits from an explicit execution plan
 
 ## Active Task
 
-Task: Convert the AI Coding System project from JavaScript to TypeScript while keeping the CLI workflow working.
+Task: Improve the AI Coding System runtime by tightening TypeScript safety, hardening command timeout handling, and adding regression tests.
 
 - [x] Define the current task
-- [x] Break the work into checkable steps
-- [x] Rename source modules from `.js` to `.ts` and keep module resolution working
-- [x] Add shared TypeScript types for provider results, review issues, logger, and orchestrator artifacts
-- [x] Update runtime entrypoints and package scripts so local usage still works cleanly
-- [x] Make `tsc` pass for the converted source
-- [x] Run smoke checks for CLI help and one basic runtime path
+- [x] Read project guidance and existing lessons
+- [x] Enable stricter TypeScript settings and fix the resulting compiler errors
+- [x] Add timeout escalation so stuck child processes are force-killed after a grace period
+- [x] Add project-level tests for JSON extraction, schema validation, and env loading behavior
+- [x] Run verification and record the final result
 
 ## Review
 
-- Result: The runtime source under `ai-system/` now runs from TypeScript entrypoints, the shared contracts are typed, and the local bin/Docker entrypoints were updated to continue working after the rename.
+- Result: `strict` is now enabled in `tsconfig.json`, the codebase passes `pnpm exec tsc --noEmit`, command execution escalates from `SIGTERM` to `SIGKILL` after a configurable grace period, and new project-level tests cover env parsing/loading, JSON extraction, schema validation, and timeout cleanup.
 - Verification:
   - `pnpm exec tsc --noEmit`
+  - `pnpm test`
   - `pnpm run ai:help`
   - `node --import tsx ./bin/ai.js --help`
-  - `PORT=4010 AI_SYSTEM_WORKDIR=/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM node --import tsx ai-system/server.ts` with `curl http://127.0.0.1:4010/health`
-- Notes: `docs/AI_CODING_SYSTEM_PROMPT_V3_CLI.md` was updated to reference `cli.ts`; the older V2 prompt remains historical and still describes the original JS layout.
+- Notes: Added `test` and `typecheck` scripts, plus a pure `parseEnvFileContent` helper to make env-loading behavior testable without depending on Node runtime internals.

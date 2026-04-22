@@ -3,10 +3,7 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "strict": false,
-    "noImplicitAny": false,
-    "useUnknownInCatchVariables": false,
-    "strictPropertyInitialization": false,
+    "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true

@@ -1,4 +1,4 @@
-export function stripMarkdownCodeFences(text) {
+export function stripMarkdownCodeFences(text: unknown): string {
   if (typeof text !== "string") {
     return "";
   }
@@ -8,9 +8,9 @@ export function stripMarkdownCodeFences(text) {
   return fencedMatch ? fencedMatch[1].trim() : trimmed;
 }
 
-export function extractBalancedJson(text) {
+export function extractBalancedJson(text: string): string {
   const input = stripMarkdownCodeFences(text);
-  const startIndexes = [];
+  const startIndexes: number[] = [];
 
   for (let index = 0; index < input.length; index += 1) {
     const char = input[index];
@@ -29,9 +29,9 @@ export function extractBalancedJson(text) {
   return input.trim();
 }
 
-function sliceBalancedJson(text, startIndex) {
+function sliceBalancedJson(text: string, startIndex: number): string | null {
   let depth = 0;
-  let quote = null;
+  let quote: '"' | "'" | null = null;
   let escaped = false;
 
   for (let index = startIndex; index < text.length; index += 1) {
@@ -66,7 +66,7 @@ function sliceBalancedJson(text, startIndex) {
   return null;
 }
 
-export function parseJsonResponse(text, fallbackLabel = "model response") {
+export function parseJsonResponse(text: string, fallbackLabel = "model response"): unknown {
   const candidate = extractBalancedJson(text);
 
   try {
@@ -77,18 +77,18 @@ export function parseJsonResponse(text, fallbackLabel = "model response") {
   }
 }
 
-export function truncate(value, maxLength = 400) {
+export function truncate(value: string, maxLength = 400): string {
   if (typeof value !== "string" || value.length <= maxLength) {
     return value;
   }
   return `${value.slice(0, maxLength - 3)}...`;
 }
 
-export function toPosixPath(value) {
+export function toPosixPath(value: string): string {
   return value.replace(/\\/g, "/");
 }
 
-export function maskSecrets(value) {
+export function maskSecrets<T>(value: T): T | string {
   if (typeof value !== "string") {
     return value;
   }

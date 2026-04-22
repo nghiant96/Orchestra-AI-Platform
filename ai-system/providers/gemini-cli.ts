@@ -1,6 +1,6 @@
 import { assertMatchesBasicSchema, extractStructuredData } from "../utils/schema.js";
 import { runCommandWithRetry } from "../utils/api.js";
-import type { CommandMonitorEvent, JsonProvider, Logger, ProviderConfig, RunJsonOptions } from "../types.js";
+import type { CommandMonitorEvent, JsonProvider, JsonSchema, Logger, ProviderConfig, RunJsonOptions } from "../types.js";
 
 export class GeminiCliProvider implements JsonProvider {
   config: ProviderConfig;
@@ -61,7 +61,7 @@ export class GeminiCliProvider implements JsonProvider {
   }
 }
 
-function buildCombinedPrompt(systemPrompt, prompt, schema) {
+function buildCombinedPrompt(systemPrompt: string, prompt: string, schema: JsonSchema): string {
   return [
     systemPrompt,
     "",

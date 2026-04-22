@@ -7,6 +7,8 @@
     "start": "node --import tsx ai-system/cli.ts",
     "server": "node --import tsx ai-system/server.ts",
     "ai": "node --import tsx ai-system/cli.ts",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
     "ai:local": "AI_SYSTEM_PROVIDER=local-cli node --import tsx ai-system/cli.ts",
     "ai:9router": "AI_SYSTEM_PROVIDER=9router node --import tsx ai-system/cli.ts",
     "ai:chat": "node --import tsx ai-system/cli.ts --chat",

@@ -3,6 +3,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { createLogger } from "./utils/logger.js";
+import type { OrchestratorResult } from "./types.js";
 
 const PRESET_ENV_KEYS = [
   "AI_SYSTEM_PROVIDER",
@@ -18,6 +19,33 @@ const PRESET_ENV_KEYS = [
   "AI_SYSTEM_OPENAI_MODEL"
 ];
 const PRESET_ENV_BASELINE = new Map(PRESET_ENV_KEYS.map((key) => [key, process.env[key]]));
+
+interface CliOptions {
+  cwd: string;
+  dryRun: boolean;
+  chat: boolean;
+  interactive: boolean;
+  pauseAfterPlan: boolean;
+  pauseAfterGenerate: boolean;
+  help: boolean;
+  configPath: string | null;
+  providerPreset: string | null;
+  resumeTarget: string | null;
+  task: string;
+}
+
+type TaskRunOptions = Omit<CliOptions, "chat" | "help">;
+
+interface InteractiveState {
+  cwd: string;
+  dryRun: boolean;
+  interactive: boolean;
+  pauseAfterPlan: boolean;
+  pauseAfterGenerate: boolean;
+  configPath: string | null;
+  providerPreset: string | null;
+  resumeTarget: string | null;
+}
 
 async function main() {
   const options = await parseArgs(process.argv.slice(2));
@@ -42,7 +70,7 @@ async function main() {
   process.exit(result.ok ? 0 : 1);
 }
 
-async function parseArgs(args) {
+async function parseArgs(args: string[]): Promise<CliOptions> {
   let cwd = process.cwd();
   let dryRun = false;
   let chat = false;
@@ -50,10 +78,10 @@ async function parseArgs(args) {
   let pauseAfterPlan = false;
   let pauseAfterGenerate = false;
   let help = false;
-  let configPath = null;
-  let providerPreset = null;
-  let resumeTarget = null;
-  const taskParts = [];
+  let configPath: string | null = null;
+  let providerPreset: string | null = null;
+  let resumeTarget: string | null = null;
+  const taskParts: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -161,7 +189,17 @@ async function parseArgs(args) {
   };
 }
 
-async function runTask({ cwd, dryRun, interactive, pauseAfterPlan, pauseAfterGenerate, configPath, providerPreset, resumeTarget, task }) {
+async function runTask({
+  cwd,
+  dryRun,
+  interactive,
+  pauseAfterPlan,
+  pauseAfterGenerate,
+  configPath,
+  providerPreset,
+  resumeTarget,
+  task
+}: TaskRunOptions): Promise<OrchestratorResult> {
   applyProviderPreset(providerPreset);
 
   const { Orchestrator } = await import("./core/orchestrator.js");
@@ -173,14 +211,14 @@ async function runTask({ cwd, dryRun, interactive, pauseAfterPlan, pauseAfterGen
   });
 
   if (resumeTarget) {
-    return orchestrator.resume(resumeTarget);
+    return (await orchestrator.resume(resumeTarget)) as OrchestratorResult;
   }
 
-  return orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate });
+  return (await orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate })) as OrchestratorResult;
 }
 
-async function runInteractiveSession(initialOptions) {
-  const state = {
+async function runInteractiveSession(initialOptions: CliOptions): Promise<void> {
+  const state: InteractiveState = {
     cwd: initialOptions.cwd,
     dryRun: initialOptions.dryRun,
     interactive: initialOptions.interactive,
@@ -227,7 +265,8 @@ async function runInteractiveSession(initialOptions) {
         });
         printResult(result);
       } catch (error) {
-        console.error(`[error] ${error.message}`);
+        const normalized = error as Error;
+        console.error(`[error] ${normalized.message}`);
       }
     }
   } finally {
@@ -235,7 +274,7 @@ async function runInteractiveSession(initialOptions) {
   }
 }
 
-async function handleInteractiveCommand(line, state) {
+async function handleInteractiveCommand(line: string, state: InteractiveState): Promise<"exit" | "handled" | null> {
   if (line === "exit" || line === "quit" || line === "/exit" || line === "/quit") {
     return "exit";
   }
@@ -368,7 +407,7 @@ async function handleInteractiveCommand(line, state) {
   return null;
 }
 
-function applyProviderPreset(preset) {
+function applyProviderPreset(preset: string | null): void {
   resetPresetEnv();
 
   if (!preset) {
@@ -398,14 +437,14 @@ function applyProviderPreset(preset) {
   throw new Error(`Unsupported provider preset "${preset}".`);
 }
 
-function setAllRoleProviders(providerType) {
+function setAllRoleProviders(providerType: string): void {
   setManagedEnv("AI_SYSTEM_PLANNER_PROVIDER", providerType);
   setManagedEnv("AI_SYSTEM_REVIEWER_PROVIDER", providerType);
   setManagedEnv("AI_SYSTEM_GENERATOR_PROVIDER", providerType);
   setManagedEnv("AI_SYSTEM_FIXER_PROVIDER", providerType);
 }
 
-function resetPresetEnv() {
+function resetPresetEnv(): void {
   for (const key of PRESET_ENV_KEYS) {
     const baseline = PRESET_ENV_BASELINE.get(key);
     if (typeof baseline === "undefined") {
@@ -416,11 +455,11 @@ function resetPresetEnv() {
   }
 }
 
-function setManagedEnv(key, value) {
+function setManagedEnv(key: string, value: string): void {
   process.env[key] = value;
 }
 
-function printInteractiveBanner(state) {
+function printInteractiveBanner(state: InteractiveState): void {
   console.log("AI Coding System");
   console.log(`- cwd: ${state.cwd}`);
   console.log(`- dry-run: ${state.dryRun}`);
@@ -433,7 +472,7 @@ function printInteractiveBanner(state) {
   console.log("Type a task and press Enter. Use /help for session commands.");
 }
 
-function printInteractiveHelp() {
+function printInteractiveHelp(): void {
   console.log("");
   console.log("Session commands");
   console.log("- /help");
@@ -459,7 +498,7 @@ function printInteractiveHelp() {
   console.log("- /exit");
 }
 
-function printSessionStatus(state) {
+function printSessionStatus(state: InteractiveState): void {
   console.log("");
   console.log("Session");
   console.log(`- cwd: ${state.cwd}`);
@@ -472,7 +511,7 @@ function printSessionStatus(state) {
   console.log(`- config: ${state.configPath ?? "(auto .ai-system.json)"}`);
 }
 
-function buildPrompt(state) {
+function buildPrompt(state: InteractiveState): string {
   const mode = [
     state.dryRun ? "dry-run" : null,
     state.interactive ? "confirm-plan" : null,
@@ -485,7 +524,7 @@ function buildPrompt(state) {
   return `ai:${path.basename(state.cwd)}${mode ? ` [${mode}]` : ""}> `;
 }
 
-function printHelp() {
+function printHelp(): void {
   console.log(`Usage:
   ai "task description"
   ai --cwd /path/to/repo --dry-run "task description"
@@ -563,7 +602,7 @@ Environment overrides:
 `);
 }
 
-async function readTaskFromStdin() {
+async function readTaskFromStdin(): Promise<string> {
   if (process.stdin.isTTY) {
     return "";
   }
@@ -576,7 +615,7 @@ async function readTaskFromStdin() {
   return data.trim();
 }
 
-function printResult(result) {
+function printResult(result: OrchestratorResult): void {
   const changedFiles = result.result?.files?.map((file) => file.path) ?? [];
   const iterations = result.iterations ?? [];
 
@@ -633,6 +672,7 @@ function printResult(result) {
 }
 
 main().catch((error) => {
-  console.error(`[error] ${error.message}`);
+  const normalized = error as Error;
+  console.error(`[error] ${normalized.message}`);
   process.exit(1);
 });

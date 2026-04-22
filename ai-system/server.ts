@@ -51,9 +51,10 @@ const server = http.createServer(async (req, res) => {
       error: "Not found"
     });
   } catch (error) {
+    const normalized = error as Error;
     return respondJson(res, 500, {
       ok: false,
-      error: error.message
+      error: normalized.message
     });
   }
 });
@@ -67,7 +68,7 @@ server.on("error", (error) => {
   process.exit(1);
 });
 
-function isAuthorized(req, token) {
+function isAuthorized(req: http.IncomingMessage, token: string): boolean {
   if (!token) {
     return true;
   }
@@ -76,13 +77,13 @@ function isAuthorized(req, token) {
   return header === `Bearer ${token}` || header === token;
 }
 
-function respondJson(res, statusCode, body) {
+function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): void {
   res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body, null, 2));
 }
 
-async function readJsonBody(req) {
-  const chunks = [];
+async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
@@ -91,5 +92,5 @@ async function readJsonBody(req) {
     return {};
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 }

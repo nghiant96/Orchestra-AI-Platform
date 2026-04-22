@@ -1,13 +1,16 @@
 import { parseJsonResponse, truncate } from "./string.js";
+import type { JsonObject, JsonSchema } from "../types.js";
 
-export function extractStructuredData(value, schema, label = "structured output") {
+type NormalizedCandidate = { ok: true; value: unknown } | { ok: false };
+
+export function extractStructuredData(value: unknown, schema: JsonSchema, label = "structured output"): unknown {
   const direct = tryNormalizeCandidate(value, schema, label);
   if (direct.ok) {
     return direct.value;
   }
 
-  const queue = [value];
-  const seen = new Set();
+  const queue: unknown[] = [value];
+  const seen = new Set<object>();
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -41,8 +44,8 @@ export function extractStructuredData(value, schema, label = "structured output"
     }
 
     if (typeof current === "object") {
-      for (const key of preferredKeys(current)) {
-        queue.push(current[key]);
+      for (const key of preferredKeys(current as JsonObject)) {
+        queue.push((current as JsonObject)[key]);
       }
     }
   }
@@ -50,14 +53,14 @@ export function extractStructuredData(value, schema, label = "structured output"
   throw new Error(`Unable to extract ${label}. Preview: ${truncate(stringifyValue(value), 500)}`);
 }
 
-export function assertMatchesBasicSchema(value, schema, label = "structured output") {
+export function assertMatchesBasicSchema(value: unknown, schema: JsonSchema, label = "structured output"): void {
   const error = firstSchemaError(value, schema, "$");
   if (error) {
     throw new Error(`${label} did not match schema: ${error}`);
   }
 }
 
-function tryNormalizeCandidate(value, schema, label) {
+function tryNormalizeCandidate(value: unknown, schema: JsonSchema, label: string): NormalizedCandidate {
   try {
     if (typeof value === "string") {
       const parsed = parseJsonResponse(value, label);
@@ -76,7 +79,7 @@ function tryNormalizeCandidate(value, schema, label) {
   return { ok: false };
 }
 
-function tryParseJson(value, label) {
+function tryParseJson(value: string, label: string): unknown {
   try {
     return parseJsonResponse(value, label);
   } catch {
@@ -84,10 +87,10 @@ function tryParseJson(value, label) {
   }
 }
 
-function preferredKeys(value) {
+function preferredKeys(value: JsonObject): string[] {
   const keys = Object.keys(value);
   const preferred = ["result", "response", "content", "text", "message", "output", "data", "payload"];
-  const ordered = [];
+  const ordered: string[] = [];
 
   for (const key of preferred) {
     if (key in value) {
@@ -104,7 +107,7 @@ function preferredKeys(value) {
   return ordered;
 }
 
-function stringifyValue(value) {
+function stringifyValue(value: unknown): string {
   if (typeof value === "string") {
     return value;
   }
@@ -116,12 +119,12 @@ function stringifyValue(value) {
   }
 }
 
-function firstSchemaError(value, schema, path) {
+function firstSchemaError(value: unknown, schema: JsonSchema, path: string): string | null {
   if (!schema) {
     return null;
   }
 
-  if (schema.enum && !schema.enum.includes(value)) {
+  if (schema.enum && schema.enum.includes(value as string | number | boolean | null) === false) {
     return `${path} must be one of ${schema.enum.join(", ")}`;
   }
 
@@ -176,6 +179,6 @@ function firstSchemaError(value, schema, path) {
   }
 }
 
-function isPlainObject(value) {
+function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

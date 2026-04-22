@@ -34,6 +34,13 @@ export interface ProviderConfig {
   [key: string]: unknown;
 }
 
+export interface ProviderConfigMap extends Record<string, ProviderConfig> {
+  planner: ProviderConfig;
+  reviewer: ProviderConfig;
+  generator: ProviderConfig;
+  fixer: ProviderConfig;
+}
+
 export interface MemoryConfig {
   enabled?: boolean;
   backend?: string;
@@ -69,8 +76,8 @@ export interface RulesConfig {
     data_dir?: string;
     [key: string]: unknown;
   };
-  memory?: MemoryConfig;
-  providers?: Record<string, ProviderConfig>;
+  memory: MemoryConfig;
+  providers: ProviderConfigMap;
   excluded_directories?: string[];
   sensitive_file_names?: string[];
   [key: string]: unknown;
@@ -142,6 +149,62 @@ export interface FileGenerationResult {
   files: GeneratedFile[];
 }
 
+export interface IterationResult {
+  iteration: number;
+  summary: string;
+  issues: ReviewIssue[];
+  artifactPath?: string | null;
+}
+
+export interface ProviderSummary {
+  planner: string;
+  reviewer: string;
+  generator: string;
+  fixer: string;
+}
+
+export interface MemoryStats {
+  backend: string;
+  planningMatches: number;
+  implementationMatches: number;
+  stored: boolean;
+}
+
+export interface ArtifactSummary {
+  enabled: boolean;
+  ok: boolean;
+  runPath: string;
+  latestIterationPath: string | null;
+  stepPaths: Record<string, string>;
+  latestFiles: string[];
+}
+
+export type RunStatus =
+  | "cancelled"
+  | "paused_after_plan"
+  | "paused_after_generate"
+  | "completed"
+  | "failed"
+  | "resumed_completed";
+
+export interface OrchestratorResult {
+  ok: boolean;
+  status?: RunStatus;
+  dryRun: boolean;
+  repoRoot: string;
+  configPath: string | null;
+  plan: PlanResult;
+  result: FileGenerationResult | null;
+  iterations: IterationResult[];
+  issueCounts: Record<string, number>;
+  skippedContextFiles: string[];
+  finalIssues: ReviewIssue[];
+  providers: ProviderSummary;
+  memory: MemoryStats;
+  artifacts: ArtifactSummary | null;
+  wroteFiles: boolean;
+}
+
 export interface MemoryMatch {
   id: string;
   kind: string;
@@ -165,7 +228,7 @@ export interface MemoryStoreInput {
   result: FileGenerationResult | null;
   iterations: Array<{ summary?: string; issues?: ReviewIssue[] }>;
   issueCounts: Record<string, number>;
-  providers: Record<string, string>;
+  providers: ProviderSummary;
   success: boolean;
   dryRun: boolean;
 }
@@ -183,6 +246,7 @@ export interface CommandRunOptions {
   cwd: string;
   input?: string;
   timeoutMs?: number;
+  killGraceMs?: number;
   monitorIntervalMs?: number;
   onMonitor?: (event: CommandMonitorEvent) => void;
 }

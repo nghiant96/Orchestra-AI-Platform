@@ -62,7 +62,8 @@ export class OpenAICompatibleProvider implements JsonProvider {
       }
     }
 
-    throw new Error(`${label} failed after ${effectiveRetries + 1} attempt(s): ${lastError?.message ?? "Unknown error"}`);
+    const normalized = lastError as Error | undefined;
+    throw new Error(`${label} failed after ${effectiveRetries + 1} attempt(s): ${normalized?.message ?? "Unknown error"}`);
   }
 
   async requestJson({
@@ -114,7 +115,7 @@ export class OpenAICompatibleProvider implements JsonProvider {
 }
 
 function buildAbortSignal(timeoutMs?: number): AbortSignal | undefined {
-  return Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+  return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
 }
 
 function buildMessages(systemPrompt: string, prompt: string, schema: JsonSchema) {

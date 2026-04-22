@@ -28,24 +28,22 @@ import { loadJsonIfExists, mergeConfig, resolveProjectConfigPath } from "../util
 import { loadEnvironment } from "../utils/api.js";
 import { runStaticAnalysis } from "../utils/linter.js";
 import type {
+  ArtifactSummary,
   ContextFile,
   FileGenerationResult,
   GeneratedFile,
+  IterationResult,
   Logger,
   MemoryAdapter,
+  MemoryStats,
+  OrchestratorResult,
   PlanResult,
   ProviderConfig,
+  ProviderSummary,
   ReviewIssue,
-  ReviewResult,
+  RunStatus,
   RulesConfig
 } from "../types.js";
-
-interface IterationResult {
-  iteration: number;
-  summary: string;
-  issues: ReviewIssue[];
-  artifactPath?: string | null;
-}
 
 interface ArtifactState {
   enabled: boolean;
@@ -75,7 +73,7 @@ export class Orchestrator {
       pauseAfterPlan = false,
       pauseAfterGenerate = false
     }: { dryRun?: boolean; interactive?: boolean; pauseAfterPlan?: boolean; pauseAfterGenerate?: boolean } = {}
-  ) {
+  ): Promise<OrchestratorResult> {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
@@ -93,7 +91,7 @@ export class Orchestrator {
     const fixer = new FixerAgent({ provider: fixerProvider, rules });
     const memory = createMemoryAdapter({ repoRoot, rules, logger: this.logger });
 
-    const memoryStats = {
+    const memoryStats: MemoryStats = {
       backend: memory.id,
       planningMatches: 0,
       implementationMatches: 0,
@@ -217,18 +215,22 @@ export class Orchestrator {
 
     for (let iteration = 1; iteration <= rules.max_iterations; iteration += 1) {
       this.logger.step(`Generation loop ${iteration}/${rules.max_iterations}`);
-      currentResult =
-        iteration === 1
-          ? await generator.generateCode(task, plan, contextFiles, repoRoot, implementationMemoryContext)
-          : await fixer.fixCode(
-              task,
-              plan,
-              currentResult.files,
-              latestReviewSummary,
-              acceptedIssues,
-              repoRoot,
-              implementationMemoryContext
-            );
+      if (iteration === 1) {
+        currentResult = await generator.generateCode(task, plan, contextFiles, repoRoot, implementationMemoryContext);
+      } else {
+        if (!currentResult) {
+          throw new Error("Missing generation result before fixer iteration.");
+        }
+        currentResult = await fixer.fixCode(
+          task,
+          plan,
+          currentResult.files,
+          latestReviewSummary,
+          acceptedIssues,
+          repoRoot,
+          implementationMemoryContext
+        );
+      }
 
       currentResult.files = sanitizeGeneratedFiles(currentResult.files, plan, rules, repoRoot);
       if (currentResult.files.length === 0) {
@@ -346,7 +348,7 @@ export class Orchestrator {
           this.logger
         );
 
-        const result = {
+        const result: OrchestratorResult = {
           ok: true,
           dryRun,
           repoRoot,
@@ -393,7 +395,7 @@ export class Orchestrator {
       this.logger
     );
 
-    const result = {
+    const result: OrchestratorResult = {
       ok: false,
       dryRun,
       repoRoot,
@@ -424,7 +426,7 @@ export class Orchestrator {
     return result;
   }
 
-  async resume(resumeTarget: string) {
+  async resume(resumeTarget: string): Promise<OrchestratorResult> {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
@@ -458,7 +460,7 @@ export class Orchestrator {
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
 
-    const memoryStats = {
+    const memoryStats: MemoryStats = {
       backend: memory.id,
       planningMatches: saved.memory?.planningMatches ?? 0,
       implementationMatches: saved.memory?.implementationMatches ?? 0,
@@ -520,7 +522,7 @@ export class Orchestrator {
         this.logger
       );
 
-      const result = {
+      const result: OrchestratorResult = {
         ok: true,
         status: "resumed_completed",
         dryRun,
@@ -555,18 +557,22 @@ export class Orchestrator {
 
     for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
       this.logger.step(`Generation loop ${iteration}/${rules.max_iterations} (resumed)`);
-      currentResult =
-        iteration === 1 && !currentResult
-          ? await generator.generateCode(task, plan, contextFiles, repoRoot, implementationMemoryContext)
-          : await fixer.fixCode(
-              task,
-              plan,
-              currentResult.files,
-              latestReviewSummary,
-              acceptedIssues,
-              repoRoot,
-              implementationMemoryContext
-            );
+      if (iteration === 1 && !currentResult) {
+        currentResult = await generator.generateCode(task, plan, contextFiles, repoRoot, implementationMemoryContext);
+      } else {
+        if (!currentResult) {
+          throw new Error("Missing generation result before fixer iteration.");
+        }
+        currentResult = await fixer.fixCode(
+          task,
+          plan,
+          currentResult.files,
+          latestReviewSummary,
+          acceptedIssues,
+          repoRoot,
+          implementationMemoryContext
+        );
+      }
 
       currentResult.files = sanitizeGeneratedFiles(currentResult.files, plan, rules, repoRoot);
       if (currentResult.files.length === 0) {
@@ -683,7 +689,7 @@ export class Orchestrator {
           this.logger
         );
 
-        const result = {
+        const result: OrchestratorResult = {
           ok: true,
           status: "resumed_completed",
           dryRun,
@@ -730,7 +736,7 @@ export class Orchestrator {
       this.logger
     );
 
-    const result = {
+    const result: OrchestratorResult = {
       ok: false,
       status: "failed",
       dryRun,
@@ -1006,7 +1012,7 @@ function summarizeProviders({
   reviewerProvider: { id: string };
   generatorProvider: { id: string };
   fixerProvider: { id: string };
-}) {
+}): ProviderSummary {
   return {
     planner: plannerProvider.id,
     reviewer: reviewerProvider.id,
@@ -1019,7 +1025,8 @@ async function safelySearchMemory(memory: MemoryAdapter, payload: Parameters<Mem
   try {
     return await memory.searchRelevant(payload);
   } catch (error) {
-    logger?.warn(`Memory search failed: ${error.message}`);
+    const normalized = error as Error;
+    logger?.warn(`Memory search failed: ${normalized.message}`);
     return [];
   }
 }
@@ -1028,7 +1035,8 @@ async function safelyStoreMemory(memory: MemoryAdapter, payload: Parameters<Memo
   try {
     return await memory.storeRunSummary(payload);
   } catch (error) {
-    logger?.warn(`Memory store failed: ${error.message}`);
+    const normalized = error as Error;
+    logger?.warn(`Memory store failed: ${normalized.message}`);
     return false;
   }
 }
@@ -1091,7 +1099,25 @@ function buildStoppedResult({
   providers,
   memoryStats,
   artifactState
-}) {
+}: {
+  status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
+  dryRun: boolean;
+  repoRoot: string;
+  configPath: string | null;
+  plan: PlanResult;
+  result?: FileGenerationResult | null;
+  iterations?: IterationResult[];
+  skippedContextFiles?: string[];
+  finalIssues?: ReviewIssue[];
+  providers: {
+    plannerProvider: { id: string };
+    reviewerProvider: { id: string };
+    generatorProvider: { id: string };
+    fixerProvider: { id: string };
+  };
+  memoryStats: MemoryStats;
+  artifactState: ArtifactState;
+}): OrchestratorResult {
   return {
     ok: false,
     status,
@@ -1219,11 +1245,11 @@ async function persistIterationArtifacts(state: ArtifactState, payload: any, log
       notes: payload.plan?.notes ?? []
     },
     resultSummary: payload.resultSummary,
-    candidateFiles: payload.candidateFiles.map((file) => ({
+    candidateFiles: payload.candidateFiles.map((file: { path: string; action?: string }) => ({
       path: file.path,
       action: file.action
     })),
-    originalFiles: payload.originalFiles.map((file) => ({
+    originalFiles: payload.originalFiles.map((file: { path: string; content?: string | null }) => ({
       path: file.path,
       existed: file.content !== null
     })),

@@ -32,7 +32,7 @@ export class CodexCliProvider implements JsonProvider {
     const effectiveBaseDelayMs = this.config.base_delay_ms ?? baseDelayMs;
     const effectiveMonitorIntervalMs = this.config.monitor_interval_ms ?? 0;
 
-    return withTempDir("ai-system-codex-", async (tempDir) => {
+    return withTempDir("ai-system-codex-", async (tempDir: string) => {
       const schemaPath = path.join(tempDir, "schema.json");
       const outputPath = path.join(tempDir, "output.json");
       await writeJsonFile(schemaPath, schema);
@@ -78,7 +78,7 @@ export class CodexCliProvider implements JsonProvider {
   }
 }
 
-function buildCombinedPrompt(systemPrompt, prompt) {
+function buildCombinedPrompt(systemPrompt: string, prompt: string): string {
   return [systemPrompt, "", prompt].filter(Boolean).join("\n\n");
 }
 

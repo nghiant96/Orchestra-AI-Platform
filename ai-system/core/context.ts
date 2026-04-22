@@ -4,8 +4,8 @@ import { toPosixPath } from "../utils/string.js";
 import type { CliCommandError, ContextFile, GeneratedFile, Logger, RulesConfig } from "../types.js";
 
 export async function buildProjectTree(repoRoot: string, rules: RulesConfig): Promise<string> {
-  const lines = ["."]; 
-  const entries = [];
+  const lines = ["."];
+  const entries: string[] = [];
   const maxEntries = rules.max_tree_entries ?? 400;
 
   await walk(repoRoot, "", 0);
@@ -210,7 +210,7 @@ function isSensitiveFile(relativePath: string, rules: RulesConfig): boolean {
 }
 
 function dedupe(values: string[]): string[] {
-  return [...new Set(values)];
+  return [...new Set<string>(values)];
 }
 
 async function rollbackWrittenFiles(
