@@ -1,3 +1,13 @@
+- [x] Add `ai review --failing-checks` to review the code regions implicated by the currently failing repository checks
+- [x] Add `ai fix --from-run <target>` to resume retryable runs or build a focused follow-up repair task from prior artifacts
+- [x] Make `ai implement` explicitly communicate the auto-fix loop budget semantics when the run stops on iteration limits
+
+Review/result:
+- `ai review --failing-checks` now runs the configured repo checks first and only escalates to the reviewer when there is real failing-check work to inspect.
+- `ai fix --from-run <target>` now reuses the stage-targeted resume path when possible, and otherwise converts prior run artifacts into a focused follow-up fix task.
+- `ai implement` already used the generate -> checks -> fix loop in the engine; the CLI now surfaces iteration-limit exits as budget exhaustion so the behavior is explicit to operators.
+- Verified with `pnpm exec tsc --noEmit`, `pnpm test`, `node --import tsx --test tests/fix-checks.test.ts tests/fix-from-run.test.ts tests/review-failing-checks.test.ts`, and `node --import tsx ./bin/ai.js --help`.
+
 - [x] Add `ai fix-checks` to run current repo checks, convert failing output into a structured repair task, and execute the existing fix loop
 - [x] Add tests for failing-check task construction and green-check short-circuit behavior
 

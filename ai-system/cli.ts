@@ -43,6 +43,7 @@ interface CliOptions {
   workflowMode: WorkflowMode;
   reviewStaged: boolean;
   reviewBase: string | null;
+  reviewFailingChecks: boolean;
   reviewFiles: string[];
   force: boolean;
   task: string;
@@ -55,6 +56,7 @@ type CliCommand =
   | { kind: "doctor" }
   | { kind: "explain-routing" }
   | { kind: "fix-checks" }
+  | { kind: "fix-from-run"; target: string }
   | { kind: "setup" }
   | { kind: "setup-check" }
   | { kind: "runs-latest" }
@@ -109,6 +111,25 @@ interface ArtifactApplyResult {
   applyEventPath: string;
 }
 
+interface FailingChecksReviewResult {
+  repoRoot: string;
+  configPath: string | null;
+  task: string;
+  changedFiles: string[];
+  providers: {
+    planner: string;
+    reviewer: string;
+    generator: string;
+    fixer: string;
+  };
+  latestToolResults: import("./types.js").ToolExecutionResult[];
+  reviewSummary: string;
+  issues: import("./types.js").ReviewIssue[];
+  issueCounts: Record<"high" | "medium" | "low", number>;
+  fileHints: string[];
+  execution: import("./types.js").ExecutionSummary;
+}
+
 interface FixChecksCommandResult {
   preparation: import("./core/fix-checks.js").FixChecksPreparation;
   result: OrchestratorResult;
@@ -151,6 +172,14 @@ async function main() {
       }
       process.exit(reviewResult.result.ok ? 0 : 1);
     }
+    if (reviewResult.kind === "failing-check-review") {
+      if (options.outputJson) {
+        await outputJsonResult(reviewResult.result, options.savePath);
+      } else {
+        printFailingChecksReviewResult(reviewResult.result);
+      }
+      process.exit(reviewResult.result.issueCounts.high > 0 || reviewResult.result.issueCounts.medium > 0 ? 1 : 0);
+    }
     if (options.outputJson) {
       await outputJsonResult(reviewResult.result, options.savePath);
     } else {
@@ -182,6 +211,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let workflowMode: WorkflowMode = "standard";
   let reviewStaged = false;
   let reviewBase: string | null = null;
+  let reviewFailingChecks = false;
   const reviewFiles: string[] = [];
   let force = false;
   let dryRunExplicit = false;
@@ -218,6 +248,16 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
       continue;
     }
     if (arg === "fix") {
+      if (args[index + 1] === "--from-run") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error("Missing target for `ai fix --from-run <target>`.");
+        }
+        command = { kind: "fix-from-run", target };
+        workflowMode = "fix";
+        index += 2;
+        continue;
+      }
       workflowMode = "fix";
       continue;
     }
@@ -248,6 +288,10 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
       }
       reviewFiles.push(...parsedPaths);
       index += 1;
+      continue;
+    }
+    if (arg === "--failing-checks") {
+      reviewFailingChecks = true;
       continue;
     }
     if (arg === "doctor") {
@@ -456,6 +500,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     workflowMode,
     reviewStaged,
     reviewBase,
+    reviewFailingChecks,
     reviewFiles,
     force,
     task
@@ -502,7 +547,48 @@ async function runTask({
 async function runReviewWorkflow(options: TaskRunOptions): Promise<
   | { kind: "task-run"; result: OrchestratorResult }
   | { kind: "current-review"; result: CurrentChangeReviewResult }
+  | { kind: "failing-check-review"; result: FailingChecksReviewResult }
 > {
+  if (options.reviewFailingChecks) {
+    const loggerHandle = createCliLogger({ outputJson: options.outputJson });
+    try {
+      const workflow = await import("./core/review-failing-checks.js");
+      const review = await workflow.reviewFailingChecks({
+        repoRoot: options.cwd,
+        configPath: options.configPath,
+        providerPreset: options.providerPreset,
+        logger: loggerHandle.logger
+      });
+
+      return {
+        kind: "failing-check-review",
+        result:
+          review ?? {
+            repoRoot: options.cwd,
+            configPath: options.configPath,
+            task: "Review the currently failing repository checks.",
+            changedFiles: [],
+            providers: { planner: "unknown", reviewer: "unknown", generator: "unknown", fixer: "unknown" },
+            latestToolResults: [],
+            reviewSummary: "No failing repository checks detected.",
+            issues: [],
+            issueCounts: { high: 0, medium: 0, low: 0 },
+            fileHints: [],
+            execution: {
+              totalDurationMs: 0,
+              steps: [],
+              transitions: [],
+              currentStage: null,
+              terminalStage: null,
+              failure: null
+            }
+          }
+      };
+    } finally {
+      loggerHandle.dispose();
+    }
+  }
+
   const loggerHandle = createCliLogger({ outputJson: options.outputJson });
   try {
   const workflow = await import("./core/current-change-review.js");
@@ -582,6 +668,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
           outputJson: false,
           reviewStaged: false,
           reviewBase: null,
+          reviewFailingChecks: false,
           reviewFiles: [],
           force: false,
           task: line
@@ -717,6 +804,7 @@ async function runCliCommand({
           outputJson,
           reviewStaged: false,
           reviewBase: null,
+          reviewFailingChecks: false,
           reviewFiles: [],
           force,
           task: preparation.task
@@ -726,6 +814,80 @@ async function runCliCommand({
           return;
         }
         printFixChecksPreparation(preparation);
+        printResult(result);
+        return;
+      } finally {
+        loggerHandle.dispose();
+      }
+    }
+    case "fix-from-run": {
+      const loggerHandle = createCliLogger({ outputJson });
+      try {
+        const workflow = await import("./core/fix-from-run.js");
+        const preparation = await workflow.prepareFixFromRun({
+          repoRoot: cwd,
+          configPath,
+          target: command.target,
+          logger: loggerHandle.logger
+        });
+
+        if (preparation.resumable && preparation.resumeTarget) {
+          const result = await runTask({
+            cwd,
+            dryRun,
+            interactive,
+            pauseAfterPlan,
+            pauseAfterGenerate,
+            configPath,
+            providerPreset,
+            resumeTarget: preparation.resumeTarget,
+            workflowMode: "fix",
+            outputJson,
+            reviewStaged: false,
+            reviewBase: null,
+            reviewFailingChecks: false,
+            reviewFiles: [],
+            force,
+            task: ""
+          });
+          if (outputJson) {
+            await outputJsonResult({ preparation, result }, savePath);
+            return;
+          }
+          printFixFromRunPreparation(preparation);
+          printResult(result);
+          return;
+        }
+
+        const fixFlags = applyWorkflowModeDefaults("fix", {
+          dryRun,
+          interactive,
+          pauseAfterPlan,
+          pauseAfterGenerate
+        });
+        const result = await runTask({
+          cwd,
+          dryRun: fixFlags.dryRun,
+          interactive: fixFlags.interactive,
+          pauseAfterPlan: fixFlags.pauseAfterPlan,
+          pauseAfterGenerate: fixFlags.pauseAfterGenerate,
+          configPath,
+          providerPreset,
+          resumeTarget: null,
+          workflowMode: "fix",
+          outputJson,
+          reviewStaged: false,
+          reviewBase: null,
+          reviewFailingChecks: false,
+          reviewFiles: [],
+          force,
+          task: preparation.task
+        });
+        if (outputJson) {
+          await outputJsonResult({ preparation, result }, savePath);
+          return;
+        }
+        printFixFromRunPreparation(preparation);
         printResult(result);
         return;
       } finally {
@@ -1275,10 +1437,12 @@ function printHelp(): void {
   ai review "task description"
   ai review --staged
   ai review --base main
+  ai review --failing-checks
   ai review --files src/auth.ts,src/session.ts
   ai review --staged --files src/auth.ts
   ai review --base main --files src/auth.ts
   ai fix "task description"
+  ai fix --from-run last
   ai fix-checks
   ai explain-routing "task description"
   ai explain-routing
@@ -1315,9 +1479,11 @@ Examples:
   ai review "Propose and review auth changes"
   ai review --staged
   ai review --base main
+  ai review --failing-checks
   ai review --files src/auth.ts --json --save /tmp/review.json
   ai review --staged --files src/auth.ts --json --save /tmp/staged-scope-review.json
   ai fix "Fix the auth flow regression"
+  ai fix --from-run last
   ai fix-checks
   ai explain-routing "Refactor the auth flow"
   ai explain-routing
@@ -1362,11 +1528,13 @@ Workflow modes:
   Use \`ai review\` to review current working tree changes when the repo is dirty.
   Use \`ai review --staged\` to review only what is currently staged in git.
   Use \`ai review --base <git-ref>\` to review the current repo state against a base ref such as \`main\` or \`origin/main\`.
+  Use \`ai review --failing-checks\` to review the code regions implicated by the currently failing repo checks.
   Use \`ai review --files <path[,path2...]>\` (or repeat \`--files\`) to review only the requested file scope against \`HEAD\`.
   You can combine \`--files\` with \`--staged\` or \`--base <git-ref>\` to review only a precise subset within that git scope.
   Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes.
   Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
   Use \`ai fix-checks\` to run the configured repo checks, turn failing output into a structured repair task, and execute the normal fix loop against it.
+  Use \`ai fix --from-run <target>\` to continue from a previous run, resuming directly when possible or building a focused follow-up repair task when not.
 
 Provider presets:
   --provider local-cli
@@ -1790,6 +1958,9 @@ function printResult(result: OrchestratorResult): void {
     console.log(
       `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
     );
+    if (result.execution.failure?.class === "iteration-limit") {
+      console.log("- budget exceeded: the implementation/review loop hit the configured max_iterations before reaching a green state");
+    }
     if (result.execution.steps.length > 0) {
       console.log("- step durations:");
       for (const step of result.execution.steps) {
@@ -2053,6 +2224,48 @@ function printFixChecksPreparation(preparation: import("./core/fix-checks.js").F
   console.log(
     `- tool issue counts: high=${preparation.issueCounts.high}, medium=${preparation.issueCounts.medium}, low=${preparation.issueCounts.low}`
   );
+  if (preparation.fileHints.length > 0) {
+    console.log(`- file hints: ${preparation.fileHints.join(", ")}`);
+  }
+}
+
+function printFailingChecksReviewResult(result: FailingChecksReviewResult): void {
+  console.log("");
+  console.log("Failing Checks Review");
+  console.log(`- repo: ${result.repoRoot}`);
+  console.log(`- config: ${result.configPath ?? "(default rules)"}`);
+  console.log(
+    `- providers: planner=${result.providers.planner}, reviewer=${result.providers.reviewer}, generator=${result.providers.generator}, fixer=${result.providers.fixer}`
+  );
+  console.log(`- file hints: ${result.fileHints.join(", ") || "(none)"}`);
+  console.log(`- execution: total=${formatDuration(result.execution.totalDurationMs)}`);
+  console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
+  if (result.latestToolResults.length > 0) {
+    const toolCounts = summarizeToolResults(result.latestToolResults);
+    console.log(`- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`);
+  }
+  console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
+  if (result.issues.length > 0) {
+    console.log("- findings:");
+    for (const issue of result.issues.slice(0, 10)) {
+      console.log(`  - [${issue.severity}] ${issue.path || "(unknown file)"}: ${issue.description}`);
+    }
+  }
+}
+
+function printFixFromRunPreparation(preparation: import("./core/fix-from-run.js").FixFromRunPreparation): void {
+  console.log("");
+  console.log("Fix From Run");
+  console.log(`- repo: ${preparation.repoRoot}`);
+  console.log(`- source: ${preparation.target}`);
+  console.log(`- resumable: ${preparation.resumable}`);
+  if (preparation.resumeTarget) {
+    console.log(`- resume target: ${preparation.resumeTarget}`);
+  }
+  console.log(
+    `- previous providers: planner=${preparation.providers.planner}, reviewer=${preparation.providers.reviewer}, generator=${preparation.providers.generator}, fixer=${preparation.providers.fixer}`
+  );
+  console.log(`- issues: high=${preparation.issueCounts.high}, medium=${preparation.issueCounts.medium}, low=${preparation.issueCounts.low}`);
   if (preparation.fileHints.length > 0) {
     console.log(`- file hints: ${preparation.fileHints.join(", ")}`);
   }

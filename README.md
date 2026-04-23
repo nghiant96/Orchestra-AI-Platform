@@ -164,9 +164,11 @@ ai --chat
 Recommended config workflow:
 
 - Use `ai implement "task"` for the standard write-enabled implementation flow
+- `ai implement` runs the normal implementation loop: plan -> implement -> checks -> auto-fix until the repo is green or the configured iteration budget is exhausted
 - Use `ai review` to review the current working tree when the repo already has changes
 - Use `ai review --staged` to review only the changes that are currently staged in git
 - Use `ai review --base <git-ref>` to review the current repo state against a base ref like `main` or `origin/main`
+- Use `ai review --failing-checks` to review the code regions implicated by the currently failing repo checks
 - Use `ai review --files <path[,path2...]>` or repeat `--files` to review only a very specific file scope against `HEAD`
 - You can combine `--files` with `--staged` or `--base <git-ref>` when you want a very precise git-backed review scope
 - Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes to inspect
@@ -196,6 +198,7 @@ Recommended config workflow:
 - Use `ai apply --from-artifact <target>` to apply a saved candidate from artifacts without rerunning generation
 - Add `--force` to `ai apply --from-artifact` when you intentionally want to apply a candidate that still has blocking review issues
 - Each `ai apply --from-artifact` invocation now persists an audit event under the run artifacts and surfaces the latest apply event in `ai runs latest/show`
+- Use `ai fix --from-run <target>` to continue from a previous run, resuming directly when the run is retryable or building a focused follow-up repair task when it is not
 - Interactive TTY runs now open a live `blessed` dashboard for status and recent activity; set `AI_SYSTEM_DISABLE_TUI=true` when you want plain console logging instead
 
 Tool execution workflow:
