@@ -54,6 +54,7 @@ type CliCommand =
   | { kind: "config-use"; preset: string }
   | { kind: "doctor" }
   | { kind: "explain-routing" }
+  | { kind: "fix-checks" }
   | { kind: "setup" }
   | { kind: "setup-check" }
   | { kind: "runs-latest" }
@@ -106,6 +107,11 @@ interface ArtifactApplyResult {
   issueCounts: Record<"high" | "medium" | "low", number>;
   force: boolean;
   applyEventPath: string;
+}
+
+interface FixChecksCommandResult {
+  preparation: import("./core/fix-checks.js").FixChecksPreparation;
+  result: OrchestratorResult;
 }
 
 type SetupToolName = "lint" | "typecheck" | "build" | "test";
@@ -246,6 +252,10 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     }
     if (arg === "doctor") {
       command = { kind: "doctor" };
+      continue;
+    }
+    if (arg === "fix-checks") {
+      command = { kind: "fix-checks" };
       continue;
     }
     if (arg === "explain-routing") {
@@ -587,7 +597,21 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
   }
 }
 
-async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task, outputJson, savePath, dryRun, force }: CliOptions): Promise<void> {
+async function runCliCommand({
+  cwd,
+  configPath,
+  globalConfig,
+  providerPreset,
+  command,
+  task,
+  outputJson,
+  savePath,
+  dryRun,
+  force,
+  interactive,
+  pauseAfterPlan,
+  pauseAfterGenerate
+}: CliOptions): Promise<void> {
   if (!command) {
     return;
   }
@@ -645,6 +669,68 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
       });
       printDoctor(inspection, workflow.getPresetCatalog());
       return;
+    }
+    case "fix-checks": {
+      const loggerHandle = createCliLogger({ outputJson });
+      try {
+        const workflow = await import("./core/fix-checks.js");
+        const preparation = await workflow.prepareFixChecksTask({
+          repoRoot: cwd,
+          configPath,
+          providerPreset,
+          logger: loggerHandle.logger
+        });
+        if (!preparation) {
+          const payload = {
+            ok: true,
+            repoRoot: cwd,
+            summary: "No failing repository checks detected.",
+            latestToolResults: []
+          };
+          if (outputJson) {
+            await outputJsonResult(payload, savePath);
+          } else {
+            console.log("");
+            console.log("Fix Checks");
+            console.log(`- repo: ${cwd}`);
+            console.log("- status: no failing repository checks detected");
+          }
+          return;
+        }
+
+        const fixFlags = applyWorkflowModeDefaults("fix", {
+          dryRun,
+          interactive,
+          pauseAfterPlan,
+          pauseAfterGenerate
+        });
+        const result = await runTask({
+          cwd,
+          dryRun: fixFlags.dryRun,
+          interactive: fixFlags.interactive,
+          pauseAfterPlan: fixFlags.pauseAfterPlan,
+          pauseAfterGenerate: fixFlags.pauseAfterGenerate,
+          configPath,
+          providerPreset,
+          resumeTarget: null,
+          workflowMode: "fix",
+          outputJson,
+          reviewStaged: false,
+          reviewBase: null,
+          reviewFiles: [],
+          force,
+          task: preparation.task
+        });
+        if (outputJson) {
+          await outputJsonResult({ preparation, result } satisfies FixChecksCommandResult, savePath);
+          return;
+        }
+        printFixChecksPreparation(preparation);
+        printResult(result);
+        return;
+      } finally {
+        loggerHandle.dispose();
+      }
     }
     case "explain-routing": {
       if (task.trim()) {
@@ -1193,6 +1279,7 @@ function printHelp(): void {
   ai review --staged --files src/auth.ts
   ai review --base main --files src/auth.ts
   ai fix "task description"
+  ai fix-checks
   ai explain-routing "task description"
   ai explain-routing
   ai runs latest
@@ -1231,6 +1318,7 @@ Examples:
   ai review --files src/auth.ts --json --save /tmp/review.json
   ai review --staged --files src/auth.ts --json --save /tmp/staged-scope-review.json
   ai fix "Fix the auth flow regression"
+  ai fix-checks
   ai explain-routing "Refactor the auth flow"
   ai explain-routing
   ai runs latest
@@ -1278,6 +1366,7 @@ Workflow modes:
   You can combine \`--files\` with \`--staged\` or \`--base <git-ref>\` to review only a precise subset within that git scope.
   Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes.
   Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
+  Use \`ai fix-checks\` to run the configured repo checks, turn failing output into a structured repair task, and execute the normal fix loop against it.
 
 Provider presets:
   --provider local-cli
@@ -1950,6 +2039,23 @@ function printArtifactApplyResult(result: ArtifactApplyResult): void {
   console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
   console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
   console.log(`- apply event: ${result.applyEventPath}`);
+}
+
+function printFixChecksPreparation(preparation: import("./core/fix-checks.js").FixChecksPreparation): void {
+  console.log("");
+  console.log("Fix Checks");
+  console.log(`- repo: ${preparation.repoRoot}`);
+  console.log(`- config: ${preparation.configPath ?? "(default rules)"}`);
+  console.log(
+    `- providers: planner=${preparation.providers.planner}, reviewer=${preparation.providers.reviewer}, generator=${preparation.providers.generator}, fixer=${preparation.providers.fixer}`
+  );
+  console.log(`- failing checks: ${preparation.failingChecks.map((entry) => entry.name).join(", ") || "(none)"}`);
+  console.log(
+    `- tool issue counts: high=${preparation.issueCounts.high}, medium=${preparation.issueCounts.medium}, low=${preparation.issueCounts.low}`
+  );
+  if (preparation.fileHints.length > 0) {
+    console.log(`- file hints: ${preparation.fileHints.join(", ")}`);
+  }
 }
 
 function printRunList(runs: RunListEntry[], repoRoot: string): void {

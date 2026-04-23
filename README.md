@@ -129,6 +129,7 @@ ai review --staged --files src/auth.ts --json --save ./tmp/staged-file-scope-rev
 ai review --base origin/main --files src/auth.ts --json --save ./tmp/base-file-scope-review.json
 ai runs show last --json --save ./tmp/run.json
 ai apply --from-artifact last
+ai fix-checks
 ```
 
 Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
@@ -170,6 +171,7 @@ Recommended config workflow:
 - You can combine `--files` with `--staged` or `--base <git-ref>` when you want a very precise git-backed review scope
 - Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes to inspect
 - Use `ai fix "task"` for an interactive fix-focused flow that still writes files when approved
+- Use `ai fix-checks` to run the configured repo checks, convert failing output into a structured repair task, and execute the normal fix loop against it
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
 - `ai setup` also configures the project tool checks (`lint`, `typecheck`, `build`, `test`) and changed-file scoping preferences
 - Use `ai setup --check` to verify CLI availability and OpenMemory connectivity without changing files

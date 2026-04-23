@@ -1,3 +1,11 @@
+- [x] Add `ai fix-checks` to run current repo checks, convert failing output into a structured repair task, and execute the existing fix loop
+- [x] Add tests for failing-check task construction and green-check short-circuit behavior
+
+Review/result:
+- `ai fix-checks` now runs the configured repo checks, extracts file hints from failing output when possible, and reuses the existing orchestration flow instead of creating a separate fix engine.
+- When checks are already green, the command exits cleanly without running the generator/reviewer loop.
+- Verified with `pnpm exec tsc --noEmit`, `pnpm test`, and `node --import tsx --test tests/fix-checks.test.ts tests/workflow-modes.test.ts`.
+
 - [x] Replace regex-based symbol chunking in ai-system/core/vector-index.ts with TypeScript AST-based symbol extraction
 - [x] Add optional TUI dashboard for CLI live visibility using blessed, with safe fallback to plain logger
 - [x] Add/update tests for AST chunking edge cases and TUI-safe behavior, then verify with typecheck and targeted/full tests
