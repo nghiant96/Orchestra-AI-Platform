@@ -30,7 +30,7 @@ Key files:
 
 ## Phase 2: Operator Visibility
 
-Status: `next`
+Status: `done`
 
 Goal:
 - Make each run easier to understand, debug, and trust.
@@ -58,6 +58,8 @@ Delivered so far:
 - `ai runs list` and `ai runs show <target>` let operators browse specific runs without opening artifact folders manually
 - run inspection commands now support `--json` for machine-readable output
 - saved artifact candidates can now be applied directly via `ai apply --from-artifact`
+- JSON-producing commands can now write payloads directly to disk via `--save`
+- apply audit events are now surfaced in both run detail and run list overviews
 
 Why this is next:
 - The runtime now executes real checks, but operators still have to inspect raw artifacts too often.
@@ -65,7 +67,7 @@ Why this is next:
 
 ## Phase 3: Project Tool Configuration
 
-Status: `next`
+Status: `done`
 
 Goal:
 - Let each project control exactly how `lint`, `typecheck`, `build`, and `test` should run.
@@ -87,7 +89,7 @@ Why this matters:
 
 ## Phase 4: Scoped Execution
 
-Status: `later`
+Status: `next`
 
 Goal:
 - Reduce cost and latency by running checks only where needed.
@@ -102,8 +104,13 @@ Suggested deliverables:
 - affected-package test/build selection
 - repo heuristics for pnpm workspaces
 
-Why this is later:
-- It depends on having stable tool configuration and good observability first.
+Delivered so far:
+- scoped lint/test heuristics now auto-detect `lint:changed` / `test:related`-style scripts
+- lint/test can now auto-scope to a single changed workspace package when only one package is affected
+- tool summaries and tool execution results now expose `scope` and `workingDirectory`
+
+Why this is next:
+- The runtime and operator visibility are now strong enough that the highest practical payoff comes from reducing how much work each run executes.
 
 ## Phase 5: Workflow Modes
 

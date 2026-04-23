@@ -122,6 +122,8 @@ ai runs latest
 ai runs list
 ai runs show last
 ai runs show last --json
+ai review --json --save ./tmp/review.json
+ai runs show last --json --save ./tmp/run.json
 ai apply --from-artifact last
 ```
 
@@ -172,9 +174,11 @@ Recommended config workflow:
 - Use `ai runs latest` to inspect the latest artifact-backed run summary quickly, including execution time, failure class, and step durations
 - Use `ai runs list` to browse recent artifact-backed runs
 - Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
-- Add `--json` to run inspection commands when you want machine-readable output
+- Add `--json` to `ai runs ...`, `ai review`, or `ai apply --from-artifact` when you want machine-readable output
+- Add `--save /path/to/file.json` together with `--json` when you want the CLI to write the payload directly to disk for automation/reporting
 - Use `ai apply --from-artifact <target>` to apply a saved candidate from artifacts without rerunning generation
 - Add `--force` to `ai apply --from-artifact` when you intentionally want to apply a candidate that still has blocking review issues
+- Each `ai apply --from-artifact` invocation now persists an audit event under the run artifacts and surfaces the latest apply event in `ai runs latest/show`
 
 Tool execution workflow:
 
@@ -186,7 +190,11 @@ Tool execution workflow:
 - Optional checks:
   - `build`
   - `test`
-- Use `ai doctor` to see the effective tool commands and whether they are scoped to changed files
+- Scoped execution heuristics now prefer:
+  - `lint:changed` / `lint:files` / `lint:staged` when present
+  - `test:changed` / `test:related` / `test:affected` when present
+  - package-local `lint` / `test` scripts when all changed files fall under one workspace package
+- Use `ai doctor` to see the effective tool commands, execution scope, and working directory
 
 Example project tool config in `.ai-system.json`:
 

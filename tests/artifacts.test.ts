@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   createArtifactState,
   finalizeArtifactState,
@@ -30,6 +32,8 @@ import type {
   RulesConfig,
   ToolExecutionResult
 } from "../ai-system/types.js";
+
+const execFileAsync = promisify(execFile);
 
 test("artifact checkpoints can be restored into resume-ready state", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-artifacts-"));
@@ -483,7 +487,10 @@ test("listRecentRunSummaries and loadRunSummary support browsing multiple runs",
         latestStatus: "completed",
         latestTask: "Newer run",
         latestFiles: ["src/newer.ts"],
-        iterationCount: 1
+        iterationCount: 1,
+        latestApplyEventPath: path.join(newerRunDir, "apply-events", "apply-1.json"),
+        lastAppliedAt: "2026-04-22T10:06:00.000Z",
+        applyEventCount: 2
       }),
       "utf8"
     );
@@ -492,11 +499,64 @@ test("listRecentRunSummaries and loadRunSummary support browsing multiple runs",
     assert.equal(runs.length, 2);
     assert.equal(runs[0]?.runName, "run-2026-04-22T10-05-00-000Z-bbbbbb");
     assert.equal(runs[0]?.status, "completed");
+    assert.equal(runs[0]?.applyEventCount, 2);
+    assert.equal(runs[0]?.lastAppliedAt, "2026-04-22T10:06:00.000Z");
     assert.equal(runs[1]?.execution?.failure?.class, "tool-check-failed");
 
     const summary = await loadRunSummary(tempDir, rules, "run-2026-04-22T10-00-00-000Z-aaaaaa");
     assert.equal(summary.runState.task, "Older run");
     assert.equal(summary.runState.execution?.failure?.class, "tool-check-failed");
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runs show --json --save writes machine-readable output to disk", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-runs-save-"));
+  const rules = createRules();
+  const artifactsDir = path.join(tempDir, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  const runDir = path.join(artifactsDir, "run-2026-04-22T10-05-00-000Z-bbbbbb");
+  const savePath = path.join(tempDir, "reports", "run.json");
+
+  try {
+    await fs.mkdir(runDir, { recursive: true });
+    await fs.writeFile(
+      path.join(runDir, "run-state.json"),
+      JSON.stringify({
+        status: "completed",
+        task: "Saved run",
+        iterations: [{ iteration: 1, summary: "saved", issues: [] }],
+        execution: {
+          totalDurationMs: 25,
+          steps: [{ name: "planner", durationMs: 25, status: "completed" }],
+          failure: null
+        }
+      }),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(runDir, "artifact-index.json"),
+      JSON.stringify({
+        updatedAt: "2026-04-22T10:05:00.000Z",
+        runPath: runDir,
+        latestStatus: "completed",
+        latestTask: "Saved run",
+        latestFiles: ["src/saved.ts"],
+        iterationCount: 1
+      }),
+      "utf8"
+    );
+
+    const repoRoot = path.resolve(process.cwd());
+    const result = await execFileAsync(
+      process.execPath,
+      ["--import", "tsx", "./bin/ai.js", "--cwd", tempDir, "runs", "show", "last", "--json", "--save", savePath],
+      { cwd: repoRoot }
+    );
+
+    assert.match(result.stdout, /\[saved\]/);
+    const saved = JSON.parse(await fs.readFile(savePath, "utf8")) as { runState?: { task?: string } };
+    assert.equal(saved.runState?.task, "Saved run");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

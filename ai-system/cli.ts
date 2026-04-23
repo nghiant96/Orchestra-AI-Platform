@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -38,12 +39,13 @@ interface CliOptions {
   resumeTarget: string | null;
   command: CliCommand | null;
   outputJson: boolean;
+  savePath: string | null;
   workflowMode: WorkflowMode;
   force: boolean;
   task: string;
 }
 
-type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "outputJson">;
+type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "outputJson" | "savePath">;
 type CliCommand =
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
@@ -96,6 +98,8 @@ interface ArtifactApplyResult {
   appliedFiles: string[];
   reviewSummary: string;
   issueCounts: Record<"high" | "medium" | "low", number>;
+  force: boolean;
+  applyEventPath: string;
 }
 
 type SetupToolName = "lint" | "typecheck" | "build" | "test";
@@ -128,10 +132,18 @@ async function main() {
   if (options.workflowMode === "review") {
     const reviewResult = await runReviewWorkflow(options);
     if (reviewResult.kind === "task-run") {
-      printResult(reviewResult.result);
+      if (options.outputJson) {
+        await outputJsonResult(reviewResult.result, options.savePath);
+      } else {
+        printResult(reviewResult.result);
+      }
       process.exit(reviewResult.result.ok ? 0 : 1);
     }
-    printCurrentChangeReviewResult(reviewResult.result);
+    if (options.outputJson) {
+      await outputJsonResult(reviewResult.result, options.savePath);
+    } else {
+      printCurrentChangeReviewResult(reviewResult.result);
+    }
     process.exit(reviewResult.result.issueCounts.high > 0 || reviewResult.result.issueCounts.medium > 0 ? 1 : 0);
   }
 
@@ -148,6 +160,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let pauseAfterPlan = false;
   let pauseAfterGenerate = false;
   let outputJson = false;
+  let savePath: string | null = null;
   let help = false;
   let configPath: string | null = null;
   let globalConfig = false;
@@ -195,6 +208,15 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     }
     if (arg === "--help" || arg === "-h") {
       help = true;
+      continue;
+    }
+    if (arg === "--save") {
+      const targetPath = args[index + 1];
+      if (!targetPath) {
+        throw new Error("Missing path for `--save`.");
+      }
+      savePath = targetPath;
+      index += 1;
       continue;
     }
     if (arg === "doctor") {
@@ -354,6 +376,9 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
 
   const pipedTask = command ? "" : await readTaskFromStdin();
   const task = taskParts.join(" ").trim() || pipedTask;
+  if (savePath && !outputJson) {
+    throw new Error("`--save` requires `--json`.");
+  }
   const workflowFlags = applyWorkflowModeDefaults(workflowMode, {
     dryRun: dryRunExplicit ? dryRun : undefined,
     interactive: interactiveExplicit ? confirmPlan : undefined,
@@ -379,6 +404,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     resumeTarget,
     command,
     outputJson,
+    savePath,
     workflowMode,
     force,
     task
@@ -498,7 +524,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
   }
 }
 
-async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task, outputJson, dryRun, force }: CliOptions): Promise<void> {
+async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, command, task, outputJson, savePath, dryRun, force }: CliOptions): Promise<void> {
   if (!command) {
     return;
   }
@@ -609,7 +635,7 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
       const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
       const summary = await loadRecentRunSummary(cwd, rules, "last");
       if (outputJson) {
-        printJson(summary);
+        await outputJsonResult(summary, savePath);
         return;
       }
       printRecentRunSummary(summary);
@@ -621,7 +647,7 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
       const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
       const summaries = await listRecentRunSummaries(cwd, rules, 10);
       if (outputJson) {
-        printJson(summaries);
+        await outputJsonResult(summaries, savePath);
         return;
       }
       printRunList(summaries, cwd);
@@ -633,7 +659,7 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
       const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
       const summary = await loadRunSummary(cwd, rules, command.target);
       if (outputJson) {
-        printJson(summary);
+        await outputJsonResult(summary, savePath);
         return;
       }
       printRecentRunSummary(summary);
@@ -649,6 +675,10 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
         force,
         logger: createLogger()
       });
+      if (outputJson) {
+        await outputJsonResult(result, savePath);
+        return;
+      }
       printArtifactApplyResult(result);
       return;
     }
@@ -1096,6 +1126,8 @@ function printHelp(): void {
   ai runs list
   ai runs show last
   ai runs show last --json
+  ai review --json --save /tmp/review.json
+  ai runs show last --json --save /tmp/run.json
   ai apply --from-artifact last
   ai setup
   ai setup --global
@@ -1128,6 +1160,8 @@ Examples:
   ai runs list
   ai runs show run-2026-...
   ai runs show last --json
+  ai review --json --save /tmp/review.json
+  ai runs show last --json --save /tmp/run.json
   ai apply --from-artifact last
   ai setup
   ai setup --global
@@ -1191,7 +1225,8 @@ Project config:
   Use \`ai runs show <target>\` to inspect a specific run directory or run-state file.
   Use \`ai apply --from-artifact <target>\` to apply a saved candidate without rerunning generation.
   Add \`--force\` if you intentionally want to apply a candidate with blocking review issues.
-  Add \`--json\` to run inspection commands when you want machine-readable output.
+  Add \`--json\` to \`ai runs ...\`, \`ai review\`, or \`ai apply --from-artifact\` when you want machine-readable output.
+  Add \`--save /path/to/file.json\` together with \`--json\` when you want the CLI to write the JSON payload directly to disk.
 
 Environment overrides:
   AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli
@@ -1254,7 +1289,7 @@ function printConfigShow(inspection: ConfigInspection): void {
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
       console.log(
-        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scoped_changed_files=${tool.scopedToChangedFiles === true}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
+        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scope=${tool.scope ?? "full"}, scoped_changed_files=${tool.scopedToChangedFiles === true}, cwd=${tool.workingDirectory ?? "."}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
       );
     }
   }
@@ -1300,7 +1335,7 @@ function printDoctor(
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
       console.log(
-        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
+        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scope=${tool.scope ?? "full"}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
       );
     }
   }
@@ -1509,6 +1544,19 @@ function printJson(value: unknown): void {
   console.log(formatDisplayJson(value));
 }
 
+async function outputJsonResult(value: unknown, savePath: string | null): Promise<void> {
+  const serialized = formatDisplayJson(value);
+  if (savePath) {
+    const absolutePath = path.resolve(savePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, `${serialized}\n`, "utf8");
+    console.log(`[saved] ${absolutePath}`);
+    return;
+  }
+
+  console.log(serialized);
+}
+
 function sanitizeForDisplay(value: unknown): unknown {
   if (typeof value === "string") {
     return maskSecrets(value);
@@ -1580,7 +1628,7 @@ function printResult(result: OrchestratorResult): void {
     console.log("- latest tool results:");
     for (const tool of result.latestToolResults ?? []) {
       console.log(
-        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
+        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
       );
     }
   }
@@ -1695,12 +1743,17 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
     console.log(`- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`);
     for (const tool of latestToolResults) {
       console.log(
-        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
+        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
       );
     }
   }
   if (summary.runState.latestReviewSummary) {
     console.log(`- last review summary: ${summary.runState.latestReviewSummary}`);
+  }
+  if (summary.artifactIndex?.applyEventCount) {
+    console.log(
+      `- apply events: count=${summary.artifactIndex.applyEventCount}, latest=${summary.artifactIndex.latestApplyEventPath ?? "(unknown)"}${summary.artifactIndex.lastAppliedAt ? ` at ${summary.artifactIndex.lastAppliedAt}` : ""}`
+    );
   }
   if (summary.artifactIndex?.runPath) {
     console.log(`- artifact run: ${summary.artifactIndex.runPath}`);
@@ -1750,10 +1803,12 @@ function printArtifactApplyResult(result: ArtifactApplyResult): void {
   console.log(`- iteration: ${result.iterationPath}`);
   console.log(`- manifest: ${result.manifestPath}`);
   console.log(`- dry-run: ${result.dryRun}`);
+  console.log(`- force: ${result.force}`);
   console.log(`- wrote files: ${result.wroteFiles}`);
   console.log(`- applied files: ${result.appliedFiles.join(", ") || "(none)"}`);
   console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
   console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
+  console.log(`- apply event: ${result.applyEventPath}`);
 }
 
 function printRunList(runs: RunListEntry[], repoRoot: string): void {
@@ -1775,6 +1830,11 @@ function printRunList(runs: RunListEntry[], repoRoot: string): void {
     if (execution) {
       console.log(
         `  execution: total=${formatDuration(execution.totalDurationMs)}, failure=${execution.failure ? execution.failure.class : "none"}`
+      );
+    }
+    if (run.applyEventCount) {
+      console.log(
+        `  apply: count=${run.applyEventCount}, latest=${run.latestApplyEventPath ?? "(unknown)"}${run.lastAppliedAt ? ` at ${run.lastAppliedAt}` : ""}`
       );
     }
     console.log(`  files: ${run.latestFiles.join(", ") || "(none)"}`);

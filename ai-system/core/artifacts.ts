@@ -70,6 +70,9 @@ export interface RecentRunSummary {
     iterationCount?: number;
     stepPaths?: Record<string, string>;
     execution?: ExecutionSummary | null;
+    latestApplyEventPath?: string | null;
+    lastAppliedAt?: string | null;
+    applyEventCount?: number;
   } | null;
   routing: {
     planning: RoutingDecision | null;
@@ -87,6 +90,23 @@ export interface RunListEntry {
   iterationCount: number;
   latestFiles: string[];
   execution: ExecutionSummary | null;
+  latestApplyEventPath?: string | null;
+  lastAppliedAt?: string | null;
+  applyEventCount?: number;
+}
+
+export interface ApplyEventRecord {
+  savedAt: string;
+  task: string;
+  dryRun: boolean;
+  force: boolean;
+  wroteFiles: boolean;
+  appliedFiles: string[];
+  reviewSummary: string;
+  issueCounts: Record<"high" | "medium" | "low", number>;
+  runPath: string;
+  iterationPath: string;
+  manifestPath: string;
 }
 
 export function buildStoppedResult({
@@ -638,6 +658,77 @@ export async function loadRunSummary(repoRoot: string, rules: RulesConfig, targe
   return await loadRecentRunSummary(repoRoot, rules, absoluteTarget);
 }
 
+export async function persistApplyEvent(
+  runPath: string,
+  payload: Omit<ApplyEventRecord, "savedAt" | "runPath">,
+  logger?: Logger
+): Promise<string> {
+  const timestamp = new Date().toISOString();
+  const runDir = path.resolve(runPath);
+  const eventsDir = path.join(runDir, "apply-events");
+  const eventFileName = `apply-${timestamp.replace(/[:.]/g, "-")}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const eventPath = path.join(eventsDir, eventFileName);
+  const timelinePath = path.join(runDir, "timeline.jsonl");
+  const indexPath = path.join(runDir, "artifact-index.json");
+  const existingIndex = (await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath)) ?? null;
+  const record: ApplyEventRecord = {
+    savedAt: timestamp,
+    runPath: runDir,
+    ...payload
+  };
+
+  await fs.mkdir(eventsDir, { recursive: true });
+  await fs.writeFile(eventPath, JSON.stringify(record, null, 2), "utf8");
+  await fs.appendFile(
+    timelinePath,
+    `${JSON.stringify({
+      timestamp,
+      step: "apply-event",
+      status: payload.dryRun ? "dry-run" : "applied",
+      message: payload.dryRun
+        ? `Recorded dry-run apply event for ${payload.appliedFiles.length} file(s).`
+        : `Recorded apply event for ${payload.appliedFiles.length} file(s).`,
+      task: payload.task,
+      artifactPath: eventPath,
+      metadata: {
+        force: payload.force,
+        wroteFiles: payload.wroteFiles,
+        appliedFiles: payload.appliedFiles,
+        issueCounts: payload.issueCounts
+      }
+    })}\n`,
+    "utf8"
+  );
+
+  const stepPaths = {
+    ...(existingIndex?.stepPaths ?? {}),
+    latestApplyEvent: eventPath,
+    timeline: existingIndex?.stepPaths?.timeline ?? timelinePath,
+    index: existingIndex?.stepPaths?.index ?? indexPath
+  };
+  const nextIndex = {
+    updatedAt: timestamp,
+    runPath: runDir,
+    latestIterationPath: existingIndex?.latestIterationPath ?? payload.iterationPath,
+    latestStep: "apply-event",
+    latestStatus: existingIndex?.latestStatus ?? null,
+    latestTask: payload.task || (existingIndex?.latestTask ?? null),
+    latestProvider: existingIndex?.latestProvider ?? null,
+    latestFiles: payload.appliedFiles,
+    latestToolResults: existingIndex?.latestToolResults ?? [],
+    execution: existingIndex?.execution ?? null,
+    iterationCount:
+      existingIndex?.iterationCount ?? Object.keys(stepPaths).filter((key) => key.startsWith("iteration-")).length,
+    stepPaths,
+    latestApplyEventPath: eventPath,
+    lastAppliedAt: timestamp,
+    applyEventCount: (existingIndex?.applyEventCount ?? 0) + 1
+  };
+  await fs.writeFile(indexPath, JSON.stringify(nextIndex, null, 2), "utf8");
+  logger?.info(`Saved apply event at ${eventPath}`);
+  return eventPath;
+}
+
 export async function loadSavedContextArtifacts(state: ArtifactState, expectedPaths: string[]): Promise<ContextFile[]> {
   const contextDir = state.stepPaths.context ? path.join(state.stepPaths.context, "files") : null;
   if (!contextDir) {
@@ -833,7 +924,10 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
       updatedAt: artifactIndex?.updatedAt ?? null,
       iterationCount: artifactIndex?.iterationCount ?? runState.iterations?.length ?? 0,
       latestFiles: runState.result?.files?.map((file) => file.path) ?? artifactIndex?.latestFiles ?? [],
-      execution: runState.execution ?? artifactIndex?.execution ?? null
+      execution: runState.execution ?? artifactIndex?.execution ?? null,
+      latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
+      lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
+      applyEventCount: artifactIndex?.applyEventCount ?? 0
     };
   } catch {
     return null;

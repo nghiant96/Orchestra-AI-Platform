@@ -10,6 +10,7 @@ import type {
   RulesConfig,
   ToolCommandConfig,
   ToolConfigurationSummary,
+  ToolExecutionScope,
   ToolExecutionName,
   ToolExecutionResult,
   ToolExecutionSummary
@@ -36,11 +37,22 @@ interface ResolvedToolCommand {
   command: string;
   args: string[];
   display: string;
+  cwd: string;
   timeoutMs: number;
   retries: number;
   baseDelayMs: number;
   source: ToolConfigurationSummary["source"];
   scopedToChangedFiles: boolean;
+  scope: ToolExecutionScope;
+  workingDirectory?: string;
+}
+
+interface PackageScopeContext {
+  cwd: string;
+  packageScripts: Record<string, string>;
+  packageManager: "pnpm" | "yarn" | "npm";
+  relativeChangedPaths: string[];
+  workingDirectory: string;
 }
 
 export async function runToolChecks({
@@ -105,7 +117,7 @@ export async function runToolChecks({
       const commandResult = await runCommandWithRetry({
         command: resolved.command,
         args: resolved.args,
-        cwd: repoRoot,
+        cwd: resolved.cwd,
         timeoutMs: resolved.timeoutMs,
         retries: resolved.retries,
         baseDelayMs: resolved.baseDelayMs,
@@ -121,6 +133,8 @@ export async function runToolChecks({
         summary: `${toolName} passed.`,
         command: resolved.command,
         args: resolved.args,
+        scope: resolved.scope,
+        workingDirectory: resolved.workingDirectory,
         exitCode: commandResult.code,
         stdout: truncate(commandResult.stdout.trim(), 1200),
         stderr: truncate(commandResult.stderr.trim(), 1200)
@@ -136,9 +150,11 @@ export async function runToolChecks({
           issueCount: 0,
           durationMs: Date.now() - startedAt,
           summary: `Skipped ${toolName}: ${resolved.command} is unavailable.`,
-        command: resolved.command,
-        args: resolved.args
-      });
+          command: resolved.command,
+          args: resolved.args,
+          scope: resolved.scope,
+          workingDirectory: resolved.workingDirectory
+        });
         continue;
       }
 
@@ -155,6 +171,8 @@ export async function runToolChecks({
         summary: `${toolName} failed.`,
         command: resolved.command,
         args: resolved.args,
+        scope: resolved.scope,
+        workingDirectory: resolved.workingDirectory,
         exitCode: typeof normalized?.code === "number" ? normalized.code : null,
         stdout: truncate(`${normalized?.stdout ?? ""}`.trim(), 1200),
         stderr: truncate(`${normalized?.stderr ?? ""}`.trim(), 1200)
@@ -217,7 +235,9 @@ export async function summarizeConfiguredTools({
       command: resolved.command,
       args: resolved.args,
       scopedToChangedFiles: resolved.scopedToChangedFiles,
-      summary: `${toolName} -> ${resolved.display}`
+      scope: resolved.scope,
+      workingDirectory: resolved.workingDirectory,
+      summary: `${toolName} -> ${resolved.display}${resolved.workingDirectory ? ` (cwd=${resolved.workingDirectory})` : ""}${resolved.scope !== "full" ? ` [scope=${resolved.scope}]` : ""}`
     });
   }
 
@@ -275,6 +295,9 @@ async function resolveToolCommand({
   packageManager: "pnpm" | "yarn" | "npm";
   changedPaths: string[];
 }): Promise<ResolvedToolCommand | null> {
+  const packageScope =
+    toolName === "lint" || toolName === "test" ? await detectPackageScopeContext(repoRoot, changedPaths, packageManager) : null;
+
   if (toolConfig?.enabled === false) {
     return null;
   }
@@ -286,17 +309,41 @@ async function resolveToolCommand({
       command: toolConfig.command,
       args,
       display: [toolConfig.command, ...args].join(" ").trim(),
+      cwd: repoRoot,
       timeoutMs: numberOrDefault(toolConfig.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
       retries: numberOrDefault(toolConfig.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
       baseDelayMs: numberOrDefault(toolConfig.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
       source: "configured-command",
-      scopedToChangedFiles: usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true
+      scopedToChangedFiles: usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true,
+      scope:
+        usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true ? "changed-files" : "full"
     };
+  }
+
+  if (!toolConfig?.script) {
+    const scopedAutoCommand = resolveAutoScopedToolCommand(repoRoot, toolName, packageScripts, packageManager, changedPaths, packageScope);
+    if (scopedAutoCommand) {
+      return scopedAutoCommand;
+    }
   }
 
   const scriptName = resolveToolScriptName(toolName, toolConfig, packageScripts);
   if (scriptName) {
-    return buildScriptCommand(toolName, scriptName, packageManager, toolConfig, changedPaths);
+    return buildScriptCommand(toolName, scriptName, packageManager, toolConfig, changedPaths, {
+      cwd: repoRoot,
+      scope: toolConfig?.append_changed_files === true || usesChangedFilePlaceholder(toolConfig?.args ?? []) ? "changed-files" : "full"
+    });
+  }
+
+  if (!toolConfig?.script && packageScope) {
+    const packageScriptName = resolveToolScriptName(toolName, undefined, packageScope.packageScripts);
+    if (packageScriptName) {
+      return buildScriptCommand(toolName, packageScriptName, packageScope.packageManager, toolConfig, packageScope.relativeChangedPaths, {
+        cwd: packageScope.cwd,
+        scope: "package",
+        workingDirectory: packageScope.workingDirectory
+      });
+    }
   }
 
   if (toolName === "typecheck") {
@@ -308,11 +355,13 @@ async function resolveToolCommand({
         command: "node",
         args: ["./node_modules/typescript/bin/tsc", "--noEmit", "-p", tsConfigPath],
         display: "node ./node_modules/typescript/bin/tsc --noEmit",
+        cwd: repoRoot,
         timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
         retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
         baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
         source: "fallback",
-        scopedToChangedFiles: false
+        scopedToChangedFiles: false,
+        scope: "full"
       };
     } catch {
       return null;
@@ -350,12 +399,19 @@ function buildScriptCommand(
   scriptName: string,
   packageManager: "pnpm" | "yarn" | "npm",
   toolConfig: ToolCommandConfig | undefined,
-  changedPaths: string[]
+  changedPaths: string[],
+  options?: {
+    cwd?: string;
+    scope?: ToolExecutionScope;
+    workingDirectory?: string;
+  }
 ): ResolvedToolCommand {
   const extraArgs = expandToolArgs((toolConfig?.args ?? []).map(String), changedPaths, toolConfig?.append_changed_files === true);
   const scopedToChangedFiles = usesChangedFilePlaceholder(toolConfig?.args ?? []) || toolConfig?.append_changed_files === true;
   const source: ToolConfigurationSummary["source"] =
     typeof toolConfig?.script === "string" && toolConfig.script.trim() ? "configured-script" : "auto-detected-script";
+  const cwd = options?.cwd ?? process.cwd();
+  const scope = options?.scope ?? (scopedToChangedFiles ? "changed-files" : "full");
 
   switch (packageManager) {
     case "pnpm":
@@ -364,11 +420,14 @@ function buildScriptCommand(
         command: "pnpm",
         args: ["run", scriptName, ...(extraArgs.length > 0 ? ["--", ...extraArgs] : [])],
         display: ["pnpm", "run", scriptName, ...(extraArgs.length > 0 ? ["--", ...extraArgs] : [])].join(" "),
+        cwd,
         timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
         retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
         baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
         source,
-        scopedToChangedFiles
+        scopedToChangedFiles,
+        scope,
+        workingDirectory: options?.workingDirectory
       };
     case "yarn":
       return {
@@ -376,11 +435,14 @@ function buildScriptCommand(
         command: "yarn",
         args: [scriptName, ...extraArgs],
         display: ["yarn", scriptName, ...extraArgs].join(" "),
+        cwd,
         timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
         retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
         baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
         source,
-        scopedToChangedFiles
+        scopedToChangedFiles,
+        scope,
+        workingDirectory: options?.workingDirectory
       };
     case "npm":
     default:
@@ -389,13 +451,144 @@ function buildScriptCommand(
         command: "npm",
         args: ["run", scriptName, ...(extraArgs.length > 0 ? ["--", ...extraArgs] : [])],
         display: ["npm", "run", scriptName, ...(extraArgs.length > 0 ? ["--", ...extraArgs] : [])].join(" "),
+        cwd,
         timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
         retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
         baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
         source,
-        scopedToChangedFiles
+        scopedToChangedFiles,
+        scope,
+        workingDirectory: options?.workingDirectory
       };
   }
+}
+
+function resolveAutoScopedToolCommand(
+  repoRoot: string,
+  toolName: ToolExecutionName,
+  packageScripts: Record<string, string>,
+  packageManager: "pnpm" | "yarn" | "npm",
+  changedPaths: string[],
+  packageScope: PackageScopeContext | null
+): ResolvedToolCommand | null {
+  if (changedPaths.length === 0 || (toolName !== "lint" && toolName !== "test")) {
+    return null;
+  }
+
+  const scopedCandidates = getScopedScriptCandidates(toolName);
+  for (const candidate of scopedCandidates) {
+    if (packageScope && typeof packageScope.packageScripts[candidate.script] === "string") {
+      return buildScriptCommand(toolName, candidate.script, packageScope.packageManager, {
+        append_changed_files: candidate.appendChangedFiles
+      }, packageScope.relativeChangedPaths, {
+        cwd: packageScope.cwd,
+        scope: candidate.appendChangedFiles ? "changed-files" : "package",
+        workingDirectory: packageScope.workingDirectory
+      });
+    }
+
+    if (typeof packageScripts[candidate.script] === "string") {
+      return buildScriptCommand(toolName, candidate.script, packageManager, {
+        append_changed_files: candidate.appendChangedFiles
+      }, changedPaths, {
+        cwd: repoRoot,
+        scope: candidate.appendChangedFiles ? "changed-files" : "full"
+      });
+    }
+  }
+
+  return null;
+}
+
+function getScopedScriptCandidates(toolName: ToolExecutionName): Array<{ script: string; appendChangedFiles: boolean }> {
+  if (toolName === "lint") {
+    return [
+      { script: "lint:changed", appendChangedFiles: true },
+      { script: "lint:files", appendChangedFiles: true },
+      { script: "lint:staged", appendChangedFiles: true }
+    ];
+  }
+
+  if (toolName === "test") {
+    return [
+      { script: "test:changed", appendChangedFiles: true },
+      { script: "test:related", appendChangedFiles: true },
+      { script: "test:staged", appendChangedFiles: true },
+      { script: "test:affected", appendChangedFiles: false },
+      { script: "affected:test", appendChangedFiles: false }
+    ];
+  }
+
+  return [];
+}
+
+async function detectPackageScopeContext(
+  repoRoot: string,
+  changedPaths: string[],
+  packageManager: "pnpm" | "yarn" | "npm"
+): Promise<PackageScopeContext | null> {
+  if (changedPaths.length === 0) {
+    return null;
+  }
+
+  const packageDirs = new Set<string>();
+  for (const changedPath of changedPaths) {
+    const packageDir = await findNearestPackageDir(repoRoot, changedPath);
+    if (!packageDir) {
+      return null;
+    }
+    packageDirs.add(packageDir);
+  }
+
+  if (packageDirs.size !== 1) {
+    return null;
+  }
+
+  const [packageDir] = [...packageDirs];
+  if (!packageDir || path.resolve(packageDir) === path.resolve(repoRoot)) {
+    return null;
+  }
+
+  const packageJson = await readPackageJson(path.join(packageDir, "package.json"));
+  const packageScripts = normalizeScripts(packageJson);
+  if (Object.keys(packageScripts).length === 0) {
+    return null;
+  }
+
+  return {
+    cwd: packageDir,
+    packageScripts,
+    packageManager,
+    relativeChangedPaths: changedPaths.map((changedPath) =>
+      normalizePath(path.relative(packageDir, path.join(repoRoot, changedPath)))
+    ),
+    workingDirectory: normalizePath(path.relative(repoRoot, packageDir)) || "."
+  };
+}
+
+async function findNearestPackageDir(repoRoot: string, changedPath: string): Promise<string | null> {
+  let currentDir = path.dirname(path.join(repoRoot, changedPath));
+  const resolvedRepoRoot = path.resolve(repoRoot);
+
+  while (currentDir.startsWith(resolvedRepoRoot)) {
+    try {
+      await fs.access(path.join(currentDir, "package.json"));
+      return currentDir;
+    } catch {
+      // continue walking
+    }
+
+    if (currentDir === resolvedRepoRoot) {
+      break;
+    }
+    currentDir = path.dirname(currentDir);
+  }
+
+  return null;
+}
+
+function normalizePath(value: string): string {
+  return value.replace(/\\/g, "/");
 }
 
 async function readPackageJson(packageJsonPath: string): Promise<Record<string, unknown> | null> {

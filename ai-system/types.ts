@@ -79,6 +79,7 @@ export interface RoutingConfig {
 
 export type ToolExecutionName = "json-validation" | "lint" | "typecheck" | "build" | "test" | (string & {});
 export type ToolExecutionKind = "validation" | "command";
+export type ToolExecutionScope = "full" | "changed-files" | "package";
 
 export interface ToolCommandConfig {
   enabled?: boolean;
@@ -109,6 +110,8 @@ export interface ToolExecutionResult {
   summary: string;
   command?: string;
   args?: string[];
+  scope?: ToolExecutionScope;
+  workingDirectory?: string;
   exitCode?: number | null;
   stdout?: string;
   stderr?: string;
@@ -126,6 +129,8 @@ export interface ToolConfigurationSummary {
   command?: string;
   args?: string[];
   scopedToChangedFiles?: boolean;
+  scope?: ToolExecutionScope;
+  workingDirectory?: string;
   summary: string;
 }
 

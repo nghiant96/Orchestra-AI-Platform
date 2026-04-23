@@ -57,8 +57,31 @@ test("loadArtifactCandidate and applyArtifactCandidate load and apply the latest
     });
 
     assert.equal(result.wroteFiles, true);
+    assert.equal(result.force, false);
     assert.deepEqual(result.appliedFiles, ["src/example.ts"]);
+    assert.equal(typeof result.applyEventPath, "string");
     assert.equal(await fs.readFile(path.join(repoRoot, "src/example.ts"), "utf8"), "export const value = 'after';\n");
+
+    const applyEvent = JSON.parse(await fs.readFile(result.applyEventPath, "utf8")) as {
+      wroteFiles: boolean;
+      appliedFiles: string[];
+      task: string;
+    };
+    const timeline = await fs.readFile(path.join(state.runDir as string, "timeline.jsonl"), "utf8");
+    const artifactIndex = JSON.parse(await fs.readFile(path.join(state.runDir as string, "artifact-index.json"), "utf8")) as {
+      latestStep: string;
+      latestApplyEventPath?: string;
+      applyEventCount?: number;
+      latestFiles?: string[];
+    };
+    assert.equal(applyEvent.wroteFiles, true);
+    assert.equal(applyEvent.task, "Apply artifact candidate");
+    assert.deepEqual(applyEvent.appliedFiles, ["src/example.ts"]);
+    assert.match(timeline, /"step":"apply-event"/);
+    assert.equal(artifactIndex.latestStep, "apply-event");
+    assert.equal(artifactIndex.latestApplyEventPath, result.applyEventPath);
+    assert.equal(artifactIndex.applyEventCount, 1);
+    assert.deepEqual(artifactIndex.latestFiles, ["src/example.ts"]);
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }

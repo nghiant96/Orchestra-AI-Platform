@@ -160,6 +160,139 @@ test("runToolChecks supports changed-file placeholders in configured script args
   }
 });
 
+test("runToolChecks auto-detects scoped lint/test scripts for changed files", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-auto-scoped-"));
+  const changedFiles: GeneratedFile[] = [{ path: "src/example.test.ts", content: "export const value = 1;\n" }];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "tool-auto-scoped-test",
+          private: true,
+          scripts: {
+            "lint:changed": "node ./scripts/print-args.js",
+            "test:related": "node ./scripts/print-args.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "scripts", "print-args.js"),
+      "console.log(process.argv.slice(2).join('|')); process.exit(0);\n",
+      "utf8"
+    );
+
+    const rules = createRules({
+      tools: {
+        enabled: true,
+        json_validation: true,
+        commands: {
+          lint: { enabled: true },
+          typecheck: { enabled: false },
+          build: { enabled: false },
+          test: { enabled: true }
+        }
+      }
+    });
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules
+    });
+
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    const testResult = summary.results.find((entry) => entry.name === "test");
+
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.scope, "changed-files");
+    assert.deepEqual(lintResult?.args, ["run", "lint:changed", "--", "src/example.test.ts"]);
+
+    assert.equal(testResult?.ok, true);
+    assert.equal(testResult?.scope, "changed-files");
+    assert.deepEqual(testResult?.args, ["run", "test:related", "--", "src/example.test.ts"]);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks scopes lint/test to a single changed workspace package", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-scope-"));
+  const changedFiles: GeneratedFile[] = [{ path: "packages/web/src/example.ts", content: "export const value = 1;\n" }];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "packages/web/scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "workspace-root", private: true }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/package.json"),
+      JSON.stringify(
+        {
+          name: "@workspace/web",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/print-cwd.js",
+            test: "node ./scripts/print-cwd.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/scripts/print-cwd.js"),
+      "console.log(process.cwd()); process.exit(0);\n",
+      "utf8"
+    );
+
+    const rules = createRules({
+      tools: {
+        enabled: true,
+        json_validation: true,
+        commands: {
+          lint: { enabled: true },
+          typecheck: { enabled: false },
+          build: { enabled: false },
+          test: { enabled: true }
+        }
+      }
+    });
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules
+    });
+
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    const testResult = summary.results.find((entry) => entry.name === "test");
+
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.scope, "package");
+    assert.equal(lintResult?.workingDirectory, "packages/web");
+    assert.deepEqual(lintResult?.args, ["run", "lint"]);
+    assert.match(lintResult?.stdout ?? "", /packages[\/\\]web/);
+
+    assert.equal(testResult?.ok, true);
+    assert.equal(testResult?.scope, "package");
+    assert.equal(testResult?.workingDirectory, "packages/web");
+    assert.deepEqual(testResult?.args, ["run", "test"]);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 function createRules(override: Partial<RulesConfig> = {}): RulesConfig {
   return {
     max_iterations: 3,

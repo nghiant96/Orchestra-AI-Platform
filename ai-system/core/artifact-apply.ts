@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Logger, ReviewIssue, RulesConfig } from "../types.js";
 import { loadRules } from "./orchestrator-runtime.js";
-import { loadRecentRunSummary, loadRunSummary } from "./artifacts.js";
+import { loadRecentRunSummary, loadRunSummary, persistApplyEvent } from "./artifacts.js";
 import { hasBlockingIssues, summarizeIssueCounts } from "./reviewer.js";
 import { readOriginalFiles, writeFilesAtomically } from "./context.js";
 
@@ -17,6 +17,8 @@ export interface ArtifactApplyResult {
   appliedFiles: string[];
   reviewSummary: string;
   issueCounts: Record<"high" | "medium" | "low", number>;
+  force: boolean;
+  applyEventPath: string;
 }
 
 export async function applyArtifactCandidate({
@@ -49,6 +51,22 @@ export async function applyArtifactCandidate({
     await writeFilesAtomically(repoRoot, artifact.candidateFiles, originals);
   }
 
+  const applyEventPath = await persistApplyEvent(
+    artifact.runPath,
+    {
+      task: artifact.task,
+      dryRun,
+      force,
+      wroteFiles: !dryRun,
+      appliedFiles: artifact.candidateFiles.map((file) => file.path),
+      reviewSummary: artifact.reviewSummary,
+      issueCounts: summarizeIssueCounts(artifact.issues),
+      iterationPath: artifact.iterationPath,
+      manifestPath: artifact.manifestPath
+    },
+    logger
+  );
+
   return {
     repoRoot,
     runPath: artifact.runPath,
@@ -59,7 +77,9 @@ export async function applyArtifactCandidate({
     wroteFiles: !dryRun,
     appliedFiles: artifact.candidateFiles.map((file) => file.path),
     reviewSummary: artifact.reviewSummary,
-    issueCounts: summarizeIssueCounts(artifact.issues)
+    issueCounts: summarizeIssueCounts(artifact.issues),
+    force,
+    applyEventPath
   };
 }
 
