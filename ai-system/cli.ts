@@ -4,7 +4,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { createCliLogger } from "./utils/logger.js";
-import type { OrchestratorResult, RoutingDecision } from "./types.js";
+import type { ExecutionStage, OrchestratorResult, RoutingDecision } from "./types.js";
 import { maskSecrets } from "./utils/string.js";
 import type { ConfigInspection, SetupCheckResult } from "./core/config-workflow.js";
 import type { RecentRunSummary, RunListEntry } from "./core/artifacts.js";
@@ -41,6 +41,7 @@ interface CliOptions {
   outputJson: boolean;
   savePath: string | null;
   workflowMode: WorkflowMode;
+  retryStage: ExecutionStage | null;
   reviewStaged: boolean;
   reviewBase: string | null;
   reviewFailingChecks: boolean;
@@ -57,6 +58,7 @@ type CliCommand =
   | { kind: "explain-routing" }
   | { kind: "fix-checks" }
   | { kind: "fix-from-run"; target: string }
+  | { kind: "retry"; target: string }
   | { kind: "setup" }
   | { kind: "setup-check" }
   | { kind: "runs-latest" }
@@ -209,6 +211,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let resumeTarget: string | null = null;
   let command: CliCommand | null = null;
   let workflowMode: WorkflowMode = "standard";
+  let retryStage: ExecutionStage | null = null;
   let reviewStaged = false;
   let reviewBase: string | null = null;
   let reviewFailingChecks = false;
@@ -259,6 +262,15 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
         continue;
       }
       workflowMode = "fix";
+      continue;
+    }
+    if (arg === "retry") {
+      const target = args[index + 1];
+      if (!target || target.startsWith("-")) {
+        throw new Error("Missing target for `ai retry <target>`.");
+      }
+      command = { kind: "retry", target };
+      index += 1;
       continue;
     }
     if (arg === "--help" || arg === "-h") {
@@ -445,6 +457,15 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
       outputJson = true;
       continue;
     }
+    if (arg === "--stage") {
+      const nextArg = args[index + 1];
+      if (!nextArg) {
+        throw new Error("Missing value for `--stage`.");
+      }
+      retryStage = normalizeRetryStage(nextArg);
+      index += 1;
+      continue;
+    }
     if (arg === "--staged") {
       reviewStaged = true;
       continue;
@@ -470,6 +491,9 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   const task = taskParts.join(" ").trim() || pipedTask;
   if (savePath && !outputJson) {
     throw new Error("`--save` requires `--json`.");
+  }
+  if (retryStage && command?.kind !== "retry") {
+    throw new Error("`--stage` is only supported with `ai retry <target>`.");
   }
   const workflowFlags = applyWorkflowModeDefaults(workflowMode, {
     dryRun: dryRunExplicit ? dryRun : undefined,
@@ -498,6 +522,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     outputJson,
     savePath,
     workflowMode,
+    retryStage,
     reviewStaged,
     reviewBase,
     reviewFailingChecks,
@@ -516,6 +541,7 @@ async function runTask({
   configPath,
   providerPreset,
   resumeTarget,
+  retryStage,
   reviewStaged: _reviewStaged,
   reviewBase: _reviewBase,
   reviewFiles: _reviewFiles,
@@ -535,7 +561,7 @@ async function runTask({
   });
   try {
     if (resumeTarget) {
-      return (await orchestrator.resume(resumeTarget)) as OrchestratorResult;
+      return (await orchestrator.resume(resumeTarget, { stage: retryStage })) as OrchestratorResult;
     }
 
     return (await orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate })) as OrchestratorResult;
@@ -664,6 +690,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
           configPath: state.configPath,
           providerPreset: state.providerPreset,
           resumeTarget: state.resumeTarget,
+          retryStage: null,
           workflowMode: "standard",
           outputJson: false,
           reviewStaged: false,
@@ -693,6 +720,7 @@ async function runCliCommand({
   task,
   outputJson,
   savePath,
+  retryStage,
   dryRun,
   force,
   interactive,
@@ -800,6 +828,7 @@ async function runCliCommand({
           configPath,
           providerPreset,
           resumeTarget: null,
+          retryStage: null,
           workflowMode: "fix",
           outputJson,
           reviewStaged: false,
@@ -841,6 +870,7 @@ async function runCliCommand({
             configPath,
             providerPreset,
             resumeTarget: preparation.resumeTarget,
+            retryStage: null,
             workflowMode: "fix",
             outputJson,
             reviewStaged: false,
@@ -874,6 +904,7 @@ async function runCliCommand({
           configPath,
           providerPreset,
           resumeTarget: null,
+          retryStage: null,
           workflowMode: "fix",
           outputJson,
           reviewStaged: false,
@@ -893,6 +924,33 @@ async function runCliCommand({
       } finally {
         loggerHandle.dispose();
       }
+    }
+    case "retry": {
+      const result = await runTask({
+        cwd,
+        dryRun,
+        interactive,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        configPath,
+        providerPreset,
+        resumeTarget: command.target,
+        retryStage,
+        workflowMode: "fix",
+        outputJson,
+        reviewStaged: false,
+        reviewBase: null,
+        reviewFailingChecks: false,
+        reviewFiles: [],
+        force,
+        task: ""
+      });
+      if (outputJson) {
+        await outputJsonResult({ target: command.target, stage: retryStage, result }, savePath);
+        return;
+      }
+      printRetryResult(command.target, retryStage, result);
+      return;
     }
     case "explain-routing": {
       if (task.trim()) {
@@ -1430,6 +1488,40 @@ function buildPrompt(state: InteractiveState): string {
   return `ai:${path.basename(state.cwd)}${mode ? ` [${mode}]` : ""}> `;
 }
 
+function normalizeRetryStage(value: string): ExecutionStage {
+  const normalized = value.trim().toLowerCase();
+  switch (normalized) {
+    case "context":
+    case "context-loading":
+      return "context";
+    case "generating":
+    case "generate":
+    case "generation":
+      return "iteration-generate";
+    case "checking":
+    case "check":
+    case "tools":
+    case "tooling":
+      return "iteration-tools";
+    case "reviewing":
+    case "review":
+      return "iteration-review";
+    case "fixing":
+    case "fix":
+      return "iteration-fix";
+    case "writing":
+    case "write":
+      return "write-files";
+    case "memory":
+    case "store-memory":
+      return "memory-store";
+    default:
+      throw new Error(
+        "Unsupported retry stage. Use one of: context, generating, checking, reviewing, fixing, writing, memory."
+      );
+  }
+}
+
 function printHelp(): void {
   console.log(`Usage:
   ai "task description"
@@ -1444,6 +1536,7 @@ function printHelp(): void {
   ai fix "task description"
   ai fix --from-run last
   ai fix-checks
+  ai retry last --stage reviewing
   ai explain-routing "task description"
   ai explain-routing
   ai runs latest
@@ -1485,6 +1578,7 @@ Examples:
   ai fix "Fix the auth flow regression"
   ai fix --from-run last
   ai fix-checks
+  ai retry last --stage reviewing
   ai explain-routing "Refactor the auth flow"
   ai explain-routing
   ai runs latest
@@ -1535,6 +1629,7 @@ Workflow modes:
   Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
   Use \`ai fix-checks\` to run the configured repo checks, turn failing output into a structured repair task, and execute the normal fix loop against it.
   Use \`ai fix --from-run <target>\` to continue from a previous run, resuming directly when possible or building a focused follow-up repair task when not.
+  Use \`ai retry <target> --stage <stage>\` to force a retry from a specific state-machine stage such as \`reviewing\`, \`fixing\`, or \`writing\`.
 
 Provider presets:
   --provider local-cli
@@ -1674,6 +1769,9 @@ function printDoctor(
   );
   console.log(
     `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}`
+  );
+  console.log(
+    `- run budgets: duration=${inspection.effectiveRules.execution?.budgets?.max_duration_ms ?? "(disabled)"}ms, cost=${inspection.effectiveRules.execution?.budgets?.max_cost_units ?? "(disabled)"}`
   );
   if (inspection.toolSummaries.length > 0) {
     console.log("- effective tool commands:");
@@ -1958,6 +2056,9 @@ function printResult(result: OrchestratorResult): void {
     console.log(
       `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
     );
+    if (result.execution.budget) {
+      console.log(`- run budget: ${formatExecutionBudget(result.execution.budget)}`);
+    }
     if (result.execution.failure?.class === "iteration-limit") {
       console.log("- budget exceeded: the implementation/review loop hit the configured max_iterations before reaching a green state");
     }
@@ -2090,6 +2191,9 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
     console.log(
       `- failure class: ${execution.failure ? `${execution.failure.class} (${execution.failure.reason})` : "none"}`
     );
+    if (execution.budget) {
+      console.log(`- run budget: ${formatExecutionBudget(execution.budget)}`);
+    }
     if (execution.steps.length > 0) {
       console.log("- step durations:");
       for (const step of execution.steps) {
@@ -2167,6 +2271,9 @@ function printCurrentChangeReviewResult(result: CurrentChangeReviewResult): void
   console.log(
     `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
   );
+  if (result.execution.budget) {
+    console.log(`- run budget: ${formatExecutionBudget(result.execution.budget)}`);
+  }
   console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
   if (result.latestToolResults.length > 0) {
     const toolCounts = summarizeToolResults(result.latestToolResults);
@@ -2210,6 +2317,14 @@ function printArtifactApplyResult(result: ArtifactApplyResult): void {
   console.log(`- issues: high=${result.issueCounts.high}, medium=${result.issueCounts.medium}, low=${result.issueCounts.low}`);
   console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
   console.log(`- apply event: ${result.applyEventPath}`);
+}
+
+function printRetryResult(target: string, stage: ExecutionStage | null, result: OrchestratorResult): void {
+  console.log("");
+  console.log("Retry");
+  console.log(`- target: ${target}`);
+  console.log(`- stage override: ${stage ?? "(saved retry hint)"}`);
+  printResult(result);
 }
 
 function printFixChecksPreparation(preparation: import("./core/fix-checks.js").FixChecksPreparation): void {
@@ -2314,6 +2429,23 @@ function formatDuration(durationMs: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = seconds % 60;
   return `${minutes}m ${remainingSeconds.toFixed(1)}s`;
+}
+
+function formatExecutionBudget(budget: {
+  totalDurationMs: number;
+  totalCostUnits: number;
+  maxDurationMs: number | null;
+  maxCostUnits: number | null;
+  exceeded: "duration" | "cost" | null;
+}): string {
+  const parts = [
+    `duration=${formatDuration(budget.totalDurationMs)}${budget.maxDurationMs ? `/${formatDuration(budget.maxDurationMs)}` : ""}`,
+    `cost=${budget.totalCostUnits.toFixed(2)}${budget.maxCostUnits ? `/${budget.maxCostUnits.toFixed(2)}` : ""}`
+  ];
+  if (budget.exceeded) {
+    parts.push(`exceeded=${budget.exceeded}`);
+  }
+  return parts.join(", ");
 }
 
 function printRoutingExplanation({

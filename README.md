@@ -130,6 +130,7 @@ ai review --base origin/main --files src/auth.ts --json --save ./tmp/base-file-s
 ai runs show last --json --save ./tmp/run.json
 ai apply --from-artifact last
 ai fix-checks
+ai retry last --stage reviewing
 ```
 
 Use a hybrid setup where planning/review stays on Gemini CLI but generation/fixing uses 9router:
@@ -174,6 +175,7 @@ Recommended config workflow:
 - Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes to inspect
 - Use `ai fix "task"` for an interactive fix-focused flow that still writes files when approved
 - Use `ai fix-checks` to run the configured repo checks, convert failing output into a structured repair task, and execute the normal fix loop against it
+- Use `ai retry <target> --stage <stage>` when you need to force a rerun from a specific state-machine checkpoint such as `reviewing`, `fixing`, or `writing`
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
 - `ai setup` also configures the project tool checks (`lint`, `typecheck`, `build`, `test`) and changed-file scoping preferences
 - Use `ai setup --check` to verify CLI availability and OpenMemory connectivity without changing files
@@ -182,8 +184,10 @@ Recommended config workflow:
 - Use `ai config use codex-all|hybrid|safe-review` to switch project presets
 - Use `ai config show` to inspect the effective config
 - Use `ai doctor` when behavior is surprising and you need to see env/routing overrides
+- `ai doctor` now also shows the effective run duration/cost budgets
 - Use `ai explain-routing "task"` to see why the current config would pick specific providers for that task
 - Use `ai runs latest` to inspect the latest artifact-backed run summary quickly, including execution time, failure class, and step durations
+- `ai runs latest/show` also surface run budget usage and budget-exceeded failures when those limits are configured
 - Use `ai runs list` to browse recent artifact-backed runs
 - Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
 - `ai runs latest/show` will also surface persisted semantic vector matches when Phase B context expansion is active for that run

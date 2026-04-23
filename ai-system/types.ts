@@ -79,6 +79,8 @@ export interface RoutingConfig {
     generator_weight?: number;
     fixer_weight?: number;
     role_override_threshold?: number;
+    duration_budget_penalty?: number;
+    cost_budget_penalty?: number;
     [key: string]: unknown;
   };
   heuristics?: {
@@ -185,6 +187,8 @@ export type FailureClass =
   | "cancelled"
   | "tool-check-failed"
   | "validation-failed"
+  | "duration-budget-exceeded"
+  | "cost-budget-exceeded"
   | "iteration-limit"
   | "review-blocking-issues"
   | "unknown";
@@ -217,6 +221,19 @@ export interface RetryHint {
   reason: string;
 }
 
+export interface ExecutionBudgetConfig {
+  max_duration_ms?: number;
+  max_cost_units?: number;
+}
+
+export interface ExecutionBudgetSummary {
+  maxDurationMs: number | null;
+  maxCostUnits: number | null;
+  totalDurationMs: number;
+  totalCostUnits: number;
+  exceeded: "duration" | "cost" | null;
+}
+
 export interface ExecutionProviderMetric {
   provider: string;
   role: ProviderRole;
@@ -234,6 +251,7 @@ export interface ExecutionSummary {
   failure: FailureSummary | null;
   retryHint?: RetryHint | null;
   providerMetrics?: ExecutionProviderMetric[];
+  budget?: ExecutionBudgetSummary | null;
 }
 
 export interface MemoryConfig {
@@ -266,6 +284,10 @@ export interface RulesConfig {
   request_timeout_ms: number;
   request_retries: number;
   retry_base_delay_ms: number;
+  execution?: {
+    budgets?: ExecutionBudgetConfig;
+    [key: string]: unknown;
+  };
   artifacts?: {
     enabled?: boolean;
     data_dir?: string;

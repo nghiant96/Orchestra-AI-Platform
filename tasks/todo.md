@@ -1,3 +1,13 @@
+- [x] Add run-level duration/cost budgets to execution summaries and fail runs when those budgets are exceeded
+- [x] Feed budget-exceeded run history into adaptive routing alongside existing quality, latency, and cost signals
+- [x] Add `ai retry <target> --stage <stage>` so operators can force retries from a specific state-machine checkpoint
+
+Review/result:
+- Run state now persists a first-class execution budget snapshot with total duration, total cost units, configured limits, and the exceeded budget type when applicable.
+- Budget-exceeded runs are no longer opaque generic failures. They fail with explicit failure classes, persist retry hints, and contribute extra adaptive-routing penalties so the router can learn away from providers that repeatedly blow budgets.
+- The CLI now supports `ai retry last --stage reviewing`-style recovery, forcing resume semantics from the nearest safe state-machine checkpoint instead of relying only on the saved retry hint.
+- Verified with `pnpm exec tsc --noEmit`, `pnpm test`, `node --import tsx --test tests/orchestrator.resume.test.ts tests/orchestrator-runtime.test.ts`, and `node --import tsx ./bin/ai.js --help`.
+
 - [x] Add `ai review --failing-checks` to review the code regions implicated by the currently failing repository checks
 - [x] Add `ai fix --from-run <target>` to resume retryable runs or build a focused follow-up repair task from prior artifacts
 - [x] Make `ai implement` explicitly communicate the auto-fix loop budget semantics when the run stops on iteration limits

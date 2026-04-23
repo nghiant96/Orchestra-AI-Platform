@@ -28,7 +28,9 @@ const DEFAULT_ADAPTIVE_CONFIG = {
   fixer_weight: 0.75,
   role_override_threshold: 1.5,
   latency_weight: 0.15,
-  cost_weight: 0.1
+  cost_weight: 0.1,
+  duration_budget_penalty: 1,
+  cost_budget_penalty: 1
 } as const;
 const DEFAULT_FAST_KEYWORDS = [
   "readme",
@@ -154,6 +156,7 @@ interface AdaptiveRunRecord {
   providers: Partial<Record<ProviderRole, string>>;
   providerMetrics: Partial<Record<ProviderRole, { durationMs: number; estimatedCostUnits: number }>>;
   success: boolean;
+  failureClass: string | null;
   category: "docs" | "risky" | "general";
 }
 
@@ -185,6 +188,8 @@ interface AdaptiveRoutingConfigShape {
   role_override_threshold: number;
   latency_weight: number;
   cost_weight: number;
+  duration_budget_penalty: number;
+  cost_budget_penalty: number;
 }
 
 export async function buildRoutingDecision({
@@ -609,6 +614,12 @@ function buildAdaptiveRoleStats(
         providerStats.failures += 1;
         providerStats.score -= adaptive.failure_weight;
       }
+      if (run.failureClass === "duration-budget-exceeded") {
+        providerStats.score -= adaptive.duration_budget_penalty;
+      }
+      if (run.failureClass === "cost-budget-exceeded") {
+        providerStats.score -= adaptive.cost_budget_penalty;
+      }
       providerStats.score -= (metric.durationMs / 1000) * adaptive.latency_weight;
       providerStats.score -= metric.estimatedCostUnits * adaptive.cost_weight;
     }
@@ -762,6 +773,7 @@ async function loadAdaptiveRunHistory(repoRoot: string, rules: RulesConfig, look
         execution?:
           | {
               failure?: { class?: string | null } | null;
+              budget?: { exceeded?: "duration" | "cost" | null } | null;
               providerMetrics?: Array<{
                 provider?: string;
                 role?: ProviderRole;
@@ -785,7 +797,13 @@ async function loadAdaptiveRunHistory(repoRoot: string, rules: RulesConfig, look
       });
       const highIssues = Number(parsed.issueCounts?.high ?? 0);
       const mediumIssues = Number(parsed.issueCounts?.medium ?? 0);
-      const failureClass = parsed.execution?.failure?.class ?? null;
+      const failureClass =
+        parsed.execution?.failure?.class ??
+        (parsed.execution?.budget?.exceeded === "duration"
+          ? "duration-budget-exceeded"
+          : parsed.execution?.budget?.exceeded === "cost"
+            ? "cost-budget-exceeded"
+            : null);
       const success = (status === "completed" || status === "resumed_completed") && !failureClass && highIssues === 0 && mediumIssues === 0;
       const providerMetrics = Object.fromEntries(
         (parsed.execution?.providerMetrics ?? [])
@@ -804,6 +822,7 @@ async function loadAdaptiveRunHistory(repoRoot: string, rules: RulesConfig, look
         providers: parsed.providers ?? {},
         providerMetrics,
         success,
+        failureClass,
         category
       });
     } catch {

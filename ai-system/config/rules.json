@@ -8,6 +8,12 @@
   "request_timeout_ms": 60000,
   "request_retries": 3,
   "retry_base_delay_ms": 500,
+  "execution": {
+    "budgets": {
+      "max_duration_ms": 600000,
+      "max_cost_units": 300
+    }
+  },
   "artifacts": {
     "enabled": true,
     "data_dir": ".ai-system-artifacts"
@@ -50,7 +56,9 @@
       "fixer_weight": 0.75,
       "role_override_threshold": 1.5,
       "latency_weight": 0.15,
-      "cost_weight": 0.1
+      "cost_weight": 0.1,
+      "duration_budget_penalty": 1,
+      "cost_budget_penalty": 1
     },
     "profiles": {
       "fast": {

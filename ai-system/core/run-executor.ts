@@ -7,6 +7,8 @@ import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
 import type {
   ContextFile,
+  ExecutionBudgetConfig,
+  ExecutionBudgetSummary,
   ExecutionSummary,
   FileGenerationResult,
   GeneratedFile,
@@ -47,7 +49,7 @@ import {
   persistRunState,
   type ArtifactState
 } from "./artifacts.js";
-import { buildExecutionSummary } from "./execution-summary.js";
+import { buildExecutionBudgetSummary, buildExecutionSummary } from "./execution-summary.js";
 import { ExecutionStateMachine } from "./execution-state-machine.js";
 
 export interface RuntimeDependencies {
@@ -162,7 +164,8 @@ export async function executeGenerationLoop({
   confirmCheckpoint,
   resumeFromStage,
   successResultStatus,
-  successPersistedStatus
+  successPersistedStatus,
+  budgetConfig
 }: {
   startIteration: number;
   task: string;
@@ -185,6 +188,7 @@ export async function executeGenerationLoop({
   resumeFromStage?: "iteration-generate" | "iteration-tools";
   successResultStatus?: RunStatus;
   successPersistedStatus: RunStatus;
+  budgetConfig?: ExecutionBudgetConfig | null;
 }): Promise<{ result: OrchestratorResult | null; state: LoopExecutionState }> {
   const state: LoopExecutionState = {
     currentResult: initialState.currentResult,
@@ -197,6 +201,30 @@ export async function executeGenerationLoop({
   let pendingResumeStage = resumeFromStage;
 
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
+    const preIterationBudget = getExecutionBudgetSummary(state, runtime.providerSummary, budgetConfig);
+    if (preIterationBudget?.exceeded) {
+      const result = await finalizeFailedRun({
+        task,
+        dryRun,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        repoRoot,
+        configPath,
+        plan,
+        skippedFiles,
+        runtime,
+        memoryStats,
+        artifactState,
+        state,
+        retryHint: createBudgetRetryHint(state, preIterationBudget, startIteration),
+        resultStatus: "failed",
+        persistedStatus: "failed",
+        budgetConfig,
+        logger
+      });
+      return { result, state };
+    }
+
     logger.step(`Generation loop ${iteration}/${rules.max_iterations}${startIteration > 1 ? " (resumed)" : ""}`);
     const iterationStartedAt = Date.now();
     const shouldSkipGeneration = pendingResumeStage === "iteration-tools" && iteration === startIteration;
@@ -324,6 +352,30 @@ export async function executeGenerationLoop({
       artifactPath: artifactInfo?.iterationPath ?? null
     });
 
+    const postIterationBudget = getExecutionBudgetSummary(state, runtime.providerSummary, budgetConfig);
+    if (postIterationBudget?.exceeded) {
+      const result = await finalizeFailedRun({
+        task,
+        dryRun,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        repoRoot,
+        configPath,
+        plan,
+        skippedFiles,
+        runtime,
+        memoryStats,
+        artifactState,
+        state,
+        retryHint: createBudgetRetryHint(state, postIterationBudget, iteration + 1),
+        resultStatus: "failed",
+        persistedStatus: "failed",
+        budgetConfig,
+        logger
+      });
+      return { result, state };
+    }
+
     if (pauseAfterGenerate) {
       const confirmed = await confirmCheckpoint(
         `Generation checkpoint saved for iteration ${iteration}. Review the candidate files before continuing?`,
@@ -351,7 +403,8 @@ export async function executeGenerationLoop({
           artifactState,
           latestToolResults: state.latestToolResults,
           executionSteps: state.executionMachine.getSteps(),
-          executionTransitions: state.executionMachine.getTransitions()
+          executionTransitions: state.executionMachine.getTransitions(),
+          budgetConfig
         });
         await persistRunState(
           artifactState,
@@ -372,6 +425,29 @@ export async function executeGenerationLoop({
     }
 
     if (!hasBlockingIssues(state.acceptedIssues)) {
+      const successBudget = getExecutionBudgetSummary(state, runtime.providerSummary, budgetConfig);
+      if (successBudget?.exceeded) {
+        const result = await finalizeFailedRun({
+          task,
+          dryRun,
+          pauseAfterPlan,
+          pauseAfterGenerate,
+          repoRoot,
+          configPath,
+          plan,
+          skippedFiles,
+          runtime,
+          memoryStats,
+          artifactState,
+          state,
+          retryHint: createBudgetRetryHint(state, successBudget, iteration),
+          resultStatus: "failed",
+          persistedStatus: "failed",
+          budgetConfig,
+          logger
+        });
+        return { result, state };
+      }
       const result = await finalizeSuccessfulRun({
         task,
         dryRun,
@@ -384,10 +460,11 @@ export async function executeGenerationLoop({
         runtime,
         memoryStats,
         artifactState,
-      state,
-      resultStatus: successResultStatus,
-      persistedStatus: successPersistedStatus,
-      logger
+        state,
+        resultStatus: successResultStatus,
+        persistedStatus: successPersistedStatus,
+        budgetConfig,
+        logger
       });
       return { result, state };
     }
@@ -414,6 +491,7 @@ export async function finalizeSuccessfulRun({
   startAtStage,
   resultStatus,
   persistedStatus,
+  budgetConfig,
   logger
 }: {
   task: string;
@@ -431,6 +509,7 @@ export async function finalizeSuccessfulRun({
   startAtStage?: "write-files" | "memory-store";
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
+  budgetConfig?: ExecutionBudgetConfig | null;
   logger: Logger;
 }): Promise<OrchestratorResult> {
   if (!state.currentResult) {
@@ -486,6 +565,7 @@ export async function finalizeSuccessfulRun({
     steps: state.executionMachine.getSteps(),
     transitions: state.executionMachine.getTransitions(),
     providers: runtime.providerSummary,
+    budgetConfig,
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
@@ -548,6 +628,7 @@ export async function finalizeFailedRun({
   startAtStage,
   resultStatus,
   persistedStatus,
+  budgetConfig,
   logger
 }: {
   task: string;
@@ -566,6 +647,7 @@ export async function finalizeFailedRun({
   startAtStage?: "memory-store";
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
+  budgetConfig?: ExecutionBudgetConfig | null;
   logger: Logger;
 }): Promise<OrchestratorResult> {
   const memoryStore = await state.executionMachine.runStage(
@@ -600,6 +682,7 @@ export async function finalizeFailedRun({
     steps: state.executionMachine.getSteps(),
     transitions: state.executionMachine.getTransitions(),
     providers: runtime.providerSummary,
+    budgetConfig,
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
@@ -659,6 +742,7 @@ export async function finalizeErroredRun({
   artifactState,
   state,
   retryHint,
+  budgetConfig,
   logger
 }: {
   task: string;
@@ -674,6 +758,7 @@ export async function finalizeErroredRun({
   artifactState: ArtifactState;
   state: LoopExecutionState;
   retryHint: RetryHint;
+  budgetConfig?: ExecutionBudgetConfig | null;
   logger: Logger;
 }): Promise<OrchestratorResult> {
   const execution = buildExecutionSummary({
@@ -681,6 +766,7 @@ export async function finalizeErroredRun({
     steps: state.executionMachine.getSteps(),
     transitions: state.executionMachine.getTransitions(),
     providers: runtime.providerSummary,
+    budgetConfig,
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
@@ -723,6 +809,49 @@ export async function finalizeErroredRun({
   );
 
   return result;
+}
+
+function getExecutionBudgetSummary(
+  state: LoopExecutionState,
+  providers: ProviderSummary,
+  budgetConfig?: ExecutionBudgetConfig | null
+): ExecutionBudgetSummary | null {
+  return buildExecutionBudgetSummary({
+    totalDurationMs: state.executionMachine.getSteps().reduce((total, step) => total + Math.max(0, step.durationMs || 0), 0),
+    providerMetrics: buildExecutionSummary({
+      steps: state.executionMachine.getSteps(),
+      transitions: state.executionMachine.getTransitions(),
+      providers
+    }).providerMetrics ?? [],
+    budgetConfig
+  });
+}
+
+function createBudgetRetryHint(
+  state: LoopExecutionState,
+  budget: ExecutionBudgetSummary,
+  nextIteration: number
+): RetryHint {
+  if (state.currentResult && !hasBlockingIssues(state.acceptedIssues)) {
+    return {
+      stage: "write-files",
+      reason: `Resume finalization after the ${budget.exceeded} budget was exceeded.`
+    };
+  }
+
+  if (state.currentResult) {
+    return {
+      stage: "iteration-fix",
+      iteration: Math.max(1, nextIteration),
+      reason: `Resume the fix loop after the ${budget.exceeded} budget was exceeded.`
+    };
+  }
+
+  return {
+    stage: "iteration-generate",
+    iteration: Math.max(1, nextIteration),
+    reason: `Resume generation after the ${budget.exceeded} budget was exceeded.`
+  };
 }
 
 function sanitizeGeneratedFiles(files: unknown, plan: PlanResult, rules: RulesConfig, repoRoot: string): GeneratedFile[] {

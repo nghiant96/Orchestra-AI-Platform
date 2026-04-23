@@ -8,6 +8,7 @@ import { hasBlockingIssues } from "./reviewer.js";
 import { loadEnvironment } from "../utils/api.js";
 import type {
   ContextFile,
+  ExecutionStage,
   FileGenerationResult,
   IterationResult,
   Logger,
@@ -227,7 +228,8 @@ export class Orchestrator {
           artifactState,
           latestContextRanking: contextExpansion.rankedCandidates,
           executionSteps: executionMachine.getSteps(),
-          executionTransitions: executionMachine.getTransitions()
+          executionTransitions: executionMachine.getTransitions(),
+          budgetConfig: rules.execution?.budgets
         });
         await persistRunState(
           artifactState,
@@ -259,6 +261,7 @@ export class Orchestrator {
           status: "cancelled",
           steps: executionMachine.getSteps(),
           transitions: executionMachine.getTransitions(),
+          budgetConfig: rules.execution?.budgets,
           providers: implementationRuntime.providerSummary,
           finalIssues: [],
           latestToolResults: [],
@@ -330,7 +333,8 @@ export class Orchestrator {
         logger: this.logger,
         confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
         successResultStatus: undefined,
-        successPersistedStatus: "completed"
+        successPersistedStatus: "completed",
+        budgetConfig: rules.execution?.budgets
       });
       workingState = loopExecution.state;
 
@@ -354,6 +358,7 @@ export class Orchestrator {
         retryHint: createIterationLimitRetryHint(loopExecution.state),
         resultStatus: undefined,
         persistedStatus: "failed",
+        budgetConfig: rules.execution?.budgets,
         logger: this.logger
       });
     } catch (error) {
@@ -373,12 +378,13 @@ export class Orchestrator {
         artifactState,
         state: workingState,
         retryHint: createRetryHintFromState(workingState, normalized),
+        budgetConfig: rules.execution?.budgets,
         logger: this.logger
       });
     }
   }
 
-  async resume(resumeTarget: string): Promise<OrchestratorResult> {
+  async resume(resumeTarget: string, options: { stage?: ExecutionStage | null } = {}): Promise<OrchestratorResult> {
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
@@ -386,7 +392,7 @@ export class Orchestrator {
 
     const statePath = await resolveResumeStatePath(repoRoot, rules, resumeTarget);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8")) as PersistedRunState;
-    if (!saved?.status || !isResumableRunStatus(saved.status, saved.execution?.retryHint ?? null)) {
+    if (!saved?.status || !isResumableRunStatus(saved.status, saved.execution?.retryHint ?? null, options.stage ?? null)) {
       throw new Error(`Resume target is not resumable: ${statePath}`);
     }
 
@@ -407,7 +413,7 @@ export class Orchestrator {
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
     const executionMachine = createExecutionStateMachine(artifactState, saved.execution ?? null);
-    const resumeStrategy = resolveResumeStrategy(saved, currentResult, acceptedIssues, iterationResults);
+    const resumeStrategy = resolveResumeStrategy(saved, currentResult, acceptedIssues, iterationResults, options.stage ?? null);
     await executionMachine.runStage(
       "routing-planning",
       async () => {
@@ -506,6 +512,7 @@ export class Orchestrator {
         startAtStage: resumeStrategy.kind === "finalize-success" ? resumeStrategy.stage : "write-files",
         resultStatus: "resumed_completed",
         persistedStatus: "resumed_completed",
+        budgetConfig: rules.execution?.budgets,
         logger: this.logger
       });
     }
@@ -542,6 +549,7 @@ export class Orchestrator {
         startAtStage: resumeStrategy.stage,
         resultStatus: "failed",
         persistedStatus: "failed",
+        budgetConfig: rules.execution?.budgets,
         logger: this.logger
       });
     }
@@ -578,7 +586,8 @@ export class Orchestrator {
       confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
       resumeFromStage: resumeStrategy.resumeFromStage,
       successResultStatus: "resumed_completed",
-      successPersistedStatus: "resumed_completed"
+      successPersistedStatus: "resumed_completed",
+      budgetConfig: rules.execution?.budgets
     });
 
     if (loopExecution.result) {
@@ -601,14 +610,15 @@ export class Orchestrator {
       retryHint: createIterationLimitRetryHint(loopExecution.state),
       resultStatus: "failed",
       persistedStatus: "failed",
+      budgetConfig: rules.execution?.budgets,
       logger: this.logger
     });
   }
 
 }
 
-function isResumableRunStatus(status: string, retryHint: RetryHint | null): boolean {
-  return status.startsWith("paused_") || (status === "failed" && !!retryHint);
+function isResumableRunStatus(status: string, retryHint: RetryHint | null, forcedStage: ExecutionStage | null = null): boolean {
+  return status.startsWith("paused_") || (status === "failed" && (!!retryHint || !!forcedStage));
 }
 
 function createIterationLimitRetryHint(state: LoopExecutionState): RetryHint | null {
@@ -665,12 +675,16 @@ function resolveResumeStrategy(
   saved: PersistedRunState,
   currentResult: FileGenerationResult | null,
   acceptedIssues: ReviewIssue[],
-  iterationResults: IterationResult[]
+  iterationResults: IterationResult[],
+  forcedStage: ExecutionStage | null
 ):
   | { kind: "loop"; startIteration: number; resumeFromStage?: "iteration-generate" | "iteration-tools" }
   | { kind: "finalize-success"; stage: "write-files" | "memory-store" }
   | { kind: "finalize-failure"; stage: "memory-store" } {
   const blockingIssues = hasBlockingIssues(acceptedIssues);
+  const effectiveRetryHint = forcedStage
+    ? createForcedRetryHint(forcedStage, currentResult, iterationResults)
+    : saved.execution?.retryHint ?? null;
   if (saved.status === "paused_after_plan") {
     return { kind: "loop", startIteration: 1 };
   }
@@ -686,7 +700,7 @@ function resolveResumeStrategy(
     };
   }
 
-  const retryHint = saved.execution?.retryHint;
+  const retryHint = effectiveRetryHint;
   if (!retryHint) {
     return {
       kind: "loop",
@@ -724,6 +738,48 @@ function resolveResumeStrategy(
     startIteration: currentResult ? iterationResults.length + 1 : 1,
     resumeFromStage: currentResult ? "iteration-generate" : undefined
   };
+}
+
+function createForcedRetryHint(
+  stage: ExecutionStage,
+  currentResult: FileGenerationResult | null,
+  iterationResults: IterationResult[]
+): RetryHint {
+  const latestIteration = Math.max(1, iterationResults.length);
+  const nextIteration = currentResult ? latestIteration + 1 : latestIteration;
+
+  switch (stage) {
+    case "planner":
+      return { stage: "iteration-generate", iteration: 1, reason: "User requested retry from planning." };
+    case "context":
+    case "implementation-memory":
+    case "context-restore":
+      return { stage: "context", reason: "User requested retry from context loading." };
+    case "iteration-tools":
+    case "iteration-review":
+      return {
+        stage: "iteration-tools",
+        iteration: currentResult ? latestIteration : 1,
+        reason: "User requested retry from checking/reviewing."
+      };
+    case "iteration-fix":
+      return {
+        stage: "iteration-fix",
+        iteration: currentResult ? nextIteration : 1,
+        reason: "User requested retry from fixing."
+      };
+    case "write-files":
+      return { stage: "write-files", reason: "User requested retry from write-files." };
+    case "memory-store":
+      return { stage: "memory-store", reason: "User requested retry from memory-store." };
+    case "iteration-generate":
+    default:
+      return {
+        stage: "iteration-generate",
+        iteration: currentResult ? nextIteration : 1,
+        reason: "User requested retry from generating."
+      };
+  }
 }
 
 async function safelySearchMemory(memory: MemoryAdapter, payload: Parameters<MemoryAdapter["searchRelevant"]>[0], logger?: Logger) {

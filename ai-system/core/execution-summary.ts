@@ -1,4 +1,6 @@
 import type {
+  ExecutionBudgetConfig,
+  ExecutionBudgetSummary,
   ExecutionStepStatus,
   ExecutionStepSummary,
   ExecutionStage,
@@ -57,6 +59,7 @@ export function buildExecutionSummary({
   currentStage,
   retryHint,
   providers,
+  budgetConfig,
   finalIssues = [],
   latestToolResults = [],
   iterations = []
@@ -67,6 +70,7 @@ export function buildExecutionSummary({
   currentStage?: ExecutionStage | null;
   retryHint?: RetryHint | null;
   providers?: ProviderSummary | null;
+  budgetConfig?: ExecutionBudgetConfig | null;
   finalIssues?: ReviewIssue[];
   latestToolResults?: ToolExecutionResult[];
   iterations?: IterationResult[];
@@ -75,20 +79,63 @@ export function buildExecutionSummary({
   const normalizedTransitions = Array.isArray(transitions) ? transitions.map((entry) => ({ ...entry })) : [];
   const resolvedCurrentStage = currentStage ?? deriveCurrentStage(normalizedTransitions);
   const terminalStage = deriveTerminalStage(normalizedTransitions);
+  const totalDurationMs = normalizedSteps.reduce((total, step) => total + Math.max(0, step.durationMs || 0), 0);
+  const providerMetrics = providers ? buildProviderMetrics(normalizedSteps, providers) : [];
+  const budget = buildExecutionBudgetSummary({
+    totalDurationMs,
+    providerMetrics,
+    budgetConfig
+  });
   return {
-    totalDurationMs: normalizedSteps.reduce((total, step) => total + Math.max(0, step.durationMs || 0), 0),
+    totalDurationMs,
     steps: normalizedSteps,
     transitions: normalizedTransitions,
     currentStage: resolvedCurrentStage,
     terminalStage,
     failure: classifyRunFailure({
       status,
+      budget,
       finalIssues,
       latestToolResults,
       iterations
     }),
     retryHint: retryHint ?? null,
-    providerMetrics: providers ? buildProviderMetrics(normalizedSteps, providers) : []
+    providerMetrics,
+    budget
+  };
+}
+
+export function buildExecutionBudgetSummary({
+  totalDurationMs,
+  providerMetrics,
+  budgetConfig
+}: {
+  totalDurationMs: number;
+  providerMetrics: ExecutionProviderMetric[];
+  budgetConfig?: ExecutionBudgetConfig | null;
+}): ExecutionBudgetSummary | null {
+  const maxDurationMs = normalizeBudgetNumber(budgetConfig?.max_duration_ms);
+  const maxCostUnits = normalizeBudgetNumber(budgetConfig?.max_cost_units);
+  if (maxDurationMs === null && maxCostUnits === null) {
+    return null;
+  }
+
+  const totalCostUnits = Number(
+    providerMetrics.reduce((total, metric) => total + Math.max(0, metric.estimatedCostUnits || 0), 0).toFixed(3)
+  );
+  const exceeded =
+    maxDurationMs !== null && totalDurationMs > maxDurationMs
+      ? "duration"
+      : maxCostUnits !== null && totalCostUnits > maxCostUnits
+        ? "cost"
+        : null;
+
+  return {
+    maxDurationMs,
+    maxCostUnits,
+    totalDurationMs: Math.max(0, Math.round(totalDurationMs)),
+    totalCostUnits,
+    exceeded
   };
 }
 
@@ -190,11 +237,13 @@ function resolveCostUnits(provider: string, durationMs: number): number {
 
 function classifyRunFailure({
   status,
+  budget,
   finalIssues,
   latestToolResults,
   iterations
 }: {
   status?: RunStatus | string;
+  budget?: ExecutionBudgetSummary | null;
   finalIssues: ReviewIssue[];
   latestToolResults: ToolExecutionResult[];
   iterations: IterationResult[];
@@ -221,6 +270,20 @@ function classifyRunFailure({
     return {
       class: "paused",
       reason: "Run paused after a generation checkpoint."
+    };
+  }
+
+  if (budget?.exceeded === "duration") {
+    return {
+      class: "duration-budget-exceeded",
+      reason: `Run exceeded the duration budget (${budget.totalDurationMs}ms > ${budget.maxDurationMs}ms).`
+    };
+  }
+
+  if (budget?.exceeded === "cost") {
+    return {
+      class: "cost-budget-exceeded",
+      reason: `Run exceeded the cost budget (${budget.totalCostUnits.toFixed(2)} > ${budget.maxCostUnits?.toFixed(2)} units).`
     };
   }
 
@@ -264,4 +327,9 @@ function classifyRunFailure({
   }
 
   return null;
+}
+
+function normalizeBudgetNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
 }

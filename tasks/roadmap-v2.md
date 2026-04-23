@@ -117,6 +117,7 @@ Scope:
   - category-aware history buckets (`docs`, `risky`, `general`)
   - profile scoring adjustments based on recent provider success/failure by role
   - role-level adaptive overrides when one provider materially outperforms another for the same category
+  - budget-exceeded run history now adds explicit adaptive penalties alongside the existing latency/cost weighting
 
 ## Phase F: Resilient Execution Flow
 
@@ -133,6 +134,7 @@ Delivered:
   - `currentStage`
   - `terminalStage`
 - stage-targeted retry hints persisted into failed runs so resume can restart from `iteration-tools`, `iteration-fix`, `write-files`, or `memory-store` instead of replaying the whole flow
+- run-level duration/cost budgets persisted into execution summaries and enforced during orchestration
 - orchestrator and generation loop now drive:
   - planning routing
   - context loading
@@ -144,6 +146,7 @@ Delivered:
   through the state machine instead of raw step logging
 - CLI run summaries now surface execution stage information directly
 - failed runs can now be resumed from targeted stages when enough state was persisted
+- operators can force retries from explicit checkpoints via `ai retry <target> --stage <stage>`
 
 ## Phase E: Platform Orchestration
 

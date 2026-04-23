@@ -3,6 +3,7 @@ import path from "node:path";
 import type {
   ArtifactSummary,
   ContextFile,
+  ExecutionBudgetConfig,
   ExecutionStepSummary,
   ExecutionTransition,
   ExecutionSummary,
@@ -137,7 +138,8 @@ export function buildStoppedResult({
   latestVectorMatches = [],
   latestContextRanking = [],
   executionSteps = [],
-  executionTransitions = []
+  executionTransitions = [],
+  budgetConfig = null
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
   dryRun: boolean;
@@ -156,11 +158,13 @@ export function buildStoppedResult({
   latestContextRanking?: ContextSelectionCandidate[];
   executionSteps?: ExecutionStepSummary[];
   executionTransitions?: ExecutionTransition[];
+  budgetConfig?: ExecutionBudgetConfig | null;
 }): OrchestratorResult {
   const execution = buildExecutionSummary({
     status,
     steps: executionSteps,
     transitions: executionTransitions,
+    budgetConfig,
     providers,
     finalIssues,
     latestToolResults,

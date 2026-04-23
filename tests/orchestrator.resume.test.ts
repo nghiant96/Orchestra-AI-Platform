@@ -349,14 +349,131 @@ test("Orchestrator.resume retries a failed write stage without rerunning generat
   }
 });
 
-async function createTestRepo(): Promise<{
+test("Orchestrator.resume honors a forced retry stage override", async () => {
+  const repo = await createTestRepo();
+  const plan: PlanResult = {
+    prompt: "Force the fixer loop to run again",
+    readFiles: ["src/input.ts"],
+    writeTargets: ["src/result.ts"],
+    notes: ["forced retry stage"]
+  };
+
+  try {
+    await fs.writeFile(path.join(repo.repoRoot, "src/input.ts"), "export const input = 'context';\n", "utf8");
+    const rules = await repo.loadMergedRules();
+    const artifacts = createArtifactState(repo.repoRoot, rules);
+
+    await persistPlanArtifacts(artifacts, {
+      task: "Force the retry stage",
+      rawPlan: plan,
+      plan,
+      provider: "gemini-cli"
+    });
+    await persistContextArtifacts(artifacts, {
+      readFiles: plan.readFiles,
+      skippedFiles: [],
+      contexts: [{ path: "src/input.ts", content: "export const input = 'context';\n" }]
+    });
+    await persistRunState(artifacts, {
+      status: "failed",
+      task: "Force the retry stage",
+      dryRun: false,
+      repoRoot: repo.repoRoot,
+      configPath: repo.configPath,
+      plan,
+      result: {
+        summary: "Broken candidate",
+        files: [
+          {
+            path: "src/result.ts",
+            action: "update",
+            content: "export const output = 'broken-after-resume';\n"
+          }
+        ]
+      },
+      iterations: [{ iteration: 1, summary: "Looks good", issues: [] }],
+      skippedContextFiles: [],
+      finalIssues: [],
+      providers: providerSummary(),
+      memory: { backend: "disabled", planningMatches: 0, implementationMatches: 0, stored: false },
+      wroteFiles: false,
+      latestReviewSummary: "Looks good",
+      latestToolResults: [],
+      execution: {
+        totalDurationMs: 10,
+        steps: [{ name: "write-files", durationMs: 10, status: "failed", detail: "Disk full." }],
+        transitions: [
+          { stage: "write-files", status: "entered", timestamp: new Date().toISOString() },
+          {
+            stage: "write-files",
+            status: "failed",
+            timestamp: new Date().toISOString(),
+            durationMs: 10,
+            detail: "Disk full."
+          }
+        ],
+        currentStage: null,
+        terminalStage: "write-files",
+        failure: { class: "unknown", reason: "Disk full." },
+        retryHint: {
+          stage: "write-files",
+          reason: "Retry the atomic write with the saved candidate."
+        }
+      }
+    });
+
+    const result = await repo.orchestrator.resume("last", { stage: "iteration-fix" });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "resumed_completed");
+    assert.deepEqual(await repo.readFakeRoles(), ["fixer", "reviewer"]);
+    assert.equal(
+      await fs.readFile(path.join(repo.repoRoot, "src/result.ts"), "utf8"),
+      "export const output = 'fixed-after-resume';\n"
+    );
+  } finally {
+    await repo.cleanup();
+  }
+});
+
+test("Orchestrator.run stops when execution budgets are exceeded and persists a retry hint", async () => {
+  const repo = await createTestRepo({
+    execution: {
+      budgets: {
+        max_duration_ms: 1,
+        max_cost_units: 0.0001
+      }
+    }
+  });
+
+  try {
+    await fs.writeFile(path.join(repo.repoRoot, "src/input.ts"), "export const input = 'context';\n", "utf8");
+
+    const result = await repo.orchestrator.run("Create the result file");
+
+    assert.equal(result.ok, false);
+    assert.equal(result.status, "failed");
+    assert.match(result.execution?.failure?.class ?? "", /^(duration|cost)-budget-exceeded$/);
+    assert.equal(result.execution?.retryHint?.stage, "iteration-generate");
+    assert.equal(result.wroteFiles, false);
+
+    const savedState = await repo.readSavedRunState();
+    assert.equal(savedState.status, "failed");
+    assert.match(savedState.execution?.failure?.class ?? "", /^(duration|cost)-budget-exceeded$/);
+    assert.equal(savedState.execution?.retryHint?.stage, "iteration-generate");
+  } finally {
+    await repo.cleanup();
+  }
+});
+
+async function createTestRepo(overrides: Record<string, unknown> = {}): Promise<{
   repoRoot: string;
   configPath: string;
   orchestrator: Orchestrator;
   cleanup: () => Promise<void>;
   loadMergedRules: () => Promise<RulesConfig>;
   readFakeRoles: () => Promise<string[]>;
-  readSavedRunState: () => Promise<{ status?: string; iterations?: unknown[]; artifacts?: ArtifactSummary | null }>;
+  readSavedRunState: () => Promise<{ status?: string; iterations?: unknown[]; artifacts?: ArtifactSummary | null; execution?: { failure?: { class?: string } | null; retryHint?: { stage?: string } | null } | null }>;
 }> {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-resume-integration-"));
   const fakeCliPath = path.join(repoRoot, "fake-gemini.cjs");
@@ -385,7 +502,8 @@ async function createTestRepo(): Promise<{
           reviewer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
           generator: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
           fixer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 }
-        }
+        },
+        ...overrides
       },
       null,
       2
@@ -428,6 +546,7 @@ async function createTestRepo(): Promise<{
         status?: string;
         iterations?: unknown[];
         artifacts?: ArtifactSummary | null;
+        execution?: { failure?: { class?: string } | null; retryHint?: { stage?: string } | null } | null;
       };
     }
   };
