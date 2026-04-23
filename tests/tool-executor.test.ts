@@ -293,6 +293,154 @@ test("runToolChecks scopes lint/test to a single changed workspace package", asy
   }
 });
 
+test("runToolChecks scopes typecheck to a single changed workspace package when it has a tsconfig", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-typecheck-"));
+  const changedFiles: GeneratedFile[] = [{ path: "packages/web/src/example.ts", content: "export const value = 1;\n" }];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "node_modules/typescript/bin"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "packages/web/src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "workspace-root", private: true }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/package.json"),
+      JSON.stringify({ name: "@workspace/web", private: true }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/tsconfig.json"),
+      JSON.stringify({ compilerOptions: { noEmit: true } }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "node_modules/typescript/bin/tsc"),
+      "console.log(process.cwd()); console.log(process.argv.slice(2).join('|')); process.exit(0);\n",
+      "utf8"
+    );
+
+    const rules = createRules({
+      tools: {
+        enabled: true,
+        json_validation: true,
+        commands: {
+          lint: { enabled: false },
+          typecheck: { enabled: true },
+          build: { enabled: false },
+          test: { enabled: false }
+        }
+      }
+    });
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules
+    });
+    const typecheckResult = summary.results.find((entry) => entry.name === "typecheck");
+    assert.equal(typecheckResult?.ok, true);
+    assert.equal(typecheckResult?.scope, "package");
+    assert.equal(typecheckResult?.workingDirectory, "packages/web");
+    assert.match(typecheckResult?.stdout ?? "", /packages[\/\\]web/);
+    assert.ok(typecheckResult?.args?.includes(path.join(tempDir, "packages/web/tsconfig.json")));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks uses pnpm workspace filters when changes span multiple packages", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-workspace-scope-"));
+  const changedFiles: GeneratedFile[] = [
+    { path: "packages/web/src/example.ts", content: "export const web = 1;\n" },
+    { path: "packages/api/src/example.ts", content: "export const api = 1;\n" }
+  ];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "packages/web/scripts"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "packages/api/scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "workspace-root", private: true }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/package.json"),
+      JSON.stringify(
+        {
+          name: "@workspace/web",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/print-package.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/api/package.json"),
+      JSON.stringify(
+        {
+          name: "@workspace/api",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/print-package.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/scripts/print-package.js"),
+      "console.log(process.cwd()); process.exit(0);\n",
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/api/scripts/print-package.js"),
+      "console.log(process.cwd()); process.exit(0);\n",
+      "utf8"
+    );
+
+    const rules = createRules({
+      tools: {
+        enabled: true,
+        json_validation: true,
+        commands: {
+          lint: { enabled: true },
+          typecheck: { enabled: false },
+          build: { enabled: false },
+          test: { enabled: false }
+        }
+      }
+    });
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules
+    });
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.scope, "workspace");
+    assert.match(lintResult?.workingDirectory ?? "", /packages\/web/);
+    assert.match(lintResult?.workingDirectory ?? "", /packages\/api/);
+    assert.deepEqual(lintResult?.args, ["--filter", "@workspace/web", "--filter", "@workspace/api", "run", "lint"]);
+    assert.match(lintResult?.stdout ?? "", /packages[\/\\]web/);
+    assert.match(lintResult?.stdout ?? "", /packages[\/\\]api/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 function createRules(override: Partial<RulesConfig> = {}): RulesConfig {
   return {
     max_iterations: 3,

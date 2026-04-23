@@ -41,6 +41,8 @@ interface CliOptions {
   outputJson: boolean;
   savePath: string | null;
   workflowMode: WorkflowMode;
+  reviewStaged: boolean;
+  reviewBase: string | null;
   force: boolean;
   task: string;
 }
@@ -73,6 +75,8 @@ interface CurrentChangeReviewResult {
   repoRoot: string;
   configPath: string | null;
   task: string;
+  targetMode: "working-tree" | "staged" | "base-ref";
+  targetDetail: string | null;
   changedFiles: string[];
   providers: {
     planner: string;
@@ -168,6 +172,8 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let resumeTarget: string | null = null;
   let command: CliCommand | null = null;
   let workflowMode: WorkflowMode = "standard";
+  let reviewStaged = false;
+  let reviewBase: string | null = null;
   let force = false;
   let dryRunExplicit = false;
   let interactiveExplicit = false;
@@ -366,6 +372,19 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
       outputJson = true;
       continue;
     }
+    if (arg === "--staged") {
+      reviewStaged = true;
+      continue;
+    }
+    if (arg === "--base") {
+      const nextArg = args[index + 1];
+      if (!nextArg) {
+        throw new Error("Missing value for `--base`.");
+      }
+      reviewBase = nextArg;
+      index += 1;
+      continue;
+    }
     if (arg === "--force") {
       force = true;
       continue;
@@ -406,6 +425,8 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     outputJson,
     savePath,
     workflowMode,
+    reviewStaged,
+    reviewBase,
     force,
     task
   };
@@ -420,6 +441,8 @@ async function runTask({
   configPath,
   providerPreset,
   resumeTarget,
+  reviewStaged: _reviewStaged,
+  reviewBase: _reviewBase,
   force: _force,
   workflowMode: _workflowMode,
   task
@@ -451,6 +474,8 @@ async function runReviewWorkflow(options: TaskRunOptions): Promise<
     configPath: options.configPath,
     providerPreset: options.providerPreset,
     task: options.task,
+    targetMode: options.reviewBase ? "base-ref" : options.reviewStaged ? "staged" : "working-tree",
+    targetDetail: options.reviewBase,
     logger: createLogger()
   });
 
@@ -510,6 +535,8 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
           providerPreset: state.providerPreset,
           resumeTarget: state.resumeTarget,
           workflowMode: "standard",
+          reviewStaged: false,
+          reviewBase: null,
           force: false,
           task: line
         });
@@ -1119,6 +1146,8 @@ function printHelp(): void {
   ai "task description"
   ai implement "task description"
   ai review "task description"
+  ai review --staged
+  ai review --base main
   ai fix "task description"
   ai explain-routing "task description"
   ai explain-routing
@@ -1153,6 +1182,8 @@ Examples:
   ai "Refactor the auth flow"
   ai implement "Refactor the auth flow"
   ai review "Propose and review auth changes"
+  ai review --staged
+  ai review --base main
   ai fix "Fix the auth flow regression"
   ai explain-routing "Refactor the auth flow"
   ai explain-routing
@@ -1195,6 +1226,8 @@ Interactive mode:
 Workflow modes:
   Use \`ai implement "task"\` for the standard write-enabled flow.
   Use \`ai review\` to review current working tree changes when the repo is dirty.
+  Use \`ai review --staged\` to review only what is currently staged in git.
+  Use \`ai review --base <git-ref>\` to review the current repo state against a base ref such as \`main\` or \`origin/main\`.
   Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes.
   Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
 
@@ -1766,6 +1799,7 @@ function printCurrentChangeReviewResult(result: CurrentChangeReviewResult): void
   console.log(`- repo: ${result.repoRoot}`);
   console.log(`- config: ${result.configPath ?? "(default rules)"}`);
   console.log(`- task: ${result.task}`);
+  console.log(`- target: ${result.targetMode}${result.targetDetail ? ` (${result.targetDetail})` : ""}`);
   console.log(
     `- providers: planner=${result.providers.planner}, reviewer=${result.providers.reviewer}, generator=${result.providers.generator}, fixer=${result.providers.fixer}`
   );

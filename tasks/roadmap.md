@@ -107,6 +107,8 @@ Suggested deliverables:
 Delivered so far:
 - scoped lint/test heuristics now auto-detect `lint:changed` / `test:related`-style scripts
 - lint/test can now auto-scope to a single changed workspace package when only one package is affected
+- typecheck can now auto-scope to a single changed workspace package when that package has its own `typecheck` script or `tsconfig`
+- pnpm workspaces can now collapse multi-package lint/test/typecheck runs into `pnpm --filter ... run <script>` when the affected packages share the same script name
 - tool summaries and tool execution results now expose `scope` and `workingDirectory`
 
 Why this is next:

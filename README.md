@@ -160,6 +160,8 @@ Recommended config workflow:
 
 - Use `ai implement "task"` for the standard write-enabled implementation flow
 - Use `ai review` to review the current working tree when the repo already has changes
+- Use `ai review --staged` to review only the changes that are currently staged in git
+- Use `ai review --base <git-ref>` to review the current repo state against a base ref like `main` or `origin/main`
 - Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes to inspect
 - Use `ai fix "task"` for an interactive fix-focused flow that still writes files when approved
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
@@ -194,6 +196,9 @@ Tool execution workflow:
   - `lint:changed` / `lint:files` / `lint:staged` when present
   - `test:changed` / `test:related` / `test:affected` when present
   - package-local `lint` / `test` scripts when all changed files fall under one workspace package
+  - package-local `typecheck` or `type-check` scripts when a single changed workspace package owns the change
+  - package-local `tsconfig.json` / `tsconfig.build.json` fallback when no explicit package typecheck script exists
+  - `pnpm --filter ... run <script>` when changed files span multiple workspace packages that share the same script name
 - Use `ai doctor` to see the effective tool commands, execution scope, and working directory
 
 Example project tool config in `.ai-system.json`:

@@ -53,6 +53,20 @@ interface PackageScopeContext {
   packageManager: "pnpm" | "yarn" | "npm";
   relativeChangedPaths: string[];
   workingDirectory: string;
+  tsconfigPath?: string;
+}
+
+interface WorkspacePackageContext {
+  name: string;
+  cwd: string;
+  workingDirectory: string;
+  packageScripts: Record<string, string>;
+}
+
+interface WorkspaceScopeContext {
+  repoRoot: string;
+  packageManager: "pnpm";
+  packages: WorkspacePackageContext[];
 }
 
 export async function runToolChecks({
@@ -296,7 +310,13 @@ async function resolveToolCommand({
   changedPaths: string[];
 }): Promise<ResolvedToolCommand | null> {
   const packageScope =
-    toolName === "lint" || toolName === "test" ? await detectPackageScopeContext(repoRoot, changedPaths, packageManager) : null;
+    toolName === "lint" || toolName === "test" || toolName === "typecheck"
+      ? await detectPackageScopeContext(repoRoot, changedPaths, packageManager)
+      : null;
+  const workspaceScope =
+    toolName === "lint" || toolName === "test" || toolName === "typecheck"
+      ? await detectWorkspaceScopeContext(repoRoot, changedPaths, packageManager)
+      : null;
 
   if (toolConfig?.enabled === false) {
     return null;
@@ -327,6 +347,13 @@ async function resolveToolCommand({
     }
   }
 
+  if (!toolConfig?.script && workspaceScope) {
+    const workspaceCommand = resolveWorkspaceToolCommand(toolName, workspaceScope, toolConfig);
+    if (workspaceCommand) {
+      return workspaceCommand;
+    }
+  }
+
   const scriptName = resolveToolScriptName(toolName, toolConfig, packageScripts);
   if (scriptName) {
     return buildScriptCommand(toolName, scriptName, packageManager, toolConfig, changedPaths, {
@@ -347,6 +374,29 @@ async function resolveToolCommand({
   }
 
   if (toolName === "typecheck") {
+    if (packageScope?.tsconfigPath) {
+      const rootTscPath = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
+      try {
+        await fs.access(rootTscPath);
+        return {
+          name: toolName,
+          command: "node",
+          args: [rootTscPath, "--noEmit", "-p", packageScope.tsconfigPath],
+          display: `node ${rootTscPath} --noEmit -p ${packageScope.tsconfigPath}`,
+          cwd: packageScope.cwd,
+          timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
+          retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
+          baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
+          source: "fallback",
+          scopedToChangedFiles: false,
+          scope: "package",
+          workingDirectory: packageScope.workingDirectory
+        };
+      } catch {
+        // Fall through to the root-level fallback.
+      }
+    }
+
     const tsConfigPath = path.join(repoRoot, "tsconfig.json");
     try {
       await fs.access(tsConfigPath);
@@ -551,9 +601,7 @@ async function detectPackageScopeContext(
 
   const packageJson = await readPackageJson(path.join(packageDir, "package.json"));
   const packageScripts = normalizeScripts(packageJson);
-  if (Object.keys(packageScripts).length === 0) {
-    return null;
-  }
+  const tsconfigPath = await findPackageTsconfigPath(packageDir);
 
   return {
     cwd: packageDir,
@@ -562,8 +610,103 @@ async function detectPackageScopeContext(
     relativeChangedPaths: changedPaths.map((changedPath) =>
       normalizePath(path.relative(packageDir, path.join(repoRoot, changedPath)))
     ),
-    workingDirectory: normalizePath(path.relative(repoRoot, packageDir)) || "."
+    workingDirectory: normalizePath(path.relative(repoRoot, packageDir)) || ".",
+    ...(tsconfigPath ? { tsconfigPath } : {})
   };
+}
+
+async function detectWorkspaceScopeContext(
+  repoRoot: string,
+  changedPaths: string[],
+  packageManager: "pnpm" | "yarn" | "npm"
+): Promise<WorkspaceScopeContext | null> {
+  if (packageManager !== "pnpm" || changedPaths.length === 0) {
+    return null;
+  }
+
+  try {
+    await fs.access(path.join(repoRoot, "pnpm-workspace.yaml"));
+  } catch {
+    return null;
+  }
+
+  const packageDirs = new Set<string>();
+  for (const changedPath of changedPaths) {
+    const packageDir = await findNearestPackageDir(repoRoot, changedPath);
+    if (!packageDir || path.resolve(packageDir) === path.resolve(repoRoot)) {
+      return null;
+    }
+    packageDirs.add(packageDir);
+  }
+
+  if (packageDirs.size <= 1) {
+    return null;
+  }
+
+  const packages: WorkspacePackageContext[] = [];
+  for (const packageDir of packageDirs) {
+    const packageJson = await readPackageJson(path.join(packageDir, "package.json"));
+    const packageName = typeof packageJson?.name === "string" ? packageJson.name.trim() : "";
+    if (!packageName) {
+      return null;
+    }
+    packages.push({
+      name: packageName,
+      cwd: packageDir,
+      workingDirectory: normalizePath(path.relative(repoRoot, packageDir)) || ".",
+      packageScripts: normalizeScripts(packageJson)
+    });
+  }
+
+  return {
+    repoRoot,
+    packageManager: "pnpm",
+    packages
+  };
+}
+
+function resolveWorkspaceToolCommand(
+  toolName: ToolExecutionName,
+  workspaceScope: WorkspaceScopeContext,
+  toolConfig: ToolCommandConfig | undefined
+): ResolvedToolCommand | null {
+  const scriptName = resolveWorkspaceScriptName(toolName, workspaceScope.packages);
+  if (!scriptName) {
+    return null;
+  }
+
+  const filters = workspaceScope.packages.flatMap((pkg) => ["--filter", pkg.name]);
+  return {
+    name: toolName,
+    command: "pnpm",
+    args: [...filters, "run", scriptName],
+    display: ["pnpm", ...filters, "run", scriptName].join(" "),
+    cwd: workspaceScope.repoRoot,
+    timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
+    retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
+    baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
+    source: "auto-detected-script",
+    scopedToChangedFiles: false,
+    scope: "workspace",
+    workingDirectory: workspaceScope.packages.map((pkg) => pkg.workingDirectory).join(",")
+  };
+}
+
+function resolveWorkspaceScriptName(
+  toolName: ToolExecutionName,
+  packages: WorkspacePackageContext[]
+): string | null {
+  if (packages.length === 0) {
+    return null;
+  }
+
+  const scriptNames = packages.map((pkg) => resolveToolScriptName(toolName, undefined, pkg.packageScripts));
+  const [first] = scriptNames;
+  if (!first) {
+    return null;
+  }
+
+  return scriptNames.every((scriptName) => scriptName === first) ? first : null;
 }
 
 async function findNearestPackageDir(repoRoot: string, changedPath: string): Promise<string | null> {
@@ -589,6 +732,21 @@ async function findNearestPackageDir(repoRoot: string, changedPath: string): Pro
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, "/");
+}
+
+async function findPackageTsconfigPath(packageDir: string): Promise<string | undefined> {
+  const candidates = ["tsconfig.json", "tsconfig.build.json"];
+  for (const candidate of candidates) {
+    const candidatePath = path.join(packageDir, candidate);
+    try {
+      await fs.access(candidatePath);
+      return candidatePath;
+    } catch {
+      continue;
+    }
+  }
+
+  return undefined;
 }
 
 async function readPackageJson(packageJsonPath: string): Promise<Record<string, unknown> | null> {
