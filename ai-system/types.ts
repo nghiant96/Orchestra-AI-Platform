@@ -69,6 +69,18 @@ export interface RoutingConfig {
   default_profile?: RoutingProfileName | string;
   locked_roles?: string[];
   profiles?: Record<string, ProviderRoutingProfile>;
+  adaptive?: {
+    enabled?: boolean;
+    lookback_runs?: number;
+    min_samples?: number;
+    failure_weight?: number;
+    planner_weight?: number;
+    reviewer_weight?: number;
+    generator_weight?: number;
+    fixer_weight?: number;
+    role_override_threshold?: number;
+    [key: string]: unknown;
+  };
   heuristics?: {
     fast?: string[];
     safe?: string[];

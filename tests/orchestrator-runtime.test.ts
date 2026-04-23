@@ -181,6 +181,153 @@ test("implementation-stage routing upgrades reviewer when the plan targets risky
   });
 });
 
+test("adaptive routing uses recent general run outcomes to favor the safer implementation reviewer", async () => {
+  await withEnv({}, async () => {
+    const rules = createRules();
+    const repoRoot = await createTempRepo();
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T10-00-00-000Z-a11111",
+      status: "completed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "claude-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"]
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T10-05-00-000Z-a22222",
+      status: "completed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "claude-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"]
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T10-10-00-000Z-a33333",
+      status: "failed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "gemini-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"],
+      issueCounts: { high: 0, medium: 1, low: 0 },
+      failureClass: "review-blocking-issues"
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T10-15-00-000Z-a44444",
+      status: "failed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "gemini-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"],
+      issueCounts: { high: 0, medium: 1, low: 0 },
+      failureClass: "tool-check-failed"
+    });
+
+    const decision = await buildRoutingDecision({
+      repoRoot,
+      rules,
+      task: "Refactor shared service helpers",
+      stage: "implementation",
+      plan: {
+        prompt: "Refactor shared service helpers",
+        readFiles: ["src/shared/service.ts"],
+        writeTargets: ["src/shared/service.ts"],
+        notes: []
+      }
+    });
+
+    try {
+      assert.equal(decision.profile, "safe");
+      assert.equal(decision.roleProviders.reviewer, "claude-cli");
+      assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
+      assert.match(decision.reason, /adaptive routing/i);
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+test("adaptive routing favors the fast profile when recent docs reviews succeed with codex", async () => {
+  await withEnv({}, async () => {
+    const rules = createRules();
+    const repoRoot = await createTempRepo();
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T11-00-00-000Z-b11111",
+      status: "completed",
+      task: "Update docs wording",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "codex-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["README.md"]
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T11-05-00-000Z-b22222",
+      status: "completed",
+      task: "Fix README typo",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "codex-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["docs/guide.md"]
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T11-10-00-000Z-b33333",
+      status: "failed",
+      task: "Update docs wording",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "gemini-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["README.md"],
+      issueCounts: { high: 0, medium: 1, low: 0 },
+      failureClass: "review-blocking-issues"
+    });
+
+    const decision = await buildRoutingDecision({
+      repoRoot,
+      rules,
+      task: "Update documentation wording",
+      stage: "implementation",
+      plan: {
+        prompt: "Update documentation wording",
+        readFiles: ["README.md"],
+        writeTargets: ["README.md"],
+        notes: []
+      }
+    });
+
+    try {
+      assert.equal(decision.profile, "fast");
+      assert.equal(decision.roleProviders.reviewer, "codex-cli");
+      assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 async function withEnv(env: Record<string, string>, callback: () => Promise<void>): Promise<void> {
   const keys = [
     "AI_SYSTEM_PROVIDER",
@@ -222,6 +369,53 @@ async function createTempRepo(files: string[] = []): Promise<string> {
     })
   );
   return repoRoot;
+}
+
+async function seedAdaptiveRun(
+  repoRoot: string,
+  rules: RulesConfig,
+  {
+    runName,
+    status,
+    task,
+    providers,
+    latestFiles,
+    issueCounts = { high: 0, medium: 0, low: 0 },
+    failureClass = null
+  }: {
+    runName: string;
+    status: string;
+    task: string;
+    providers: Record<string, string>;
+    latestFiles: string[];
+    issueCounts?: Record<string, number>;
+    failureClass?: string | null;
+  }
+): Promise<void> {
+  const runDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts", runName);
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "run-state.json"),
+    JSON.stringify(
+      {
+        status,
+        task,
+        providers,
+        issueCounts,
+        result: {
+          files: latestFiles.map((file) => ({ path: file }))
+        },
+        execution: {
+          totalDurationMs: 100,
+          steps: [],
+          failure: failureClass ? { class: failureClass, reason: failureClass } : null
+        }
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
 }
 
 function createRules(): RulesConfig {

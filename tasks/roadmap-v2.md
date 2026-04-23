@@ -102,7 +102,7 @@ Scope:
 
 ## Phase D: Adaptive Routing
 
-Status: `later`
+Status: `done`
 
 Goal:
 - make provider routing learn from historical execution quality
@@ -111,6 +111,11 @@ Scope:
 - provider outcome tracking
 - task/risk-aware feedback loop
 - route selection influenced by prior tool/review outcomes
+- Delivered:
+  - artifact-backed adaptive routing that reads recent run outcomes from `.ai-system-artifacts`
+  - category-aware history buckets (`docs`, `risky`, `general`)
+  - profile scoring adjustments based on recent provider success/failure by role
+  - role-level adaptive overrides when one provider materially outperforms another for the same category
 
 ## Phase E: Platform Orchestration
 

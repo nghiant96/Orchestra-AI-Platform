@@ -222,6 +222,10 @@ Tool execution workflow:
   - ranked context selection so planner files, write targets, dependency neighbors, and semantic matches are ordered before byte-budget trimming
   - budget-aware context trimming so pinned files stay in and oversized low-value candidates are dropped before prompt assembly
   - operator visibility for top ranked context contributors in `ai runs latest/show`
+- Adaptive routing now supports:
+  - recent run outcome tracking from `.ai-system-artifacts`
+  - category-aware routing history (`docs`, `risky`, `general`)
+  - profile scoring and role overrides based on recent provider performance in the same category
 - Use `ai doctor` to see the effective tool commands, execution scope, and working directory
 
 Example project tool config in `.ai-system.json`:

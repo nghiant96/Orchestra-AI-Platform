@@ -39,6 +39,17 @@
   "routing": {
     "enabled": true,
     "default_profile": "balanced",
+    "adaptive": {
+      "enabled": true,
+      "lookback_runs": 12,
+      "min_samples": 2,
+      "failure_weight": 1.5,
+      "planner_weight": 1,
+      "reviewer_weight": 1.5,
+      "generator_weight": 0.75,
+      "fixer_weight": 0.75,
+      "role_override_threshold": 1.5
+    },
     "profiles": {
       "fast": {
         "planner": "gemini-cli",

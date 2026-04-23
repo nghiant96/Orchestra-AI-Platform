@@ -98,3 +98,12 @@ Review/result:
 - Context expansion now trims candidates against `max_context_bytes` before `readContextFiles()` runs. Planner and write-target files stay pinned, while optional dependency/semantic candidates compete by `score / sqrt(size)` so oversized low-value files are dropped earlier.
 - Plan notes now include `Context budget trimmed:` when files are excluded by this pass, making it visible why a candidate did not make it into the final prompt.
 - Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/vector-index.test.ts tests/dependency-graph.test.ts tests/artifacts.test.ts`.
+
+- [x] Add adaptive routing config and defaults to the routing layer
+- [x] Read recent artifact-backed run history and turn provider outcomes into routing signals
+- [x] Use history to adjust profile scoring and role-level provider recommendations, then verify with targeted routing tests
+
+Review/result:
+- Routing now looks at recent artifact-backed outcomes from the same repo before choosing providers. Runs are bucketed into `docs`, `risky`, and `general`, then each provider role is scored by recent successes vs failures for that category.
+- The adaptive layer feeds two decisions: profile scoring (`fast` / `balanced` / `safe`) and role-level overrides when a provider materially outperforms the current default for the same category. Explicit env overrides and project-locked roles remain authoritative.
+- Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/orchestrator-runtime.test.ts tests/artifacts.test.ts`.

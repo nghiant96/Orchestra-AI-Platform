@@ -13,6 +13,21 @@ import type {
 
 const PROFILE_NAMES: RoutingProfileName[] = ["fast", "balanced", "safe"];
 const PROVIDER_ROLES: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
+const ADAPTIVE_ROLE_ORDER: Record<"planning" | "implementation", ProviderRole[]> = {
+  planning: ["planner"],
+  implementation: ["reviewer", "generator", "fixer"]
+};
+const DEFAULT_ADAPTIVE_CONFIG = {
+  enabled: true,
+  lookback_runs: 12,
+  min_samples: 2,
+  failure_weight: 1.5,
+  planner_weight: 1,
+  reviewer_weight: 1.5,
+  generator_weight: 0.75,
+  fixer_weight: 0.75,
+  role_override_threshold: 1.5
+} as const;
 const DEFAULT_FAST_KEYWORDS = [
   "readme",
   "docs",
@@ -131,6 +146,40 @@ const DEFAULT_ROUTING_PROFILES: Record<RoutingProfileName, ProviderRoutingProfil
   }
 };
 
+interface AdaptiveRunRecord {
+  task: string;
+  latestFiles: string[];
+  providers: Partial<Record<ProviderRole, string>>;
+  success: boolean;
+  category: "docs" | "risky" | "general";
+}
+
+interface AdaptiveProviderStat {
+  score: number;
+  samples: number;
+  successes: number;
+  failures: number;
+}
+
+interface AdaptiveRoutingInsights {
+  signals: RoutingSignal[];
+  roleStats: Partial<Record<ProviderRole, Record<string, AdaptiveProviderStat>>>;
+  category: "docs" | "risky" | "general";
+  runsConsidered: number;
+}
+
+interface AdaptiveRoutingConfigShape {
+  enabled: boolean;
+  lookback_runs: number;
+  min_samples: number;
+  failure_weight: number;
+  planner_weight: number;
+  reviewer_weight: number;
+  generator_weight: number;
+  fixer_weight: number;
+  role_override_threshold: number;
+}
+
 export async function buildRoutingDecision({
   repoRoot,
   rules,
@@ -164,13 +213,19 @@ export async function buildRoutingDecision({
     };
   }
 
-  const signals = await collectSignals({ repoRoot, routing, task, stage, plan });
+  const adaptiveInsights = await buildAdaptiveRoutingInsights({ repoRoot, rules, routing, task, stage, plan });
+  const signals = await collectSignals({ repoRoot, rules, routing, task, stage, plan, adaptiveInsights });
   const forced = forcedProfile || normalizeProfileName(process.env.AI_SYSTEM_ROUTING_PROFILE) || mapRiskToProfile(process.env.AI_SYSTEM_RISK_PROFILE);
   const profile = forced || chooseProfile(defaultProfile, signals);
   const reason = forced
     ? `forced by ${forcedProfile ? "plan-aware rerouting" : process.env.AI_SYSTEM_ROUTING_PROFILE ? "AI_SYSTEM_ROUTING_PROFILE" : "AI_SYSTEM_RISK_PROFILE"}`
     : signals.find((signal) => signal.matched && signal.scores?.[profile])?.details || "score-based routing";
-  const roleProviders = resolveRoleProviders(rules, profile, stage, plan, signals);
+  const roleProviders = applyAdaptiveRoleRecommendations(
+    resolveRoleProviders(rules, profile, stage, plan, signals),
+    rules,
+    stage,
+    adaptiveInsights
+  );
 
   return {
     stage,
@@ -243,26 +298,82 @@ export function getRoutingProfile(rules: RulesConfig, profileName: RoutingProfil
 
 async function collectSignals({
   repoRoot,
+  rules,
   routing,
   task,
   stage,
-  plan
+  plan,
+  adaptiveInsights
 }: {
   repoRoot: string;
+  rules: RulesConfig;
   routing: RoutingConfig;
   task?: string;
   stage: "planning" | "implementation";
   plan?: PlanResult | null;
+  adaptiveInsights: AdaptiveRoutingInsights;
 }): Promise<RoutingSignal[]> {
   const signals: RoutingSignal[] = [];
   signals.push(...buildTaskSignals(task, routing));
   signals.push(...(await buildRepoSignals(repoRoot)));
+  signals.push(...adaptiveInsights.signals);
 
   if (stage === "implementation") {
     signals.push(...buildPlanSignals(plan));
   }
 
   return signals;
+}
+
+async function buildAdaptiveRoutingInsights({
+  repoRoot,
+  rules,
+  routing,
+  task,
+  stage,
+  plan
+}: {
+  repoRoot: string;
+  rules: RulesConfig;
+  routing: RoutingConfig;
+  task?: string;
+  stage: "planning" | "implementation";
+  plan?: PlanResult | null;
+}): Promise<AdaptiveRoutingInsights> {
+  const adaptive: AdaptiveRoutingConfigShape = {
+    ...DEFAULT_ADAPTIVE_CONFIG,
+    ...(routing.adaptive ?? {})
+  };
+  if (adaptive.enabled === false) {
+    return {
+      signals: [],
+      roleStats: {},
+      category: classifyRoutingCategory(task, plan),
+      runsConsidered: 0
+    };
+  }
+
+  const category = classifyRoutingCategory(task, plan);
+  const history = await loadAdaptiveRunHistory(repoRoot, rules, adaptive.lookback_runs);
+  const relevantRuns = history.filter((run) => run.category === category || (category === "general" && run.category === "general"));
+  if (relevantRuns.length < adaptive.min_samples) {
+    return {
+      signals: [],
+      roleStats: {},
+      category,
+      runsConsidered: relevantRuns.length
+    };
+  }
+
+  const roleStats = buildAdaptiveRoleStats(relevantRuns, adaptive.failure_weight);
+  const profileScores = buildAdaptiveProfileScores(rules, stage, roleStats, adaptive);
+  const profileSignal = createAdaptiveProfileSignal(category, relevantRuns.length, profileScores);
+  return {
+    signals: profileSignal ? [profileSignal] : [],
+    roleStats,
+    category,
+    runsConsidered: relevantRuns.length
+  };
 }
 
 function buildTaskSignals(task: string | undefined, routing: RoutingConfig): RoutingSignal[] {
@@ -380,6 +491,60 @@ function createRoleProviders(profile: ProviderRoutingProfile, rules: RulesConfig
   };
 }
 
+function applyAdaptiveRoleRecommendations(
+  roleProviders: Record<ProviderRole, string>,
+  rules: RulesConfig,
+  stage: "planning" | "implementation",
+  insights: AdaptiveRoutingInsights
+): Record<ProviderRole, string> {
+  const adaptive: AdaptiveRoutingConfigShape = {
+    ...DEFAULT_ADAPTIVE_CONFIG,
+    ...(rules.routing?.adaptive ?? {})
+  };
+  const nextProviders = { ...roleProviders };
+  const availableProviders = [...new Set(Object.values(rules.providers).map((provider) => normalizeProviderType(provider?.type)).filter(Boolean))];
+
+  for (const role of ADAPTIVE_ROLE_ORDER[stage]) {
+    const roleStatMap = insights.roleStats[role];
+    if (!roleStatMap) {
+      continue;
+    }
+
+    const currentProvider = normalizeProviderType(nextProviders[role]);
+    const currentScore = roleStatMap[currentProvider]?.score ?? 0;
+    const currentSamples = roleStatMap[currentProvider]?.samples ?? 0;
+    let bestProvider = currentProvider;
+    let bestScore = currentScore;
+
+    for (const providerType of availableProviders) {
+      const stat = roleStatMap[providerType];
+      if (!stat || stat.samples < adaptive.min_samples) {
+        continue;
+      }
+      if (stat.score > bestScore) {
+        bestProvider = providerType;
+        bestScore = stat.score;
+      }
+    }
+
+    if (
+      bestProvider &&
+      bestProvider !== currentProvider &&
+      bestScore >= currentScore + adaptive.role_override_threshold &&
+      (roleStatMap[bestProvider]?.samples ?? 0) >= adaptive.min_samples &&
+      hasProviderTemplate(rules, bestProvider)
+    ) {
+      nextProviders[role] = bestProvider;
+    }
+
+    if (!currentProvider && currentSamples === 0) {
+      continue;
+    }
+  }
+
+  return nextProviders;
+}
+
 function resolvePreferredProviderType(rules: RulesConfig, candidates: Array<string | undefined>): string {
   for (const candidate of candidates) {
     const normalized = normalizeProviderType(candidate);
@@ -405,6 +570,89 @@ function collectRoutingKeywords(routing: RoutingConfig, profileName: "fast" | "s
   return normalized.length > 0 ? normalized : fallback;
 }
 
+function buildAdaptiveRoleStats(
+  runs: AdaptiveRunRecord[],
+  failureWeight: number
+): Partial<Record<ProviderRole, Record<string, AdaptiveProviderStat>>> {
+  const stats: Partial<Record<ProviderRole, Record<string, AdaptiveProviderStat>>> = {};
+
+  for (const run of runs) {
+    for (const role of PROVIDER_ROLES) {
+      const providerType = normalizeProviderType(run.providers[role]);
+      if (!providerType) {
+        continue;
+      }
+      const roleStats = (stats[role] ??= {});
+      const providerStats = (roleStats[providerType] ??= { score: 0, samples: 0, successes: 0, failures: 0 });
+      providerStats.samples += 1;
+      if (run.success) {
+        providerStats.successes += 1;
+        providerStats.score += 1;
+      } else {
+        providerStats.failures += 1;
+        providerStats.score -= failureWeight;
+      }
+    }
+  }
+
+  return stats;
+}
+
+function buildAdaptiveProfileScores(
+  rules: RulesConfig,
+  stage: "planning" | "implementation",
+  roleStats: Partial<Record<ProviderRole, Record<string, AdaptiveProviderStat>>>,
+  adaptive: AdaptiveRoutingConfigShape
+): Partial<Record<RoutingProfileName, number>> {
+  const weights: Record<ProviderRole, number> = {
+    planner: adaptive.planner_weight,
+    reviewer: adaptive.reviewer_weight,
+    generator: adaptive.generator_weight,
+    fixer: adaptive.fixer_weight
+  };
+  const roles = ADAPTIVE_ROLE_ORDER[stage];
+  const scores: Partial<Record<RoutingProfileName, number>> = {};
+
+  for (const profile of PROFILE_NAMES) {
+    const providers = createRoleProviders(getRoutingProfile(rules, profile), rules);
+    let score = 0;
+    for (const role of roles) {
+      const providerType = normalizeProviderType(providers[role]);
+      const stat = roleStats[role]?.[providerType];
+      if (!stat || stat.samples < adaptive.min_samples) {
+        continue;
+      }
+      score += stat.score * weights[role];
+    }
+    scores[profile] = score;
+  }
+
+  return scores;
+}
+
+function createAdaptiveProfileSignal(
+  category: "docs" | "risky" | "general",
+  runsConsidered: number,
+  profileScores: Partial<Record<RoutingProfileName, number>>
+): RoutingSignal | null {
+  const values = PROFILE_NAMES.map((profile) => profileScores[profile] ?? 0);
+  const hasMeaningfulDelta = values.some((value) => Math.abs(value) >= 0.5);
+  if (!hasMeaningfulDelta) {
+    return null;
+  }
+
+  return {
+    name: "history:provider-outcomes",
+    matched: true,
+    details: `Adaptive routing used ${runsConsidered} recent ${category} run(s).`,
+    scores: {
+      fast: profileScores.fast ?? 0,
+      balanced: profileScores.balanced ?? 0,
+      safe: profileScores.safe ?? 0
+    }
+  };
+}
+
 function isRiskyPath(filePath: string): boolean {
   const normalized = normalizePath(filePath);
   return RISKY_PATH_PATTERNS.some((pattern) => pattern.test(normalized));
@@ -418,6 +666,23 @@ function isDocumentationPath(filePath: string): boolean {
 function looksLikeConfigPath(filePath: string): boolean {
   const normalized = normalizePath(filePath);
   return /(^|\/)(package\.json|tsconfig\.json|docker-compose\.yml|Dockerfile|\.github\/workflows\/)/i.test(normalized);
+}
+
+function classifyRoutingCategory(task: string | undefined, plan: PlanResult | null | undefined): "docs" | "risky" | "general" {
+  const normalizedTask = String(task || "").trim().toLowerCase();
+  const paths = [...(plan?.readFiles ?? []), ...(plan?.writeTargets ?? [])].map((value) => String(value || ""));
+  const docsTask = DEFAULT_FAST_KEYWORDS.some((keyword) => normalizedTask.includes(keyword));
+  const riskyTask = DEFAULT_SAFE_KEYWORDS.some((keyword) => normalizedTask.includes(keyword));
+  const docsPaths = paths.length > 0 && paths.every((filePath) => isDocumentationPath(filePath));
+  const riskyPaths = paths.some((filePath) => isRiskyPath(filePath) || looksLikeConfigPath(filePath));
+
+  if (riskyTask || riskyPaths) {
+    return "risky";
+  }
+  if (docsTask || docsPaths) {
+    return "docs";
+  }
+  return "general";
 }
 
 function normalizePath(filePath: string): string {
@@ -448,6 +713,64 @@ function mapRiskToProfile(value?: string): RoutingProfileName | null {
 
 function normalizeProviderType(value?: string): string {
   return String(value || "").trim().toLowerCase();
+}
+
+async function loadAdaptiveRunHistory(repoRoot: string, rules: RulesConfig, lookbackRuns: number): Promise<AdaptiveRunRecord[]> {
+  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  let entries: Array<{ isDirectory(): boolean; name: string }>;
+  try {
+    entries = await fs.readdir(artifactsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const runDirs = entries
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith("run-"))
+    .map((entry) => path.join(artifactsDir, entry.name))
+    .sort((left, right) => right.localeCompare(left))
+    .slice(0, Math.max(lookbackRuns, 0));
+
+  const history: AdaptiveRunRecord[] = [];
+  for (const runDir of runDirs) {
+    try {
+      const raw = await fs.readFile(path.join(runDir, "run-state.json"), "utf8");
+      const parsed = JSON.parse(raw) as {
+        status?: string;
+        task?: string;
+        providers?: Partial<Record<ProviderRole, string>>;
+        result?: { files?: Array<{ path?: string }> } | null;
+        artifacts?: { latestFiles?: string[] } | null;
+        execution?: { failure?: { class?: string | null } | null } | null;
+        issueCounts?: Record<string, number>;
+      };
+      const status = String(parsed.status || "");
+      if (!status || status.startsWith("paused_") || status === "cancelled") {
+        continue;
+      }
+      const latestFiles = parsed.result?.files?.map((file) => String(file.path || "")).filter(Boolean) ?? parsed.artifacts?.latestFiles ?? [];
+      const category = classifyRoutingCategory(parsed.task, {
+        prompt: parsed.task ?? "",
+        readFiles: [],
+        writeTargets: latestFiles,
+        notes: []
+      });
+      const highIssues = Number(parsed.issueCounts?.high ?? 0);
+      const mediumIssues = Number(parsed.issueCounts?.medium ?? 0);
+      const failureClass = parsed.execution?.failure?.class ?? null;
+      const success = (status === "completed" || status === "resumed_completed") && !failureClass && highIssues === 0 && mediumIssues === 0;
+      history.push({
+        task: parsed.task ?? "",
+        latestFiles,
+        providers: parsed.providers ?? {},
+        success,
+        category
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  return history;
 }
 
 function normalizeBooleanEnv(value: string | undefined, fallback: boolean): boolean {
