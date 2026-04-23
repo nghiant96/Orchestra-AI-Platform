@@ -164,7 +164,9 @@
   },
   "excluded_directories": [
     ".git",
+    ".ai-system-artifacts",
     ".ai-system-memory",
+    ".ai-system-vector",
     "node_modules",
     "ios/Pods",
     "android/build",

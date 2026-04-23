@@ -13,6 +13,7 @@ interface VectorChunkRecord {
   text: string;
   preview: string;
   embedding: number[] | null;
+  symbolName?: string;
 }
 
 interface IndexedFileRecord {
@@ -23,7 +24,7 @@ interface IndexedFileRecord {
 }
 
 interface VectorIndexSnapshot {
-  version: 1;
+  version: 2;
   config: {
     chunkSize: number;
     chunkOverlap: number;
@@ -143,7 +144,7 @@ export class VectorIndex {
     }
 
     const snapshot: VectorIndexSnapshot = {
-      version: 1,
+      version: 2,
       config: {
         chunkSize: this.config.chunk_size,
         chunkOverlap: this.config.chunk_overlap,
@@ -199,7 +200,7 @@ export class VectorIndex {
     try {
       const raw = await fs.readFile(this.snapshotPath, "utf8");
       const parsed = JSON.parse(raw) as VectorIndexSnapshot;
-      if (parsed?.version !== 1 || !Array.isArray(parsed?.files)) {
+      if (parsed?.version !== 2 || !Array.isArray(parsed?.files)) {
         return null;
       }
       return parsed;
@@ -274,7 +275,9 @@ async function buildChunkRecords({
   const records: VectorChunkRecord[] = [];
   let index = 0;
   for (const chunk of chunks) {
-    const embedding = await generateEmbedding(`${relativePath}\n${chunk.text}`);
+    const embedding = await generateEmbedding(
+      [relativePath, chunk.symbolName ? `symbol ${chunk.symbolName}` : "", chunk.text].filter(Boolean).join("\n")
+    );
     records.push({
       id: `${relativePath}#${index + 1}`,
       path: relativePath,
@@ -282,23 +285,92 @@ async function buildChunkRecords({
       endLine: chunk.endLine,
       text: chunk.text,
       preview: buildPreview(chunk.text),
-      embedding
+      embedding,
+      symbolName: chunk.symbolName
     });
     index += 1;
   }
   return records;
 }
 
-function chunkText(content: string, chunkSize: number, chunkOverlap: number): Array<{ text: string; startLine: number; endLine: number }> {
+function chunkText(
+  content: string,
+  chunkSize: number,
+  chunkOverlap: number
+): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
   const text = String(content || "");
   if (!text.trim()) {
     return [];
   }
 
+  const symbolChunks = chunkTextBySymbols(text, chunkSize);
+  if (symbolChunks.length > 0) {
+    return symbolChunks;
+  }
+
+  return chunkTextFixed(text, chunkSize, chunkOverlap);
+}
+
+function chunkTextBySymbols(
+  content: string,
+  chunkSize: number
+): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
+  const lines = String(content || "").split("\n");
+  if (lines.length === 0) {
+    return [];
+  }
+
+  const symbolStarts = detectSymbolStarts(lines);
+  if (symbolStarts.length === 0) {
+    return [];
+  }
+
+  const chunks: Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> = [];
+  const safeChunkSize = Math.max(chunkSize, 200);
+
+  for (let index = 0; index < symbolStarts.length; index += 1) {
+    const current = symbolStarts[index];
+    const next = symbolStarts[index + 1];
+    const endLineExclusive = next ? next.lineNumber - 1 : lines.length;
+    const lineSlice = lines.slice(current.lineNumber - 1, endLineExclusive);
+    const rawText = lineSlice.join("\n").trim();
+    if (!rawText) {
+      continue;
+    }
+
+    if (rawText.length <= safeChunkSize * 1.25) {
+      chunks.push({
+        text: rawText,
+        startLine: current.lineNumber,
+        endLine: endLineExclusive,
+        symbolName: current.symbolName
+      });
+      continue;
+    }
+
+    const nestedChunks = chunkTextFixed(rawText, safeChunkSize, Math.floor(safeChunkSize / 6));
+    for (const nested of nestedChunks) {
+      chunks.push({
+        text: nested.text,
+        startLine: current.lineNumber + nested.startLine - 1,
+        endLine: current.lineNumber + nested.endLine - 1,
+        symbolName: current.symbolName
+      });
+    }
+  }
+
+  return mergeAdjacentSmallChunks(chunks, safeChunkSize);
+}
+
+function chunkTextFixed(
+  text: string,
+  chunkSize: number,
+  chunkOverlap: number
+): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
   const safeChunkSize = Math.max(chunkSize, 200);
   const safeChunkOverlap = Math.min(Math.max(chunkOverlap, 0), Math.floor(safeChunkSize / 2));
   const lineOffsets = buildLineOffsets(text);
-  const chunks: Array<{ text: string; startLine: number; endLine: number }> = [];
+  const chunks: Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> = [];
   let start = 0;
 
   while (start < text.length) {
@@ -318,6 +390,83 @@ function chunkText(content: string, chunkSize: number, chunkOverlap: number): Ar
   }
 
   return chunks;
+}
+
+function detectSymbolStarts(lines: string[]): Array<{ lineNumber: number; symbolName?: string }> {
+  const starts: Array<{ lineNumber: number; symbolName?: string }> = [];
+  const patterns = [
+    /^\s*export\s+(async\s+)?function\s+([A-Za-z_$][\w$]*)/,
+    /^\s*(async\s+)?function\s+([A-Za-z_$][\w$]*)/,
+    /^\s*export\s+(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(async\s*)?\(/,
+    /^\s*(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(async\s*)?\(/,
+    /^\s*export\s+class\s+([A-Za-z_$][\w$]*)/,
+    /^\s*class\s+([A-Za-z_$][\w$]*)/,
+    /^\s*def\s+([A-Za-z_][\w]*)\s*\(/,
+    /^\s*class\s+([A-Za-z_][\w]*)\s*[:(]/,
+    /^\s*func\s+([A-Za-z_][\w]*)\s*\(/,
+    /^\s*(pub\s+)?fn\s+([A-Za-z_][\w]*)\s*\(/,
+    /^\s*(public|private|protected|internal)?\s*(class|interface|enum)\s+([A-Za-z_][\w]*)/,
+    /^\s*(public|private|protected|internal)?\s*fun\s+([A-Za-z_][\w]*)\s*\(/,
+    /^\s*(public|private|protected|internal)?\s*struct\s+([A-Za-z_][\w]*)/,
+    /^\s*(public|private|protected|internal)?\s*(func|class|struct|enum)\s+([A-Za-z_][\w]*)/
+  ];
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    for (const pattern of patterns) {
+      const match = line.match(pattern);
+      if (!match) {
+        continue;
+      }
+      const symbolName = [...match].reverse().find((value) => value && /^[A-Za-z_$][\w$]*$/.test(value));
+      starts.push({
+        lineNumber: index + 1,
+        symbolName
+      });
+      break;
+    }
+  }
+
+  return starts;
+}
+
+function mergeAdjacentSmallChunks(
+  chunks: Array<{ text: string; startLine: number; endLine: number; symbolName?: string }>,
+  chunkSize: number
+): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
+  if (chunks.length <= 1) {
+    return chunks;
+  }
+
+  const merged: Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> = [];
+  let buffer = chunks[0];
+
+  for (let index = 1; index < chunks.length; index += 1) {
+    const current = chunks[index];
+    if (
+      buffer &&
+      current &&
+      !buffer.symbolName &&
+      !current.symbolName &&
+      buffer.text.length + current.text.length < chunkSize
+    ) {
+      buffer = {
+        text: `${buffer.text}\n${current.text}`.trim(),
+        startLine: buffer.startLine,
+        endLine: current.endLine
+      };
+      continue;
+    }
+
+    merged.push(buffer);
+    buffer = current;
+  }
+
+  if (buffer) {
+    merged.push(buffer);
+  }
+
+  return merged;
 }
 
 function buildLineOffsets(text: string): number[] {
@@ -350,7 +499,7 @@ function offsetToLine(offset: number, lineOffsets: number[]): number {
 }
 
 function scoreChunk(chunk: VectorChunkRecord, queryTokens: Set<string>, queryEmbedding: number[] | null): number {
-  const chunkTokens = tokenize(`${chunk.path} ${chunk.preview} ${chunk.text}`);
+  const chunkTokens = tokenize(`${chunk.path} ${chunk.symbolName ?? ""} ${chunk.preview} ${chunk.text}`);
   let keywordScore = 0;
   for (const token of queryTokens) {
     if (chunkTokens.has(token)) {
@@ -359,7 +508,7 @@ function scoreChunk(chunk: VectorChunkRecord, queryTokens: Set<string>, queryEmb
   }
 
   const semanticScore = queryEmbedding && chunk.embedding ? cosineSimilarity(queryEmbedding, chunk.embedding) * 8 : 0;
-  return keywordScore + semanticScore + scorePathWeight(chunk.path);
+  return keywordScore + semanticScore + scorePathWeight(chunk.path) + (chunk.symbolName ? 1.5 : 0);
 }
 
 function tokenize(text: string): Set<string> {

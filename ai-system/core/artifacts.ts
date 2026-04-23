@@ -10,6 +10,7 @@ import type {
   Logger,
   MemoryStats,
   OrchestratorResult,
+  ContextSelectionCandidate,
   PlanResult,
   ProviderSummary,
   ReviewIssue,
@@ -46,6 +47,7 @@ export interface PersistedRunState {
   artifacts?: ArtifactSummary | null;
   latestToolResults?: ToolExecutionResult[];
   latestVectorMatches?: VectorSearchMatch[];
+  latestContextRanking?: ContextSelectionCandidate[];
   execution?: ExecutionSummary | null;
 }
 
@@ -58,6 +60,7 @@ export interface RecentRunSummary {
     providers?: ProviderSummary;
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
+    latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
   };
   artifactIndex: {
@@ -71,6 +74,7 @@ export interface RecentRunSummary {
     latestFiles?: string[];
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
+    latestContextRanking?: ContextSelectionCandidate[];
     iterationCount?: number;
     stepPaths?: Record<string, string>;
     execution?: ExecutionSummary | null;
@@ -167,7 +171,7 @@ export function buildStoppedResult({
     finalIssues,
     providers,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, result, false, latestToolResults, latestVectorMatches, execution),
+    artifacts: finalizeArtifactState(artifactState, result, false, latestToolResults, latestVectorMatches, [], execution),
     latestToolResults,
     execution,
     wroteFiles: false
@@ -209,6 +213,7 @@ export async function persistPlanArtifacts(
     rawPlan: unknown;
     plan: PlanResult;
     vectorMatches?: VectorSearchMatch[];
+    rankedCandidates?: ContextSelectionCandidate[];
     provider: string;
     durationMs?: number;
   },
@@ -226,7 +231,8 @@ export async function persistPlanArtifacts(
     task: payload.task,
     rawPlan: payload.rawPlan,
     normalizedPlan: payload.plan,
-    vectorMatches: payload.vectorMatches ?? []
+    vectorMatches: payload.vectorMatches ?? [],
+    rankedCandidates: payload.rankedCandidates ?? []
   };
   await fs.writeFile(path.join(stepPath, "plan.json"), JSON.stringify(manifest, null, 2), "utf8");
   state.stepPaths.plan = stepPath;
@@ -243,7 +249,8 @@ export async function persistPlanArtifacts(
     latestStep: "01-plan",
     latestTask: payload.task,
     latestProvider: payload.provider,
-    latestVectorMatches: payload.vectorMatches ?? []
+    latestVectorMatches: payload.vectorMatches ?? [],
+    latestContextRanking: payload.rankedCandidates ?? []
   });
   logger?.info(`Saved planner checkpoint at ${stepPath}`);
   return stepPath;
@@ -467,6 +474,7 @@ export async function persistRunState(
     latestReviewSummary?: string;
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
+    latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
     executionSteps?: ExecutionStepSummary[];
   },
@@ -483,11 +491,18 @@ export async function persistRunState(
     ? await readJsonIfExists<RecentRunSummary["artifactIndex"]>(state.stepPaths.index)
     : null;
   const explicitVectorMatches = payload.latestVectorMatches;
+  const explicitContextRanking = payload.latestContextRanking;
   const artifactVectorMatches =
     Array.isArray(payload.artifacts?.latestVectorMatches) && payload.artifacts.latestVectorMatches.length > 0
       ? payload.artifacts.latestVectorMatches
       : undefined;
+  const artifactContextRanking =
+    Array.isArray(payload.artifacts?.latestContextRanking) && payload.artifacts.latestContextRanking.length > 0
+      ? payload.artifacts.latestContextRanking
+      : undefined;
   const effectiveVectorMatches = explicitVectorMatches ?? artifactVectorMatches ?? existingIndex?.latestVectorMatches ?? [];
+  const effectiveContextRanking =
+    explicitContextRanking ?? artifactContextRanking ?? existingIndex?.latestContextRanking ?? [];
   const serializable = {
     version: 1,
     status: payload.status ?? (payload.ok ? "completed" : "failed"),
@@ -511,6 +526,7 @@ export async function persistRunState(
         payload.ok === true,
         payload.latestToolResults ?? [],
         payload.latestVectorMatches ?? [],
+        payload.latestContextRanking ?? [],
         payload.execution ??
           buildExecutionSummary({
             status: payload.status ?? (payload.ok ? "completed" : "failed"),
@@ -526,6 +542,7 @@ export async function persistRunState(
     latestReviewSummary: payload.latestReviewSummary ?? "",
     latestToolResults: payload.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
+    latestContextRanking: effectiveContextRanking,
     execution:
       payload.execution ??
       buildExecutionSummary({
@@ -559,6 +576,11 @@ export async function persistRunState(
             score: entry.score,
             startLine: entry.startLine,
             endLine: entry.endLine
+          })),
+          latestContextRanking: (serializable.latestContextRanking ?? []).map((entry) => ({
+            path: entry.path,
+            score: entry.score,
+            sources: entry.sources
           }))
         }
       });
@@ -569,6 +591,7 @@ export async function persistRunState(
     latestFiles: serializable.artifacts?.latestFiles ?? [],
     latestToolResults: serializable.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
+    latestContextRanking: effectiveContextRanking,
     execution: serializable.execution ?? null
   });
   logger?.info(`Saved resumable run state at ${statePath}`);
@@ -581,6 +604,7 @@ export function finalizeArtifactState(
   ok: boolean,
   latestToolResults: ToolExecutionResult[] = [],
   latestVectorMatches: VectorSearchMatch[] = [],
+  latestContextRanking: ContextSelectionCandidate[] = [],
   execution: ExecutionSummary | null = null
 ): ArtifactSummary | null {
   if (!state.enabled || !state.runDir) {
@@ -596,6 +620,7 @@ export function finalizeArtifactState(
     latestFiles: currentResult?.files?.map((file) => file.path) ?? [],
     latestToolResults,
     latestVectorMatches,
+    latestContextRanking,
     execution
   };
 }
@@ -850,6 +875,7 @@ async function writeArtifactIndex(
     latestFiles?: string[];
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
+    latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
   }
 ): Promise<void> {
@@ -876,6 +902,7 @@ async function writeArtifactIndex(
     latestFiles: payload.latestFiles ?? [],
     latestToolResults: payload.latestToolResults ?? [],
     latestVectorMatches: payload.latestVectorMatches ?? existingIndex?.latestVectorMatches ?? [],
+    latestContextRanking: payload.latestContextRanking ?? existingIndex?.latestContextRanking ?? [],
     execution: payload.execution ?? null,
     iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
     stepPaths: state.stepPaths

@@ -144,11 +144,12 @@ export async function filterExistingSafeReadFiles(
   repoRoot: string,
   requestedFiles: string[],
   rules: RulesConfig,
-  logger?: Logger
+  logger?: Logger,
+  maxCount = rules.max_files
 ): Promise<string[]> {
   const allowed: string[] = [];
 
-  for (const requestedPath of requestedFiles.slice(0, rules.max_files)) {
+  for (const requestedPath of requestedFiles.slice(0, maxCount)) {
     try {
       const safePath = toPosixPath(requestedPath).replace(/^\.\/+/, "");
       if (!safePath || safePath.split("/").includes("..") || shouldSkipPath(safePath, rules) || isSensitiveFile(safePath, rules)) {

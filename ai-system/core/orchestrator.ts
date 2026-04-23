@@ -143,6 +143,20 @@ export class Orchestrator {
       writeTargets,
       notes: [
         ...(Array.isArray(rawPlan.notes) ? rawPlan.notes : []),
+        ...(contextExpansion.rankedCandidates.length > 0
+          ? [
+              `Context ranking: ${contextExpansion.rankedCandidates
+                .slice(0, 5)
+                .map((entry) => `${entry.path} [${entry.sources.join("+")}]`)
+                .join(", ")}`
+            ]
+          : []),
+        ...(contextExpansion.changedHintFiles.length > 0
+          ? [`Changed-file hints: ${contextExpansion.changedHintFiles.join(", ")}`]
+          : []),
+        ...(contextExpansion.budgetTrimmedFiles.length > 0
+          ? [`Context budget trimmed: ${contextExpansion.budgetTrimmedFiles.join(", ")}`]
+          : []),
         ...(contextExpansion.vectorMatches.length > 0
           ? [
               `Semantic context matches: ${contextExpansion.vectorMatches
@@ -159,6 +173,7 @@ export class Orchestrator {
         rawPlan,
         plan,
         vectorMatches: contextExpansion.vectorMatches,
+        rankedCandidates: contextExpansion.rankedCandidates,
         provider: runtime.plannerProvider.id,
         durationMs: plannerStep.durationMs
       },

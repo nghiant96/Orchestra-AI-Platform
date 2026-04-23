@@ -53,3 +53,48 @@ Review/result:
 - Planner plan artifacts and `artifact-index.json` now persist `latestVectorMatches`, and `ai runs latest/show` prints those matches when a run has a `run-state`.
 - Real-world evaluation showed two concrete ranking issues: self-indexing of `.ai-system-artifacts` and over-ranking of docs/tests. Those were fixed by excluding internal artifact/index directories and reweighting paths so implementation code outranks docs/test scaffolding for implementation-style queries.
 - After the fix, a direct semantic query for `Fix docker sandbox environment passthrough for tool checks` returns `ai-system/core/tool-executor.ts` and related execution files as the top matches. That is good enough to keep the current embedded approach for now; moving to LanceDB/Chroma would add complexity before ranking quality, provider stability, and artifact UX need it.
+
+- [x] Add internal artifact/vector directories to shared `excluded_directories` defaults
+- [x] Implement ranked context selection so write targets and dependency neighbors are promoted before byte-budget trimming
+- [x] Add tests for ranked context ordering and verify with typecheck + targeted context suites
+
+Review/result:
+- Shared defaults now exclude `.ai-system-artifacts` and `.ai-system-vector`, so repo tree building, safe-path filtering, and semantic indexing all agree on keeping internal runtime data out of prompts.
+- Context expansion no longer flattens dependency and vector results blindly. It now ranks planner-selected files first, then existing write targets, then dependency neighbors, then semantic matches. That means the later `max_context_bytes` trimming spends budget on implementation-relevant files instead of arbitrary merge order.
+- Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/vector-index.test.ts tests/artifacts.test.ts tests/dependency-graph.test.ts`.
+
+- [x] Promote working-tree changed files into context only when they are dependency-connected to planner/write-target seeds
+- [x] Surface changed-file hints in orchestrator plan notes for inspection
+- [x] Add targeted tests and verify with typecheck + context/dependency suites
+
+Review/result:
+- Context intelligence now probes the current working tree and only promotes changed files when they are actually connected to the planned context through the dependency graph. Unrelated dirty files no longer pollute prompts just because the repo is mid-edit.
+- Plan notes now include a `Changed-file hints:` line when this mechanism contributes files, so operators can see when local edits influenced context selection.
+- Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/vector-index.test.ts tests/dependency-graph.test.ts tests/artifacts.test.ts`.
+
+- [x] Implement symbol-aware chunking in `VectorIndex` before fixed-size fallback
+- [x] Include symbol names in vector embeddings/scoring so chunk relevance tracks function/class boundaries better
+- [x] Add targeted tests and verify with typecheck + vector/dependency suites
+
+Review/result:
+- `VectorIndex` now chunks code by detected symbols first and only falls back to fixed-size blocks when symbol detection does not apply or a single symbol body is still too large. That keeps semantic matches closer to real functions/classes instead of arbitrary character windows.
+- Embeddings and keyword scoring now include the detected symbol name, which improves ranking for function-specific tasks without requiring a heavier external vector database.
+- Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/vector-index.test.ts tests/dependency-graph.test.ts tests/artifacts.test.ts`.
+
+- [x] Persist ranked context contributors into planner artifacts and run summaries
+- [x] Show ranked context contributors in `ai runs latest/show`
+- [x] Add artifact regression coverage and verify with typecheck + targeted suites
+
+Review/result:
+- Planner artifacts now persist both `vectorMatches` and `rankedCandidates`, and run state / artifact index now carry the top ranked context contributors forward for later inspection.
+- `ai runs latest` and `ai runs show` now print a `ranked context:` block, so operators can see which files entered the prompt because of planner intent, write targets, dependency expansion, changed-file hints, or semantic search.
+- Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/artifacts.test.ts tests/vector-index.test.ts tests/dependency-graph.test.ts`.
+
+- [x] Add budget-aware context trimming before prompt assembly
+- [x] Keep planner/write-target files pinned while selecting optional context by score/size density
+- [x] Add targeted tests and verify with typecheck + vector/dependency/artifact suites
+
+Review/result:
+- Context expansion now trims candidates against `max_context_bytes` before `readContextFiles()` runs. Planner and write-target files stay pinned, while optional dependency/semantic candidates compete by `score / sqrt(size)` so oversized low-value files are dropped earlier.
+- Plan notes now include `Context budget trimmed:` when files are excluded by this pass, making it visible why a candidate did not make it into the final prompt.
+- Verified with `pnpm exec tsc --noEmit` and `node --import tsx --test tests/vector-index.test.ts tests/dependency-graph.test.ts tests/artifacts.test.ts`.

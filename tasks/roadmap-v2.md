@@ -81,7 +81,12 @@ Suggested deliverables:
 - Delivered in MVP:
   - dependency-aware expansion around planner-selected files
   - embedded local vector index with semantic chunk search
+  - symbol-aware chunking so semantic matches stay near function/class boundaries before falling back to fixed-size blocks
   - orchestrator integration that appends top semantic matches to `plan.readFiles`
+  - ranked context selection that prioritizes planner-selected files, write targets, dependency neighbors, and semantic matches
+  - working-tree change hints that promote dirty files only when they are dependency-connected to the current plan
+  - operator visibility for ranked context contributors in run artifacts and summaries
+  - budget-aware context trimming that keeps pinned/high-value files and drops oversized low-value candidates before prompt assembly
 
 ## Phase C: Cross-Language Tooling
 

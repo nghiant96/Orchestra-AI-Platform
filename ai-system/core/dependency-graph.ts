@@ -70,6 +70,14 @@ export class DependencyGraph {
     return [...related];
   }
 
+  getConnections(file: string): string[] {
+    const node = this.nodes.get(file);
+    if (!node) {
+      return [];
+    }
+    return [...new Set([...node.imports, ...node.importedBy])];
+  }
+
   private async getOrAddNode(relativePath: string): Promise<DependencyNode> {
     let node = this.nodes.get(relativePath);
     if (!node) {

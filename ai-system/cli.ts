@@ -1767,6 +1767,7 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   const status = summary.runState.status ?? summary.artifactIndex?.latestStatus ?? "(unknown)";
   const latestToolResults = summary.runState.latestToolResults ?? summary.artifactIndex?.latestToolResults ?? [];
   const latestVectorMatches = summary.runState.latestVectorMatches ?? summary.artifactIndex?.latestVectorMatches ?? [];
+  const latestContextRanking = summary.runState.latestContextRanking ?? summary.artifactIndex?.latestContextRanking ?? [];
   const issueCounts = summary.runState.issueCounts ?? summarizeIssueCountsFromIssues(summary.runState.finalIssues ?? []);
   const changedFiles = summary.runState.result?.files?.map((file) => file.path) ?? summary.artifactIndex?.latestFiles ?? [];
   const execution = summary.runState.execution ?? summary.artifactIndex?.execution ?? null;
@@ -1824,6 +1825,12 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
     console.log("- semantic matches:");
     for (const match of latestVectorMatches) {
       console.log(`  - ${match.path}:${match.startLine}-${match.endLine} (score=${match.score.toFixed(3)})`);
+    }
+  }
+  if (latestContextRanking.length > 0) {
+    console.log("- ranked context:");
+    for (const entry of latestContextRanking.slice(0, 8)) {
+      console.log(`  - ${entry.path} (score=${entry.score.toFixed(1)}, sources=${entry.sources.join("+")})`);
     }
   }
   if (summary.runState.latestReviewSummary) {

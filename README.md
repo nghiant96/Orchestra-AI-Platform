@@ -218,6 +218,10 @@ Tool execution workflow:
 - Context intelligence now supports:
   - dependency-aware file expansion from planner-selected files
   - semantic vector search over embedded local chunks when `vector_search.enabled=true`
+  - symbol-aware chunking before fixed-size fallback, so semantic matches stay closer to function/class boundaries
+  - ranked context selection so planner files, write targets, dependency neighbors, and semantic matches are ordered before byte-budget trimming
+  - budget-aware context trimming so pinned files stay in and oversized low-value candidates are dropped before prompt assembly
+  - operator visibility for top ranked context contributors in `ai runs latest/show`
 - Use `ai doctor` to see the effective tool commands, execution scope, and working directory
 
 Example project tool config in `.ai-system.json`:

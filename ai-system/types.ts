@@ -317,6 +317,7 @@ export interface ArtifactSummary {
   latestFiles: string[];
   latestToolResults?: ToolExecutionResult[];
   latestVectorMatches?: VectorSearchMatch[];
+  latestContextRanking?: ContextSelectionCandidate[];
   execution?: ExecutionSummary | null;
 }
 
@@ -338,6 +339,12 @@ export interface VectorSearchMatch {
   startLine: number;
   endLine: number;
   preview: string;
+}
+
+export interface ContextSelectionCandidate {
+  path: string;
+  score: number;
+  sources: string[];
 }
 
 export type RunStatus =
