@@ -22,7 +22,7 @@ import type {
   RunStatus,
   RulesConfig
 } from "../types.js";
-import { runToolChecks } from "./tool-executor.js";
+import { createDryRunToolExecutionSummary, runToolChecks } from "./tool-executor.js";
 import {
   readContextFiles,
   readOriginalFiles,
@@ -207,14 +207,27 @@ export async function executeGenerationLoop({
     }));
     const diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
     const validationIssues = validateCandidateFiles(state.currentResult.files);
-    const toolExecution = await runToolChecks({
-      repoRoot,
-      changedFiles: state.currentResult.files,
-      rules,
-      logger
+
+    const toolExecution = await measureExecutionStep(state.executionSteps, `iteration-${iteration}-tools`, async () => {
+      if (!dryRun) {
+        return await runToolChecks({
+          repoRoot,
+          changedFiles: state.currentResult!.files,
+          rules,
+          logger
+        });
+      }
+
+      logger.info("Skipping command-based tool checks in dry-run mode until a full isolated repo sandbox is available.");
+      return await createDryRunToolExecutionSummary({
+        repoRoot,
+        rules,
+        reason: "dry-run mode does not materialize a complete repository sandbox yet"
+      });
     });
-    state.latestToolResults = toolExecution.results;
-    const preReviewIssues = mergeIssues(toolExecution.issues, validationIssues);
+
+    state.latestToolResults = toolExecution.result.results;
+    const preReviewIssues = mergeIssues(toolExecution.result.issues, validationIssues);
 
     logger.step(`Reviewing generated files with ${runtime.reviewerProvider.id}`);
     const review = normalizeReviewResult(
@@ -243,7 +256,7 @@ export async function executeGenerationLoop({
         candidateFiles: state.currentResult.files,
         originalFiles,
         diffSummaries,
-        toolResults: toolExecution.results,
+        toolResults: toolExecution.result.results,
         preReviewIssues,
         reviewSummary: review.summary,
         issues: state.acceptedIssues,
@@ -257,7 +270,7 @@ export async function executeGenerationLoop({
       iteration,
       summary: review.summary,
       issues: state.acceptedIssues,
-      toolResults: toolExecution.results,
+      toolResults: toolExecution.result.results,
       durationMs: iterationDurationMs,
       artifactPath: artifactInfo?.iterationPath ?? null
     });

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { runCommandWithRetry } from "../utils/api.js";
 import { truncate } from "../utils/string.js";
+import { resolveToolSandbox } from "./tool-sandbox.js";
 import type {
   CliCommandError,
   GeneratedFile,
@@ -13,7 +14,8 @@ import type {
   ToolExecutionScope,
   ToolExecutionName,
   ToolExecutionResult,
-  ToolExecutionSummary
+  ToolExecutionSummary,
+  ToolSandboxMode
 } from "../types.js";
 
 const DEFAULT_TOOL_TIMEOUT_MS: Record<string, number> = {
@@ -44,6 +46,9 @@ interface ResolvedToolCommand {
   source: ToolConfigurationSummary["source"];
   scopedToChangedFiles: boolean;
   scope: ToolExecutionScope;
+  sandboxMode: ToolSandboxMode;
+  image?: string;
+  env: NodeJS.ProcessEnv;
   workingDirectory?: string;
 }
 
@@ -99,6 +104,7 @@ export async function runToolChecks({
   const packageScripts = normalizeScripts(packageJson);
   const packageManager = await detectPackageManager(repoRoot);
   const changedPaths = changedFiles.map((file) => file.path).filter(Boolean);
+  const sandbox = resolveToolSandbox(tools.sandbox);
 
   const toolNames: ToolExecutionName[] = ["lint", "typecheck", "build", "test"];
   for (const toolName of toolNames) {
@@ -108,7 +114,8 @@ export async function runToolChecks({
       toolConfig: tools.commands?.[toolName],
       packageScripts,
       packageManager,
-      changedPaths
+      changedPaths,
+      sandbox
     });
 
     if (!resolved) {
@@ -124,14 +131,17 @@ export async function runToolChecks({
       continue;
     }
 
-    logger?.step(`Running tool check: ${resolved.display}`);
+    logger?.step(`Running tool check: ${resolved.display}${resolved.sandboxMode === "docker" ? " [sandbox=docker]" : ""}`);
     const startedAt = Date.now();
 
     try {
+      const invocation = buildToolInvocation(resolved, repoRoot);
+
       const commandResult = await runCommandWithRetry({
-        command: resolved.command,
-        args: resolved.args,
-        cwd: resolved.cwd,
+        command: invocation.command,
+        args: invocation.args,
+        cwd: invocation.cwd,
+        env: invocation.env,
         timeoutMs: resolved.timeoutMs,
         retries: resolved.retries,
         baseDelayMs: resolved.baseDelayMs,
@@ -148,6 +158,7 @@ export async function runToolChecks({
         command: resolved.command,
         args: resolved.args,
         scope: resolved.scope,
+        sandboxMode: resolved.sandboxMode,
         workingDirectory: resolved.workingDirectory,
         exitCode: commandResult.code,
         stdout: truncate(commandResult.stdout.trim(), 1200),
@@ -155,7 +166,8 @@ export async function runToolChecks({
       });
     } catch (error) {
       if (looksLikeMissingExecutable(error)) {
-        logger?.warn(`Tool check skipped because ${resolved.command} is unavailable.`);
+        const unavailableCommand = resolved.sandboxMode === "docker" ? "docker" : resolved.command;
+        logger?.warn(`Tool check skipped because ${unavailableCommand} is unavailable.`);
         results.push({
           name: toolName,
           kind: "command",
@@ -163,10 +175,11 @@ export async function runToolChecks({
           skipped: true,
           issueCount: 0,
           durationMs: Date.now() - startedAt,
-          summary: `Skipped ${toolName}: ${resolved.command} is unavailable.`,
+          summary: `Skipped ${toolName}: ${unavailableCommand} is unavailable.`,
           command: resolved.command,
           args: resolved.args,
           scope: resolved.scope,
+          sandboxMode: resolved.sandboxMode,
           workingDirectory: resolved.workingDirectory
         });
         continue;
@@ -186,6 +199,7 @@ export async function runToolChecks({
         command: resolved.command,
         args: resolved.args,
         scope: resolved.scope,
+        sandboxMode: resolved.sandboxMode,
         workingDirectory: resolved.workingDirectory,
         exitCode: typeof normalized?.code === "number" ? normalized.code : null,
         stdout: truncate(`${normalized?.stdout ?? ""}`.trim(), 1200),
@@ -209,6 +223,7 @@ export async function summarizeConfiguredTools({
   const packageJson = await readPackageJson(packageJsonPath);
   const packageScripts = normalizeScripts(packageJson);
   const packageManager = await detectPackageManager(repoRoot);
+  const sandbox = resolveToolSandbox(tools.sandbox);
 
   const summaries: ToolConfigurationSummary[] = [];
   for (const toolName of ["lint", "typecheck", "build", "test"] as ToolExecutionName[]) {
@@ -219,7 +234,8 @@ export async function summarizeConfiguredTools({
       toolConfig,
       packageScripts,
       packageManager,
-      changedPaths: ["{changed-file-example}"]
+      changedPaths: ["{changed-file-example}"],
+      sandbox
     });
 
     if (tools.enabled === false || toolConfig?.enabled === false) {
@@ -247,15 +263,50 @@ export async function summarizeConfiguredTools({
       enabled: true,
       source: resolved.source,
       command: resolved.command,
-      args: resolved.args,
-      scopedToChangedFiles: resolved.scopedToChangedFiles,
-      scope: resolved.scope,
-      workingDirectory: resolved.workingDirectory,
-      summary: `${toolName} -> ${resolved.display}${resolved.workingDirectory ? ` (cwd=${resolved.workingDirectory})` : ""}${resolved.scope !== "full" ? ` [scope=${resolved.scope}]` : ""}`
-    });
+        args: resolved.args,
+        scopedToChangedFiles: resolved.scopedToChangedFiles,
+        scope: resolved.scope,
+        sandboxMode: resolved.sandboxMode,
+        workingDirectory: resolved.workingDirectory,
+        summary: `${toolName} -> ${resolved.display}${resolved.workingDirectory ? ` (cwd=${resolved.workingDirectory})` : ""}${resolved.scope !== "full" ? ` [scope=${resolved.scope}]` : ""}${resolved.sandboxMode !== "inherit" ? ` [sandbox=${resolved.sandboxMode}]` : ""}`
+      });
   }
 
   return summaries;
+}
+
+export async function createDryRunToolExecutionSummary({
+  repoRoot,
+  rules,
+  reason = "Skipped command-based tool checks in dry-run mode because the isolated repo context is incomplete."
+}: {
+  repoRoot: string;
+  rules: RulesConfig;
+  reason?: string;
+}): Promise<ToolExecutionSummary> {
+  const summaries = await summarizeConfiguredTools({ repoRoot, rules });
+  return {
+    results: summaries.map((tool) => ({
+      name: tool.name,
+      kind: "command",
+      ok: false,
+      skipped: true,
+      issueCount: 0,
+      durationMs: 0,
+      summary:
+        tool.enabled === false || tool.source === "disabled"
+          ? `${tool.name} is disabled.`
+          : tool.source === "none"
+            ? `Skipped ${tool.name}: no configured or detected command.`
+            : `Skipped ${tool.name}: ${reason}`,
+      command: tool.command,
+      args: tool.args,
+      scope: tool.scope,
+      sandboxMode: tool.sandboxMode,
+      workingDirectory: tool.workingDirectory
+    })),
+    issues: []
+  };
 }
 
 function runJsonValidation(changedFiles: GeneratedFile[]): { result: ToolExecutionResult; issues: ReviewIssue[] } {
@@ -294,13 +345,62 @@ function runJsonValidation(changedFiles: GeneratedFile[]): { result: ToolExecuti
   };
 }
 
+function buildToolInvocation(
+  resolved: ResolvedToolCommand,
+  repoRoot: string
+): { command: string; args: string[]; cwd: string; env: NodeJS.ProcessEnv } {
+  if (resolved.sandboxMode !== "docker") {
+    return {
+      command: resolved.command,
+      args: resolved.args,
+      cwd: resolved.cwd,
+      env: resolved.env
+    };
+  }
+
+  const dockerEnvArgs: string[] = [];
+  for (const [key, value] of Object.entries(resolved.env)) {
+    if (value !== undefined) {
+      dockerEnvArgs.push("--env", key);
+    }
+  }
+
+  const relativeExecutionDir = normalizePath(path.relative(repoRoot, resolved.cwd));
+  const containerWorkingDirectory =
+    !relativeExecutionDir || relativeExecutionDir === "."
+      ? "/workspace"
+      : `/workspace/${relativeExecutionDir}`;
+
+  return {
+    command: "docker",
+    args: [
+      "run",
+      "--rm",
+      ...dockerEnvArgs,
+      "-v",
+      `${path.resolve(repoRoot)}:/workspace`,
+      "-w",
+      containerWorkingDirectory,
+      resolved.image || "ai-coding-system:local",
+      resolved.command,
+      ...resolved.args
+    ],
+    cwd: repoRoot,
+    env: {
+      ...process.env,
+      ...resolved.env
+    }
+  };
+}
+
 async function resolveToolCommand({
   repoRoot,
   toolName,
   toolConfig,
   packageScripts,
   packageManager,
-  changedPaths
+  changedPaths,
+  sandbox
 }: {
   repoRoot: string;
   toolName: ToolExecutionName;
@@ -308,6 +408,7 @@ async function resolveToolCommand({
   packageScripts: Record<string, string>;
   packageManager: "pnpm" | "yarn" | "npm";
   changedPaths: string[];
+  sandbox: ReturnType<typeof resolveToolSandbox>;
 }): Promise<ResolvedToolCommand | null> {
   const packageScope =
     toolName === "lint" || toolName === "test" || toolName === "typecheck"
@@ -336,19 +437,22 @@ async function resolveToolCommand({
       source: "configured-command",
       scopedToChangedFiles: usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true,
       scope:
-        usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true ? "changed-files" : "full"
+        usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true ? "changed-files" : "full",
+      sandboxMode: sandbox.mode,
+      image: sandbox.image,
+      env: sandbox.env
     };
   }
 
   if (!toolConfig?.script) {
-    const scopedAutoCommand = resolveAutoScopedToolCommand(repoRoot, toolName, packageScripts, packageManager, changedPaths, packageScope);
+    const scopedAutoCommand = resolveAutoScopedToolCommand(repoRoot, toolName, packageScripts, packageManager, changedPaths, packageScope, sandbox);
     if (scopedAutoCommand) {
       return scopedAutoCommand;
     }
   }
 
   if (!toolConfig?.script && workspaceScope) {
-    const workspaceCommand = resolveWorkspaceToolCommand(toolName, workspaceScope, toolConfig);
+    const workspaceCommand = resolveWorkspaceToolCommand(toolName, workspaceScope, toolConfig, sandbox);
     if (workspaceCommand) {
       return workspaceCommand;
     }
@@ -358,7 +462,8 @@ async function resolveToolCommand({
   if (scriptName) {
     return buildScriptCommand(toolName, scriptName, packageManager, toolConfig, changedPaths, {
       cwd: repoRoot,
-      scope: toolConfig?.append_changed_files === true || usesChangedFilePlaceholder(toolConfig?.args ?? []) ? "changed-files" : "full"
+      scope: toolConfig?.append_changed_files === true || usesChangedFilePlaceholder(toolConfig?.args ?? []) ? "changed-files" : "full",
+      sandbox
     });
   }
 
@@ -368,6 +473,7 @@ async function resolveToolCommand({
       return buildScriptCommand(toolName, packageScriptName, packageScope.packageManager, toolConfig, packageScope.relativeChangedPaths, {
         cwd: packageScope.cwd,
         scope: "package",
+        sandbox,
         workingDirectory: packageScope.workingDirectory
       });
     }
@@ -390,6 +496,9 @@ async function resolveToolCommand({
           source: "fallback",
           scopedToChangedFiles: false,
           scope: "package",
+          sandboxMode: sandbox.mode,
+          image: sandbox.image,
+          env: sandbox.env,
           workingDirectory: packageScope.workingDirectory
         };
       } catch {
@@ -411,7 +520,10 @@ async function resolveToolCommand({
         baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
         source: "fallback",
         scopedToChangedFiles: false,
-        scope: "full"
+        scope: "full",
+        sandboxMode: sandbox.mode,
+        image: sandbox.image,
+        env: sandbox.env
       };
     } catch {
       return null;
@@ -453,6 +565,7 @@ function buildScriptCommand(
   options?: {
     cwd?: string;
     scope?: ToolExecutionScope;
+    sandbox: ReturnType<typeof resolveToolSandbox>;
     workingDirectory?: string;
   }
 ): ResolvedToolCommand {
@@ -477,6 +590,9 @@ function buildScriptCommand(
         source,
         scopedToChangedFiles,
         scope,
+        sandboxMode: options?.sandbox.mode ?? "inherit",
+        image: options?.sandbox.image,
+        env: options?.sandbox.env ?? { ...process.env },
         workingDirectory: options?.workingDirectory
       };
     case "yarn":
@@ -492,6 +608,9 @@ function buildScriptCommand(
         source,
         scopedToChangedFiles,
         scope,
+        sandboxMode: options?.sandbox.mode ?? "inherit",
+        image: options?.sandbox.image,
+        env: options?.sandbox.env ?? { ...process.env },
         workingDirectory: options?.workingDirectory
       };
     case "npm":
@@ -508,6 +627,9 @@ function buildScriptCommand(
         source,
         scopedToChangedFiles,
         scope,
+        sandboxMode: options?.sandbox.mode ?? "inherit",
+        image: options?.sandbox.image,
+        env: options?.sandbox.env ?? { ...process.env },
         workingDirectory: options?.workingDirectory
       };
   }
@@ -519,7 +641,8 @@ function resolveAutoScopedToolCommand(
   packageScripts: Record<string, string>,
   packageManager: "pnpm" | "yarn" | "npm",
   changedPaths: string[],
-  packageScope: PackageScopeContext | null
+  packageScope: PackageScopeContext | null,
+  sandbox: ReturnType<typeof resolveToolSandbox>
 ): ResolvedToolCommand | null {
   if (changedPaths.length === 0 || (toolName !== "lint" && toolName !== "test")) {
     return null;
@@ -533,6 +656,7 @@ function resolveAutoScopedToolCommand(
       }, packageScope.relativeChangedPaths, {
         cwd: packageScope.cwd,
         scope: candidate.appendChangedFiles ? "changed-files" : "package",
+        sandbox,
         workingDirectory: packageScope.workingDirectory
       });
     }
@@ -542,7 +666,8 @@ function resolveAutoScopedToolCommand(
         append_changed_files: candidate.appendChangedFiles
       }, changedPaths, {
         cwd: repoRoot,
-        scope: candidate.appendChangedFiles ? "changed-files" : "full"
+        scope: candidate.appendChangedFiles ? "changed-files" : "full",
+        sandbox
       });
     }
   }
@@ -668,7 +793,8 @@ async function detectWorkspaceScopeContext(
 function resolveWorkspaceToolCommand(
   toolName: ToolExecutionName,
   workspaceScope: WorkspaceScopeContext,
-  toolConfig: ToolCommandConfig | undefined
+  toolConfig: ToolCommandConfig | undefined,
+  sandbox: ReturnType<typeof resolveToolSandbox>
 ): ResolvedToolCommand | null {
   const scriptName = resolveWorkspaceScriptName(toolName, workspaceScope.packages);
   if (!scriptName) {
@@ -688,6 +814,9 @@ function resolveWorkspaceToolCommand(
     source: "auto-detected-script",
     scopedToChangedFiles: false,
     scope: "workspace",
+    sandboxMode: sandbox.mode,
+    image: sandbox.image,
+    env: sandbox.env,
     workingDirectory: workspaceScope.packages.map((pkg) => pkg.workingDirectory).join(",")
   };
 }

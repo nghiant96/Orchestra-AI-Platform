@@ -73,6 +73,105 @@ test("collectReviewChanges supports staged and base-ref review targets", async (
   }
 });
 
+test("collectReviewChanges uses HEAD as the baseline for working-tree review", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-review-working-tree-"));
+
+  try {
+    await execGit(repoRoot, ["init"]);
+    await execGit(repoRoot, ["config", "user.email", "ai@example.com"]);
+    await execGit(repoRoot, ["config", "user.name", "AI System"]);
+    await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src/example.ts"), "export const value = 1;\n", "utf8");
+    await execGit(repoRoot, ["add", "src/example.ts"]);
+    await execGit(repoRoot, ["commit", "-m", "initial"]);
+
+    await fs.writeFile(path.join(repoRoot, "src/example.ts"), "export const value = 2;\n", "utf8");
+
+    const workingTree = await collectReviewChanges(repoRoot, { mode: "working-tree" });
+    assert.deepEqual(workingTree.changedFiles, ["src/example.ts"]);
+    assert.equal(workingTree.originalFiles[0]?.content, "export const value = 1;\n");
+    assert.equal(workingTree.candidateFiles[0]?.content, "export const value = 2;\n");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("collectReviewChanges supports explicit file scope review", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-review-files-"));
+
+  try {
+    await execGit(repoRoot, ["init"]);
+    await execGit(repoRoot, ["config", "user.email", "ai@example.com"]);
+    await execGit(repoRoot, ["config", "user.name", "AI System"]);
+    await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src/keep.ts"), "export const keep = 1;\n", "utf8");
+    await fs.writeFile(path.join(repoRoot, "src/scope.ts"), "export const scope = 1;\n", "utf8");
+    await execGit(repoRoot, ["add", "src/keep.ts", "src/scope.ts"]);
+    await execGit(repoRoot, ["commit", "-m", "initial"]);
+
+    await fs.writeFile(path.join(repoRoot, "src/keep.ts"), "export const keep = 2;\n", "utf8");
+    await fs.writeFile(path.join(repoRoot, "src/scope.ts"), "export const scope = 2;\n", "utf8");
+
+    const scoped = await collectReviewChanges(repoRoot, { mode: "files", filePaths: ["src/scope.ts"] });
+    assert.deepEqual(scoped.changedFiles, ["src/scope.ts"]);
+    assert.equal(scoped.originalFiles[0]?.content, "export const scope = 1;\n");
+    assert.equal(scoped.candidateFiles[0]?.content, "export const scope = 2;\n");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("collectReviewChanges supports staged review within an explicit file scope", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-review-staged-files-"));
+
+  try {
+    await execGit(repoRoot, ["init"]);
+    await execGit(repoRoot, ["config", "user.email", "ai@example.com"]);
+    await execGit(repoRoot, ["config", "user.name", "AI System"]);
+    await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src/keep.ts"), "export const keep = 1;\n", "utf8");
+    await fs.writeFile(path.join(repoRoot, "src/scope.ts"), "export const scope = 1;\n", "utf8");
+    await execGit(repoRoot, ["add", "src/keep.ts", "src/scope.ts"]);
+    await execGit(repoRoot, ["commit", "-m", "initial"]);
+
+    await fs.writeFile(path.join(repoRoot, "src/keep.ts"), "export const keep = 2;\n", "utf8");
+    await fs.writeFile(path.join(repoRoot, "src/scope.ts"), "export const scope = 2;\n", "utf8");
+    await execGit(repoRoot, ["add", "src/keep.ts", "src/scope.ts"]);
+
+    const staged = await collectReviewChanges(repoRoot, { mode: "staged", filePaths: ["src/scope.ts"] });
+    assert.deepEqual(staged.changedFiles, ["src/scope.ts"]);
+    assert.equal(staged.originalFiles[0]?.content, "export const scope = 1;\n");
+    assert.equal(staged.candidateFiles[0]?.content, "export const scope = 2;\n");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("collectReviewChanges supports base-ref review within an explicit file scope", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-review-base-files-"));
+
+  try {
+    await execGit(repoRoot, ["init"]);
+    await execGit(repoRoot, ["config", "user.email", "ai@example.com"]);
+    await execGit(repoRoot, ["config", "user.name", "AI System"]);
+    await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src/keep.ts"), "export const keep = 1;\n", "utf8");
+    await fs.writeFile(path.join(repoRoot, "src/scope.ts"), "export const scope = 1;\n", "utf8");
+    await execGit(repoRoot, ["add", "src/keep.ts", "src/scope.ts"]);
+    await execGit(repoRoot, ["commit", "-m", "initial"]);
+
+    await fs.writeFile(path.join(repoRoot, "src/keep.ts"), "export const keep = 2;\n", "utf8");
+    await fs.writeFile(path.join(repoRoot, "src/scope.ts"), "export const scope = 2;\n", "utf8");
+
+    const base = await collectReviewChanges(repoRoot, { mode: "base-ref", baseRef: "HEAD", filePaths: ["src/scope.ts"] });
+    assert.deepEqual(base.changedFiles, ["src/scope.ts"]);
+    assert.equal(base.originalFiles[0]?.content, "export const scope = 1;\n");
+    assert.equal(base.candidateFiles[0]?.content, "export const scope = 2;\n");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 async function execGit(cwd: string, args: string[]): Promise<void> {
   await execFileAsync("git", args, { cwd });
 }

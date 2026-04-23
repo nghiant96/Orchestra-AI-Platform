@@ -80,6 +80,15 @@ export interface RoutingConfig {
 export type ToolExecutionName = "json-validation" | "lint" | "typecheck" | "build" | "test" | (string & {});
 export type ToolExecutionKind = "validation" | "command";
 export type ToolExecutionScope = "full" | "changed-files" | "package" | "workspace";
+export type ToolSandboxMode = "inherit" | "clean-env" | "docker";
+
+export interface ToolSandboxConfig {
+  mode?: ToolSandboxMode;
+  image?: string;
+  include_env?: string[];
+  extra_env?: Record<string, string>;
+  [key: string]: unknown;
+}
 
 export interface ToolCommandConfig {
   enabled?: boolean;
@@ -96,6 +105,7 @@ export interface ToolCommandConfig {
 export interface ToolExecutionConfig {
   enabled?: boolean;
   json_validation?: boolean;
+  sandbox?: ToolSandboxConfig;
   commands?: Partial<Record<ToolExecutionName, ToolCommandConfig>>;
   [key: string]: unknown;
 }
@@ -111,6 +121,7 @@ export interface ToolExecutionResult {
   command?: string;
   args?: string[];
   scope?: ToolExecutionScope;
+  sandboxMode?: ToolSandboxMode;
   workingDirectory?: string;
   exitCode?: number | null;
   stdout?: string;
@@ -130,6 +141,7 @@ export interface ToolConfigurationSummary {
   args?: string[];
   scopedToChangedFiles?: boolean;
   scope?: ToolExecutionScope;
+  sandboxMode?: ToolSandboxMode;
   workingDirectory?: string;
   summary: string;
 }
@@ -198,6 +210,7 @@ export interface RulesConfig {
     [key: string]: unknown;
   };
   memory: MemoryConfig;
+  vector_search?: VectorSearchConfig;
   providers: ProviderConfigMap;
   routing?: RoutingConfig;
   tools?: ToolExecutionConfig;
@@ -306,6 +319,26 @@ export interface ArtifactSummary {
   execution?: ExecutionSummary | null;
 }
 
+export interface VectorSearchConfig {
+  enabled?: boolean;
+  data_dir?: string;
+  max_results?: number;
+  max_indexed_files?: number;
+  max_file_bytes?: number;
+  chunk_size?: number;
+  chunk_overlap?: number;
+  [key: string]: unknown;
+}
+
+export interface VectorSearchMatch {
+  id: string;
+  path: string;
+  score: number;
+  startLine: number;
+  endLine: number;
+  preview: string;
+}
+
 export type RunStatus =
   | "cancelled"
   | "paused_after_plan"
@@ -373,6 +406,7 @@ export interface CommandRunOptions {
   command: string;
   args: string[];
   cwd: string;
+  env?: NodeJS.ProcessEnv;
   input?: string;
   timeoutMs?: number;
   killGraceMs?: number;

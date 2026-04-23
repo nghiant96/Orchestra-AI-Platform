@@ -43,6 +43,7 @@ interface CliOptions {
   workflowMode: WorkflowMode;
   reviewStaged: boolean;
   reviewBase: string | null;
+  reviewFiles: string[];
   force: boolean;
   task: string;
 }
@@ -75,8 +76,9 @@ interface CurrentChangeReviewResult {
   repoRoot: string;
   configPath: string | null;
   task: string;
-  targetMode: "working-tree" | "staged" | "base-ref";
+  targetMode: "working-tree" | "staged" | "base-ref" | "files";
   targetDetail: string | null;
+  targetFiles?: string[];
   changedFiles: string[];
   providers: {
     planner: string;
@@ -174,6 +176,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
   let workflowMode: WorkflowMode = "standard";
   let reviewStaged = false;
   let reviewBase: string | null = null;
+  const reviewFiles: string[] = [];
   let force = false;
   let dryRunExplicit = false;
   let interactiveExplicit = false;
@@ -222,6 +225,22 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
         throw new Error("Missing path for `--save`.");
       }
       savePath = targetPath;
+      index += 1;
+      continue;
+    }
+    if (arg === "--files") {
+      const nextArg = args[index + 1];
+      if (!nextArg || nextArg.startsWith("-")) {
+        throw new Error("Missing path list for `--files`. Use a comma-separated list or repeat `--files <path>`.");
+      }
+      const parsedPaths = nextArg
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      if (parsedPaths.length === 0) {
+        throw new Error("Missing path list for `--files`. Use a comma-separated list or repeat `--files <path>`.");
+      }
+      reviewFiles.push(...parsedPaths);
       index += 1;
       continue;
     }
@@ -427,6 +446,7 @@ async function parseArgs(args: string[]): Promise<CliOptions> {
     workflowMode,
     reviewStaged,
     reviewBase,
+    reviewFiles,
     force,
     task
   };
@@ -443,6 +463,7 @@ async function runTask({
   resumeTarget,
   reviewStaged: _reviewStaged,
   reviewBase: _reviewBase,
+  reviewFiles: _reviewFiles,
   force: _force,
   workflowMode: _workflowMode,
   task
@@ -474,8 +495,9 @@ async function runReviewWorkflow(options: TaskRunOptions): Promise<
     configPath: options.configPath,
     providerPreset: options.providerPreset,
     task: options.task,
-    targetMode: options.reviewBase ? "base-ref" : options.reviewStaged ? "staged" : "working-tree",
+    targetMode: options.reviewFiles.length > 0 ? "files" : options.reviewBase ? "base-ref" : options.reviewStaged ? "staged" : "working-tree",
     targetDetail: options.reviewBase,
+    targetFiles: options.reviewFiles,
     logger: createLogger()
   });
 
@@ -483,6 +505,9 @@ async function runReviewWorkflow(options: TaskRunOptions): Promise<
     return { kind: "current-review", result: review };
   }
 
+  if (options.reviewFiles.length > 0) {
+    throw new Error(`No reviewable changes found in the requested file scope: ${options.reviewFiles.join(", ")}`);
+  }
   if (!options.task.trim()) {
     throw new Error("No working tree changes found to review, and no task was provided.");
   }
@@ -537,6 +562,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
           workflowMode: "standard",
           reviewStaged: false,
           reviewBase: null,
+          reviewFiles: [],
           force: false,
           task: line
         });
@@ -1148,6 +1174,9 @@ function printHelp(): void {
   ai review "task description"
   ai review --staged
   ai review --base main
+  ai review --files src/auth.ts,src/session.ts
+  ai review --staged --files src/auth.ts
+  ai review --base main --files src/auth.ts
   ai fix "task description"
   ai explain-routing "task description"
   ai explain-routing
@@ -1184,6 +1213,8 @@ Examples:
   ai review "Propose and review auth changes"
   ai review --staged
   ai review --base main
+  ai review --files src/auth.ts --json --save /tmp/review.json
+  ai review --staged --files src/auth.ts --json --save /tmp/staged-scope-review.json
   ai fix "Fix the auth flow regression"
   ai explain-routing "Refactor the auth flow"
   ai explain-routing
@@ -1228,6 +1259,8 @@ Workflow modes:
   Use \`ai review\` to review current working tree changes when the repo is dirty.
   Use \`ai review --staged\` to review only what is currently staged in git.
   Use \`ai review --base <git-ref>\` to review the current repo state against a base ref such as \`main\` or \`origin/main\`.
+  Use \`ai review --files <path[,path2...]>\` (or repeat \`--files\`) to review only the requested file scope against \`HEAD\`.
+  You can combine \`--files\` with \`--staged\` or \`--base <git-ref>\` to review only a precise subset within that git scope.
   Use \`ai review "task"\` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes.
   Use \`ai fix "task"\` for an interactive fix-focused flow that still writes files when approved.
 
@@ -1307,12 +1340,15 @@ function printConfigShow(inspection: ConfigInspection): void {
   console.log(
     `- routing: enabled=${inspection.effectiveRules.routing?.enabled !== false}, default_profile=${inspection.effectiveRules.routing?.default_profile ?? "(unset)"}, planning_profile=${inspection.routing.profile}`
   );
-  console.log(
-    `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
-  );
-  console.log(
-    `- tools: enabled=${inspection.effectiveRules.tools?.enabled !== false}, json_validation=${inspection.effectiveRules.tools?.json_validation !== false}`
-  );
+    console.log(
+      `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
+    );
+    console.log(
+      `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}`
+    );
+    console.log(
+      `- tools: enabled=${inspection.effectiveRules.tools?.enabled !== false}, json_validation=${inspection.effectiveRules.tools?.json_validation !== false}`
+    );
   console.log(`- env overrides: ${inspection.activeEnvOverrides.length}`);
   if (inspection.projectConfig) {
     console.log("- project config:");
@@ -1322,7 +1358,7 @@ function printConfigShow(inspection: ConfigInspection): void {
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
       console.log(
-        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scope=${tool.scope ?? "full"}, scoped_changed_files=${tool.scopedToChangedFiles === true}, cwd=${tool.workingDirectory ?? "."}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
+        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scope=${tool.scope ?? "full"}, sandbox=${tool.sandboxMode ?? "inherit"}, scoped_changed_files=${tool.scopedToChangedFiles === true}, cwd=${tool.workingDirectory ?? "."}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
       );
     }
   }
@@ -1364,11 +1400,14 @@ function printDoctor(
   console.log(
     `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
   );
+  console.log(
+    `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}`
+  );
   if (inspection.toolSummaries.length > 0) {
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
       console.log(
-        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scope=${tool.scope ?? "full"}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
+        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scope=${tool.scope ?? "full"}, sandbox=${tool.sandboxMode ?? "inherit"}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
       );
     }
   }
@@ -1661,7 +1700,7 @@ function printResult(result: OrchestratorResult): void {
     console.log("- latest tool results:");
     for (const tool of result.latestToolResults ?? []) {
       console.log(
-        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
+        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.sandboxMode ? ` [sandbox=${tool.sandboxMode}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
       );
     }
   }
@@ -1776,7 +1815,7 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
     console.log(`- tool checks: passed=${toolCounts.passed}, failed=${toolCounts.failed}, skipped=${toolCounts.skipped}`);
     for (const tool of latestToolResults) {
       console.log(
-        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
+        `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.sandboxMode ? ` [sandbox=${tool.sandboxMode}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
       );
     }
   }
@@ -1799,7 +1838,15 @@ function printCurrentChangeReviewResult(result: CurrentChangeReviewResult): void
   console.log(`- repo: ${result.repoRoot}`);
   console.log(`- config: ${result.configPath ?? "(default rules)"}`);
   console.log(`- task: ${result.task}`);
-  console.log(`- target: ${result.targetMode}${result.targetDetail ? ` (${result.targetDetail})` : ""}`);
+  const targetParts: string[] = [];
+  if (result.targetDetail) {
+    targetParts.push(result.targetDetail);
+  }
+  if (result.targetFiles && result.targetFiles.length > 0) {
+    targetParts.push(result.targetFiles.join(", "));
+  }
+  const targetLabel = `${result.targetMode}${targetParts.length > 0 ? ` (${targetParts.join(" | ")})` : ""}`;
+  console.log(`- target: ${targetLabel}`);
   console.log(
     `- providers: planner=${result.providers.planner}, reviewer=${result.providers.reviewer}, generator=${result.providers.generator}, fixer=${result.providers.fixer}`
   );

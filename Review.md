@@ -1,318 +1,59 @@
+# AI-CODING-SYSTEM: Technical Review & Completion Roadmap
 
-## 1. Tóm tắt mô hình hiện tại của bạn
-
-Kiến trúc bạn đang build:
-
-```text
-Orchestrator (Node.js CLI)
-  ↓
-Role Agents
-  ├── Planner (Gemini CLI)
-  ├── Generator (Codex CLI)
-  ├── Reviewer (Gemini CLI)
-  └── Fixer (Codex CLI)
-  ↓
-Provider Adapters (CLI-based, no API)
-  ↓
-Memory Adapter (local-first)
-```
-
-Flow:
-
-```text
-Task
- → Plan
- → Read context (giới hạn file + byte)
- → Generate code
- → Validate
- → Review
- → Fix loop (multi-iteration)
- → Atomic write
- → Store memory
-```
-
-👉 Đây thực chất là **mini version của Cursor / Devin backend**
+**Ngày đánh giá:** 23/04/2026
+**Trạng thái hệ thống:** 3.5/5 (Beta / Internal Tool)
+**Mục tiêu:** Chuyển đổi từ một Orchestrator local mạnh mẽ thành một Autonomous Software Engineering Agent hoàn chỉnh.
 
 ---
 
-## 2. Điểm mạnh (rất đáng giá)
+## 1. Tổng quan hệ thống (System Overview)
+Hệ thống là một công cụ điều phối AI (Orchestrator) tập trung vào tính **Minh bạch (Observability)** và **Độ tin cậy (Reliability)** thông qua vòng lặp **"Lập kế hoạch -> Thực thi -> Kiểm chứng"**.
 
-### ✅ 1. Tách layer chuẩn
-
-* Orchestrator không phụ thuộc provider
-* Memory không phụ thuộc backend
-* Provider adapter clean
-
-👉 Đây là design rất “enterprise”
+- **Core Logic:** Nằm tại `ai-system/core/orchestrator.ts`.
+- **Triết lý:** Verified Execution - Code không chỉ được sinh ra mà còn được kiểm tra bằng các công cụ thực tế (Lint/Test) trước khi áp dụng.
 
 ---
 
-### ✅ 2. Context control cực tốt
-
-* Không gửi full repo
-* Giới hạn file + byte
-* Planner quyết định context
-
-👉 Cái này quan trọng hơn 90% hệ AI ngoài kia
+## 2. Điểm mạnh (Technical Strengths)
+- **Artifact & Resume System:** Khả năng lưu trữ trạng thái chạy (`run-state.json`) và Resume tại bất kỳ thời điểm nào. Đây là "xương sống" cho các task chạy lâu (Long-running tasks).
+- **Dynamic Routing Logic:** Khả năng chọn model thông minh dựa trên rủi ro của file (ví dụ: `auth/`, `db/` sẽ dùng Claude thay vì Gemini Flash).
+- **Zero-Config Tooling:** Tự động phát hiện môi trường (pnpm/yarn/npm) và các script trong `package.json` để thực thi kiểm tra code.
+- **Explainability:** Các lệnh `ai explain-routing` và `ai runs latest` giúp người dùng hiểu tại sao hệ thống đưa ra quyết định đó.
 
 ---
 
-### ✅ 3. Review + Fix loop
-
-* Có validation + reviewer
-* Có retry loop
-* Có blocking issue
-
-👉 Đây là thứ biến AI từ “generate code” → “ship code”
+## 3. Điểm yếu & Hạn chế (Weaknesses & Constraints)
+- **Local Execution Risk:** Việc chạy lint/test trực tiếp trên máy local có thể gây side-effect hoặc xung đột môi trường.
+- **Context Management:** Việc chọn file đưa vào context vẫn còn đơn giản, dễ dẫn đến hiện tượng "tràn ngữ cảnh" (context stuffing) hoặc thiếu file quan trọng nếu Planner dự đoán sai.
+- **Node.js Bias:** Hiện tại các tính năng tự động hóa đang tối ưu sâu cho hệ sinh thái TypeScript/Node.js.
+- **Serial Bottleneck:** Các bước thực hiện tuần tự khiến thời gian xử lý các task lớn bị kéo dài.
 
 ---
 
-### ✅ 4. Safety rất chặt
+## 4. Lộ trình hoàn thiện (Roadmap to 1.0)
 
-* Atomic write
-* Path validation
-* Không leak secret
+### Phase A: Sandboxing & Safety (Hoàn thành)
+- [x] **Docker Integration:** Chạy `tool-executor` trong một container riêng biệt. Hỗ trợ `tools.sandbox.mode = "docker"`.
+- [x] **Dry-run Enhancement:** Cải thiện chế độ review để người dùng thấy rõ tác động trước khi `apply` bằng cách chạy tool check trong thư mục tạm.
 
-👉 Bạn đang build tool có thể dùng production thật
+### Phase B: RAG & Context Intelligence (Hoàn thành cơ bản)
+- [ ] **Vector Search:** Tích hợp Vector DB (Ollama/Embeddings) để tìm kiếm code liên quan theo logic thay vì chỉ theo tên file.
+- [x] **Dependency Graph:** Đã xây dựng bản đồ phụ thuộc để tự động đưa các file liên quan vào context (imports/importedBy).
 
----
+### Phase C: DX & UI/UX
+- [ ] **Interactive CLI:** Sử dụng giao diện Terminal tương tác (như `ink`) để xem Diff và chọn lọc thay đổi.
+- [ ] **Streaming Progress:** Hiển thị kết quả AI đang sinh ra theo thời gian thực (Streaming).
 
-## 3. Điểm yếu (nếu scale lên)
-
-Không phải sai, mà là sẽ “đau” khi scale:
-
-### ❌ 1. Flow bị hardcode trong orchestrator
-
-Hiện tại flow là:
-
-```text
-plan → generate → review → fix → loop
-```
-
-👉 Nếu bạn muốn thêm:
-
-* test runner
-* lint step
-* multi-agent debate
-* tool calling
-* async step
-
-=> sẽ phải sửa code orchestrator
+### Phase D: Ecosystem Expansion
+- [ ] **Multi-language Support:** Bổ sung auto-detect cho Python (Pytest/Ruff), Go, Rust.
+- [ ] **Local LLM Support:** Tối ưu hóa cho việc chạy với các Model local (Ollama/vLLM) để đảm bảo bảo mật dữ liệu tuyệt đối.
 
 ---
 
-### ❌ 2. Không có visibility runtime
-
-* Không thấy flow trực quan
-* Không debug step-by-step dễ dàng
-* Log sẽ rất dài và khó đọc
-
----
-
-### ❌ 3. Khó thêm dynamic routing
-
-Hiện mapping:
-
-```text
-planner → gemini
-generator → codex
-```
-
-👉 Nhưng nếu bạn muốn:
-
-* task A → codex
-* task B → claude
-* task C → hybrid
-
-=> logic sẽ bị nhét vào code
+## 5. Các câu hỏi thảo luận cho Codex
+1. **Optimization:** Làm thế nào để song song hóa việc sinh code cho nhiều file mà không làm mất tính nhất quán (Consistency)?
+2. **Context:** Thuật toán nào hiệu quả nhất để chọn ra "Top K" đoạn code quan trọng nhất cho một Task cụ thể mà không cần đưa cả file vào?
+3. **Refactoring:** Có nên tách `Orchestrator` ra thành các `State Machines` nhỏ hơn để quản lý các trạng thái phức tạp tốt hơn không?
 
 ---
-
-### ❌ 4. Không có orchestration layer “mềm”
-
-Hiện tại:
-
-* Orchestrator = vừa control flow + vừa business logic
-
-👉 Đây là điểm n8n có thể giúp
-
----
-
-## 4. So với mô hình dùng n8n
-
-### 🔥 Bản chất khác nhau:
-
-| Thành phần     | Vai trò                                    |
-| -------------- | ------------------------------------------ |
-| System của bạn | **Execution engine (core AI)**             |
-| n8n            | **Workflow orchestration (control layer)** |
-
----
-
-## 5. Nếu nhét n8n vào thì thay đổi gì?
-
-### Kiến trúc mới hợp lý:
-
-```text
-CLI (entry)
-  ↓
-n8n (orchestration layer)
-  ↓
-Your AI system (orchestrator + agents)
-  ↓
-Provider adapters
-```
-
----
-
-## 6. Cách tích hợp KHÔNG phá kiến trúc
-
-Đừng làm kiểu:
-
-> rewrite toàn bộ sang n8n ❌
-
-Mà nên:
-
-### 👉 Biến system của bạn thành “1 node”
-
-Ví dụ n8n flow:
-
-```text
-Webhook / CLI trigger
-   ↓
-Prepare task
-   ↓
-Call your AI CLI (node)
-   ↓
-IF success?
-   ├── yes → done
-   └── no → retry / fallback provider
-```
-
----
-
-## 7. n8n giúp bạn ở đâu?
-
-### 🧠 1. Orchestration ngoài (outer loop)
-
-Hiện bạn có loop:
-
-```text
-generate → review → fix
-```
-
-n8n có thể handle:
-
-* Retry toàn bộ task
-* Chạy song song nhiều task
-* Queue job
-* Schedule
-
----
-
-### 🔀 2. Multi-strategy execution
-
-Ví dụ:
-
-```text
-Task
- ↓
-n8n quyết định:
-  ├── fast mode → chỉ codex
-  ├── safe mode → full pipeline của bạn
-  └── cheap mode → gemini only
-```
-
-👉 Cái này hiện tại bạn chưa có
-
----
-
-### 📊 3. Observability
-
-* Xem từng step
-* Log rõ ràng
-* Debug dễ hơn CLI log rất nhiều
-
----
-
-### 🔌 4. Kết nối hệ khác
-
-* GitHub
-* CI/CD
-* Slack
-* DB
-
-👉 Không cần code thêm
-
----
-
-## 8. Khi nào bạn NÊN thêm n8n
-
-Bạn nên thêm nếu:
-
-* Muốn biến tool thành **platform**
-* Có nhiều workflow khác nhau
-* Có async job / queue
-* Có multi-user / API layer
-
----
-
-## 9. Khi nào KHÔNG cần
-
-Hiện tại nếu bạn chỉ:
-
-* build CLI local
-* dùng cá nhân / team nhỏ
-* flow chưa phức tạp
-
-👉 Thì **n8n chưa cần thiết**
-
----
-
-## 10. Kết luận đúng cho case của bạn
-
-👉 System của bạn = **core engine (rất tốt rồi)**
-👉 n8n = **optional layer phía trên (không bắt buộc)**
-
----
-
-## 11. Gợi ý nâng cấp “đúng hướng” (quan trọng hơn n8n)
-
-Thay vì vội thêm n8n, bạn nên ưu tiên:
-
-### 1. Dynamic provider routing
-
-* Không hardcode gemini/codex
-* Quyết định theo task
-
----
-
-### 2. Tool execution layer
-
-* Run test
-* Run lint
-* Run build
-
----
-
-### 3. Caching / context reuse
-
-* Giảm cost + tăng tốc
-
----
-
-### 4. Parallel agents
-
-* Planner + reviewer chạy song song
-
----
-
-Nếu bạn muốn, tôi có thể:
-
-* Refactor lại kiến trúc của bạn thành **“Cursor-level design”**
-* Hoặc thiết kế luôn:
-
-  * n8n flow chuẩn để wrap system này
-  * * cách expose CLI thành API để n8n gọi
-
-→ cái này mới là bước nâng cấp đáng tiền nhất cho bạn.
+*Tài liệu này được tạo ra bởi Gemini CLI để phục vụ quá trình phát triển hệ thống AI-CODING-SYSTEM.*

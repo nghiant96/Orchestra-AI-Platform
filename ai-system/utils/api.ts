@@ -132,6 +132,7 @@ export async function runCommand({
   command,
   args,
   cwd,
+  env,
   input,
   timeoutMs = 60000,
   killGraceMs = DEFAULT_KILL_GRACE_MS,
@@ -142,7 +143,7 @@ export async function runCommand({
     const startedAt = Date.now();
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env: env ?? process.env,
       stdio: ["pipe", "pipe", "pipe"]
     });
 

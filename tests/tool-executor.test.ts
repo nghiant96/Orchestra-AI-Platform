@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runToolChecks, summarizeConfiguredTools } from "../ai-system/core/tool-executor.js";
+import { createDryRunToolExecutionSummary, runToolChecks, summarizeConfiguredTools } from "../ai-system/core/tool-executor.js";
 import type { GeneratedFile, RulesConfig } from "../ai-system/types.js";
 
 test("runToolChecks validates generated JSON and records a high-severity issue", async () => {
@@ -436,6 +436,219 @@ test("runToolChecks uses pnpm workspace filters when changes span multiple packa
     assert.deepEqual(lintResult?.args, ["--filter", "@workspace/web", "--filter", "@workspace/api", "run", "lint"]);
     assert.match(lintResult?.stdout ?? "", /packages[\/\\]web/);
     assert.match(lintResult?.stdout ?? "", /packages[\/\\]api/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks supports clean-env sandbox mode with explicit env passthrough", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-sandbox-"));
+  const changedFiles: GeneratedFile[] = [{ path: "src/example.ts", content: "export const value = 1;\n" }];
+  const previousSecret = process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET;
+  process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET = "visible-in-clean-env";
+
+  try {
+    await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "tool-sandbox-test",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/print-env.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "scripts", "print-env.js"),
+      "console.log(process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET ?? 'missing'); process.exit(0);\n",
+      "utf8"
+    );
+
+    const rules = createRules({
+      tools: {
+        enabled: true,
+        json_validation: true,
+        sandbox: {
+          mode: "clean-env",
+          include_env: ["AI_SYSTEM_TOOL_SANDBOX_SECRET"]
+        },
+        commands: {
+          lint: { enabled: true },
+          typecheck: { enabled: false },
+          build: { enabled: false },
+          test: { enabled: false }
+        }
+      }
+    });
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules
+    });
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    const toolConfig = await summarizeConfiguredTools({ repoRoot: tempDir, rules });
+    const lintConfig = toolConfig.find((entry) => entry.name === "lint");
+
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.sandboxMode, "clean-env");
+    assert.match(lintResult?.stdout ?? "", /visible-in-clean-env/);
+    assert.equal(lintConfig?.sandboxMode, "clean-env");
+    assert.match(lintConfig?.summary ?? "", /sandbox=clean-env/);
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET;
+    } else {
+      process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET = previousSecret;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks builds a safe docker invocation for workspace-scoped checks", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-docker-workspace-"));
+  const changedFiles: GeneratedFile[] = [
+    { path: "packages/web/src/example.ts", content: "export const web = 1;\n" },
+    { path: "packages/api/src/example.ts", content: "export const api = 1;\n" }
+  ];
+  const previousPath = process.env.PATH;
+  const previousSecret = process.env.AI_SYSTEM_TOOL_DOCKER_SECRET;
+  process.env.AI_SYSTEM_TOOL_DOCKER_SECRET = "visible-in-docker";
+
+  try {
+    await fs.mkdir(path.join(tempDir, "bin"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "packages/web/scripts"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "packages/api/scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "workspace-root", private: true }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/web/package.json"),
+      JSON.stringify(
+        {
+          name: "@workspace/web",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/print-package.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "packages/api/package.json"),
+      JSON.stringify(
+        {
+          name: "@workspace/api",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/print-package.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "bin/docker"),
+      "#!/usr/bin/env node\nconsole.log(`ARGS:${process.argv.slice(2).join('|')}`); console.log(`ENV:${process.env.AI_SYSTEM_TOOL_DOCKER_SECRET ?? 'missing'}`); process.exit(0);\n",
+      "utf8"
+    );
+    await fs.chmod(path.join(tempDir, "bin/docker"), 0o755);
+    process.env.PATH = `${path.join(tempDir, "bin")}:${previousPath ?? ""}`;
+
+    const rules = createRules({
+      tools: {
+        enabled: true,
+        json_validation: true,
+        sandbox: {
+          mode: "docker",
+          image: "custom-image",
+          include_env: ["AI_SYSTEM_TOOL_DOCKER_SECRET"]
+        },
+        commands: {
+          lint: { enabled: true },
+          typecheck: { enabled: false },
+          build: { enabled: false },
+          test: { enabled: false }
+        }
+      }
+    });
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules
+    });
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.sandboxMode, "docker");
+    assert.match(lintResult?.stdout ?? "", /ARGS:run\|--rm\|.*\|--env\|AI_SYSTEM_TOOL_DOCKER_SECRET\|/);
+    assert.match(lintResult?.stdout ?? "", /\|-w\|\/workspace\|custom-image\|pnpm\|--filter\|@workspace\/web\|--filter\|@workspace\/api\|run\|lint/);
+    assert.doesNotMatch(lintResult?.stdout ?? "", /AI_SYSTEM_TOOL_DOCKER_SECRET=visible-in-docker/);
+    assert.match(lintResult?.stdout ?? "", /ENV:visible-in-docker/);
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+    if (previousSecret === undefined) {
+      delete process.env.AI_SYSTEM_TOOL_DOCKER_SECRET;
+    } else {
+      process.env.AI_SYSTEM_TOOL_DOCKER_SECRET = previousSecret;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("createDryRunToolExecutionSummary skips command-based checks explicitly", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-dryrun-summary-"));
+
+  try {
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "dryrun-summary-test",
+          private: true,
+          scripts: {
+            lint: "echo lint",
+            typecheck: "echo typecheck"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const summary = await createDryRunToolExecutionSummary({
+      repoRoot: tempDir,
+      rules: createRules(),
+      reason: "dry-run repo sandbox is incomplete"
+    });
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    const typecheckResult = summary.results.find((entry) => entry.name === "typecheck");
+
+    assert.equal(summary.issues.length, 0);
+    assert.equal(lintResult?.skipped, true);
+    assert.match(lintResult?.summary ?? "", /dry-run repo sandbox is incomplete/);
+    assert.equal(typecheckResult?.skipped, true);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

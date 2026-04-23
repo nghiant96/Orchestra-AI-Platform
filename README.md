@@ -123,6 +123,10 @@ ai runs list
 ai runs show last
 ai runs show last --json
 ai review --json --save ./tmp/review.json
+ai review --staged --json --save ./tmp/staged-review.json
+ai review --files src/auth.ts,src/session.ts --json --save ./tmp/file-scope-review.json
+ai review --staged --files src/auth.ts --json --save ./tmp/staged-file-scope-review.json
+ai review --base origin/main --files src/auth.ts --json --save ./tmp/base-file-scope-review.json
 ai runs show last --json --save ./tmp/run.json
 ai apply --from-artifact last
 ```
@@ -162,6 +166,8 @@ Recommended config workflow:
 - Use `ai review` to review the current working tree when the repo already has changes
 - Use `ai review --staged` to review only the changes that are currently staged in git
 - Use `ai review --base <git-ref>` to review the current repo state against a base ref like `main` or `origin/main`
+- Use `ai review --files <path[,path2...]>` or repeat `--files` to review only a very specific file scope against `HEAD`
+- You can combine `--files` with `--staged` or `--base <git-ref>` when you want a very precise git-backed review scope
 - Use `ai review "task"` for a dry-run review flow with plan approval and a generation checkpoint when there are no current changes to inspect
 - Use `ai fix "task"` for an interactive fix-focused flow that still writes files when approved
 - Use `ai setup` to configure `planner`, `reviewer`, `generator`, `fixer`, routing behavior, and OpenMemory connection interactively
@@ -178,6 +184,12 @@ Recommended config workflow:
 - Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
 - Add `--json` to `ai runs ...`, `ai review`, or `ai apply --from-artifact` when you want machine-readable output
 - Add `--save /path/to/file.json` together with `--json` when you want the CLI to write the payload directly to disk for automation/reporting
+- Example reporting flow:
+  - `ai review --staged --json --save ./tmp/staged-review.json`
+  - `ai review --base origin/main --json --save ./tmp/base-review.json`
+  - `ai review --files src/auth.ts --files src/session.ts --json --save ./tmp/file-review.json`
+  - `ai review --staged --files src/auth.ts --json --save ./tmp/staged-file-review.json`
+  - `ai review --base origin/main --files src/auth.ts --json --save ./tmp/base-file-review.json`
 - Use `ai apply --from-artifact <target>` to apply a saved candidate from artifacts without rerunning generation
 - Add `--force` to `ai apply --from-artifact` when you intentionally want to apply a candidate that still has blocking review issues
 - Each `ai apply --from-artifact` invocation now persists an audit event under the run artifacts and surfaces the latest apply event in `ai runs latest/show`
@@ -199,6 +211,12 @@ Tool execution workflow:
   - package-local `typecheck` or `type-check` scripts when a single changed workspace package owns the change
   - package-local `tsconfig.json` / `tsconfig.build.json` fallback when no explicit package typecheck script exists
   - `pnpm --filter ... run <script>` when changed files span multiple workspace packages that share the same script name
+- Tool execution sandboxing now supports:
+  - `inherit` to run with the normal host environment
+  - `clean-env` to run with a minimal allowlisted environment plus explicit passthrough keys
+- Context intelligence now supports:
+  - dependency-aware file expansion from planner-selected files
+  - semantic vector search over embedded local chunks when `vector_search.enabled=true`
 - Use `ai doctor` to see the effective tool commands, execution scope, and working directory
 
 Example project tool config in `.ai-system.json`:
@@ -208,6 +226,10 @@ Example project tool config in `.ai-system.json`:
   "tools": {
     "enabled": true,
     "json_validation": true,
+    "sandbox": {
+      "mode": "clean-env",
+      "include_env": ["CI"]
+    },
     "commands": {
       "lint": {
         "enabled": true,
@@ -230,6 +252,42 @@ Example project tool config in `.ai-system.json`:
   }
 }
 ```
+
+Example safety-oriented tool sandbox config:
+
+```json
+{
+  "tools": {
+    "enabled": true,
+    "sandbox": {
+      "mode": "clean-env",
+      "include_env": ["CI", "GITHUB_ACTIONS"],
+      "extra_env": {
+        "FORCE_COLOR": "1"
+      }
+    }
+  }
+}
+```
+
+Example embedded vector-search config:
+
+```json
+{
+  "vector_search": {
+    "enabled": true,
+    "data_dir": ".ai-system-vector",
+    "max_results": 4,
+    "max_indexed_files": 200,
+    "max_file_bytes": 65536,
+    "chunk_size": 1200,
+    "chunk_overlap": 200
+  }
+}
+```
+
+- When enabled, the orchestrator indexes safe workspace files into local semantic chunks and merges the top matches into `plan.readFiles`
+- The current implementation is local-first and embedded; it reuses the existing `@xenova/transformers` embedder and degrades gracefully to lexical ranking when embeddings are unavailable
 
 Supported changed-file placeholders in tool args:
 

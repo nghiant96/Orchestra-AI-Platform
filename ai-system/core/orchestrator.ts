@@ -39,6 +39,7 @@ import {
   readAndPersistContext
 } from "./run-executor.js";
 import { buildExecutionSummary, measureExecutionStep } from "./execution-summary.js";
+import { expandContextReadFiles } from "./context-intelligence.js";
 
 export class Orchestrator {
   repoRoot: string;
@@ -117,13 +118,39 @@ export class Orchestrator {
       `Planner provider: ${runtime.plannerProvider.id}.`
     );
     const rawPlan = plannerStep.result;
-    const readFiles = await filterExistingSafeReadFiles(repoRoot, rawPlan.readFiles ?? [], rules, this.logger);
+    const initialReadFiles = await filterExistingSafeReadFiles(repoRoot, rawPlan.readFiles ?? [], rules, this.logger);
+    const contextExpansionStep = await measureExecutionStep(
+      executionSteps,
+      "context-expansion",
+      async () =>
+        await expandContextReadFiles({
+          repoRoot,
+          rules,
+          task,
+          prompt: rawPlan.prompt,
+          initialReadFiles,
+          writeTargets: rawPlan.writeTargets ?? [],
+          logger: this.logger
+        }),
+      `Expanded context from ${initialReadFiles.length} planned file(s) to include dependency and semantic matches.`
+    );
+    const contextExpansion = contextExpansionStep.result;
+    const readFiles = contextExpansion.readFiles;
     const writeTargets = filterSafeWriteTargets(rawPlan.writeTargets ?? [], rules, this.logger);
     const plan: PlanResult = {
       prompt: typeof rawPlan.prompt === "string" ? rawPlan.prompt : task,
       readFiles,
       writeTargets,
-      notes: Array.isArray(rawPlan.notes) ? rawPlan.notes : []
+      notes: [
+        ...(Array.isArray(rawPlan.notes) ? rawPlan.notes : []),
+        ...(contextExpansion.vectorMatches.length > 0
+          ? [
+              `Semantic context matches: ${contextExpansion.vectorMatches
+                .map((match) => `${match.path}:${match.startLine}-${match.endLine}`)
+                .join(", ")}`
+            ]
+          : [])
+      ]
     };
     await persistPlanArtifacts(
       artifactState,

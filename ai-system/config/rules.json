@@ -27,6 +27,15 @@
     "query_timeout_ms": 15000,
     "store_timeout_ms": 15000
   },
+  "vector_search": {
+    "enabled": false,
+    "data_dir": ".ai-system-vector",
+    "max_results": 4,
+    "max_indexed_files": 200,
+    "max_file_bytes": 65536,
+    "chunk_size": 1200,
+    "chunk_overlap": 200
+  },
   "routing": {
     "enabled": true,
     "default_profile": "balanced",
