@@ -4,6 +4,7 @@ import type {
   ArtifactSummary,
   ContextFile,
   ExecutionStepSummary,
+  ExecutionTransition,
   ExecutionSummary,
   FileGenerationResult,
   IterationResult,
@@ -49,6 +50,7 @@ export interface PersistedRunState {
   latestVectorMatches?: VectorSearchMatch[];
   latestContextRanking?: ContextSelectionCandidate[];
   execution?: ExecutionSummary | null;
+  executionTransitions?: ExecutionTransition[];
 }
 
 export interface RecentRunSummary {
@@ -62,6 +64,7 @@ export interface RecentRunSummary {
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
+    executionTransitions?: ExecutionTransition[];
   };
   artifactIndex: {
     updatedAt?: string;
@@ -132,7 +135,9 @@ export function buildStoppedResult({
   artifactState,
   latestToolResults = [],
   latestVectorMatches = [],
-  executionSteps = []
+  latestContextRanking = [],
+  executionSteps = [],
+  executionTransitions = []
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
   dryRun: boolean;
@@ -148,11 +153,14 @@ export function buildStoppedResult({
   artifactState: ArtifactState;
   latestToolResults?: ToolExecutionResult[];
   latestVectorMatches?: VectorSearchMatch[];
+  latestContextRanking?: ContextSelectionCandidate[];
   executionSteps?: ExecutionStepSummary[];
+  executionTransitions?: ExecutionTransition[];
 }): OrchestratorResult {
   const execution = buildExecutionSummary({
     status,
     steps: executionSteps,
+    transitions: executionTransitions,
     finalIssues,
     latestToolResults,
     iterations
@@ -171,7 +179,15 @@ export function buildStoppedResult({
     finalIssues,
     providers,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, result, false, latestToolResults, latestVectorMatches, [], execution),
+    artifacts: finalizeArtifactState(
+      artifactState,
+      result,
+      false,
+      latestToolResults,
+      latestVectorMatches,
+      latestContextRanking,
+      execution
+    ),
     latestToolResults,
     execution,
     wroteFiles: false
@@ -477,6 +493,7 @@ export async function persistRunState(
     latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
     executionSteps?: ExecutionStepSummary[];
+    executionTransitions?: ExecutionTransition[];
   },
   logger?: Logger
 ): Promise<string | null> {
@@ -531,6 +548,7 @@ export async function persistRunState(
           buildExecutionSummary({
             status: payload.status ?? (payload.ok ? "completed" : "failed"),
             steps: payload.executionSteps ?? [],
+            transitions: payload.executionTransitions ?? [],
             finalIssues: payload.finalIssues ?? [],
             latestToolResults: payload.latestToolResults ?? [],
             iterations: payload.iterations ?? []
@@ -548,6 +566,7 @@ export async function persistRunState(
       buildExecutionSummary({
         status: payload.status ?? (payload.ok ? "completed" : "failed"),
         steps: payload.executionSteps ?? [],
+        transitions: payload.executionTransitions ?? [],
         finalIssues: payload.finalIssues ?? [],
         latestToolResults: payload.latestToolResults ?? [],
         iterations: payload.iterations ?? []
@@ -623,6 +642,29 @@ export function finalizeArtifactState(
     latestContextRanking,
     execution
   };
+}
+
+export async function persistExecutionTransition(state: ArtifactState, transition: ExecutionTransition): Promise<void> {
+  if (!state.enabled) {
+    return;
+  }
+
+  if (!state.runDir) {
+    state.runDir = path.join(state.baseDir, createRunDirectoryName());
+    await fs.mkdir(state.runDir, { recursive: true });
+    ensureArtifactVisibilityPaths(state);
+  }
+
+  await appendArtifactTimeline(state, {
+    step: `execution-${transition.stage}`,
+    status: transition.status,
+    message: transition.detail
+      ? `Execution stage ${transition.stage} ${transition.status}: ${transition.detail}`
+      : `Execution stage ${transition.stage} ${transition.status}.`,
+    iteration: transition.iteration,
+    durationMs: transition.durationMs,
+    metadata: transition.metadata
+  });
 }
 
 export async function resolveResumeStatePath(repoRoot: string, rules: RulesConfig, resumeTarget: string): Promise<string> {

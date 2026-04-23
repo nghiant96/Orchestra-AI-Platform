@@ -8,7 +8,6 @@ import { hasBlockingIssues } from "./reviewer.js";
 import { loadEnvironment } from "../utils/api.js";
 import type {
   ContextFile,
-  ExecutionStepSummary,
   FileGenerationResult,
   IterationResult,
   Logger,
@@ -32,13 +31,14 @@ import {
 import { confirmCheckpoint, confirmPlan } from "./orchestrator-confirmation.js";
 import { loadOrchestratorRuntime, loadRules, rerouteRuntimeForPlan } from "./orchestrator-runtime.js";
 import {
+  createExecutionStateMachine,
   executeGenerationLoop,
   finalizeFailedRun,
   finalizeSuccessfulRun,
   loadImplementationMemoryContext,
   readAndPersistContext
 } from "./run-executor.js";
-import { buildExecutionSummary, measureExecutionStep } from "./execution-summary.js";
+import { buildExecutionSummary } from "./execution-summary.js";
 import { expandContextReadFiles } from "./context-intelligence.js";
 
 export class Orchestrator {
@@ -77,9 +77,9 @@ export class Orchestrator {
       implementationMatches: 0,
       stored: false
     };
-    const executionSteps: ExecutionStepSummary[] = [];
     const artifactState = createArtifactState(repoRoot, rules);
-    await measureExecutionStep(executionSteps, "routing-planning", async () => {
+    const executionMachine = createExecutionStateMachine(artifactState);
+    await executionMachine.runStage("routing-planning", async () => {
       await persistRoutingArtifacts(
         artifactState,
         {
@@ -89,14 +89,13 @@ export class Orchestrator {
         },
         this.logger
       );
-    }, `Planning routing uses profile ${routing.profile}.`);
+    }, { detail: `Planning routing uses profile ${routing.profile}.` });
 
     this.logger.step(`Building project tree for ${repoRoot}`);
-    const treeStep = await measureExecutionStep(executionSteps, "project-tree", async () => await buildProjectTree(repoRoot, rules));
+    const treeStep = await executionMachine.runStage("project-tree", async () => await buildProjectTree(repoRoot, rules));
     const treeString = treeStep.result;
 
-    const planningMemoryStep = await measureExecutionStep(
-      executionSteps,
+    const planningMemoryStep = await executionMachine.runStage(
       "planning-memory",
       async () =>
         await safelySearchMemory(
@@ -104,23 +103,21 @@ export class Orchestrator {
           { task, stage: "planning" },
           this.logger
         ),
-      "Loaded planning memories."
+      { detail: "Loaded planning memories." }
     );
     const planningMemories = planningMemoryStep.result;
     memoryStats.planningMatches = planningMemories.length;
     const planningMemoryContext = runtime.memory.formatForPrompt(planningMemories, "planning");
 
     this.logger.step(`Planning relevant files with ${runtime.plannerProvider.id}`);
-    const plannerStep = await measureExecutionStep(
-      executionSteps,
+    const plannerStep = await executionMachine.runStage(
       "planner",
       async () => await runtime.planner.planTask(task, treeString, repoRoot, planningMemoryContext),
-      `Planner provider: ${runtime.plannerProvider.id}.`
+      { detail: `Planner provider: ${runtime.plannerProvider.id}.` }
     );
     const rawPlan = plannerStep.result;
     const initialReadFiles = await filterExistingSafeReadFiles(repoRoot, rawPlan.readFiles ?? [], rules, this.logger);
-    const contextExpansionStep = await measureExecutionStep(
-      executionSteps,
+    const contextExpansionStep = await executionMachine.runStage(
       "context-expansion",
       async () =>
         await expandContextReadFiles({
@@ -132,7 +129,7 @@ export class Orchestrator {
           writeTargets: rawPlan.writeTargets ?? [],
           logger: this.logger
         }),
-      `Expanded context from ${initialReadFiles.length} planned file(s) to include dependency and semantic matches.`
+      { detail: `Expanded context from ${initialReadFiles.length} planned file(s) to include dependency and semantic matches.` }
     );
     const contextExpansion = contextExpansionStep.result;
     const readFiles = contextExpansion.readFiles;
@@ -179,8 +176,7 @@ export class Orchestrator {
       },
       this.logger
     );
-    const implementationRoutingStep = await measureExecutionStep(
-      executionSteps,
+    const implementationRoutingStep = await executionMachine.runStage(
       "routing-implementation",
       async () =>
         await rerouteRuntimeForPlan({
@@ -190,7 +186,7 @@ export class Orchestrator {
           plan,
           logger: this.logger
         }),
-      "Implementation routing evaluated after the plan."
+      { detail: "Implementation routing evaluated after the plan." }
     );
     const implementationRouting = implementationRoutingStep.result;
     await persistRoutingArtifacts(
@@ -213,6 +209,10 @@ export class Orchestrator {
       });
       if (!confirmed) {
         this.logger.warn("Task paused by user after planner checkpoint.");
+        await executionMachine.pauseStage("paused", {
+          durationMs: 0,
+          detail: "Paused after planner checkpoint."
+        });
         const result = buildStoppedResult({
           status: "paused_after_plan",
           dryRun,
@@ -222,7 +222,9 @@ export class Orchestrator {
           providers: implementationRuntime.providerSummary,
           memoryStats,
           artifactState,
-          executionSteps
+          latestContextRanking: contextExpansion.rankedCandidates,
+          executionSteps: executionMachine.getSteps(),
+          executionTransitions: executionMachine.getTransitions()
         });
         await persistRunState(
           artifactState,
@@ -232,7 +234,9 @@ export class Orchestrator {
             pauseAfterPlan,
             pauseAfterGenerate,
             latestReviewSummary: "",
-            execution: result.execution
+            latestContextRanking: contextExpansion.rankedCandidates,
+            execution: result.execution,
+            executionTransitions: executionMachine.getTransitions()
           },
           this.logger
         );
@@ -244,9 +248,14 @@ export class Orchestrator {
       const confirmed = await confirmPlan(plan);
       if (!confirmed) {
         this.logger.warn("Task cancelled by user.");
+        await executionMachine.cancelStage("cancelled", {
+          durationMs: 0,
+          detail: "Run cancelled by user before implementation started."
+        });
         const execution = buildExecutionSummary({
           status: "cancelled",
-          steps: executionSteps,
+          steps: executionMachine.getSteps(),
+          transitions: executionMachine.getTransitions(),
           finalIssues: [],
           latestToolResults: [],
           iterations: []
@@ -272,18 +281,16 @@ export class Orchestrator {
       }
     }
 
-    const implementationMemoryStep = await measureExecutionStep(
-      executionSteps,
+    const implementationMemoryStep = await executionMachine.runStage(
       "implementation-memory",
       async () => await loadImplementationMemoryContext(implementationRuntime.memory, task, plan, memoryStats, this.logger),
-      "Loaded implementation memories."
+      { detail: "Loaded implementation memories." }
     );
     const implementationMemoryContext = implementationMemoryStep.result;
-    const contextStep = await measureExecutionStep(
-      executionSteps,
+    const contextStep = await executionMachine.runStage(
       "context",
       async () => await readAndPersistContext(repoRoot, plan, rules, artifactState, this.logger),
-      `Read ${plan.readFiles.length} context file(s).`
+      { detail: `Read ${plan.readFiles.length} context file(s).` }
     );
     const { contextFiles, skippedFiles } = contextStep.result;
 
@@ -307,7 +314,7 @@ export class Orchestrator {
         latestReviewSummary: "",
         iterationResults: [],
         latestToolResults: [],
-        executionSteps
+        executionMachine
       },
       contextFiles,
       rules,
@@ -368,9 +375,8 @@ export class Orchestrator {
     let latestReviewSummary = typeof saved.latestReviewSummary === "string" ? saved.latestReviewSummary : "";
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
-    const executionSteps: ExecutionStepSummary[] = [...(saved.execution?.steps ?? [])];
-    await measureExecutionStep(
-      executionSteps,
+    const executionMachine = createExecutionStateMachine(artifactState, saved.execution ?? null);
+    await executionMachine.runStage(
       "routing-planning",
       async () => {
         await persistRoutingArtifacts(
@@ -383,10 +389,9 @@ export class Orchestrator {
           this.logger
         );
       },
-      `Planning routing uses profile ${planningRouting.profile} during resume.`
+      { detail: `Planning routing uses profile ${planningRouting.profile} during resume.` }
     );
-    const implementationRoutingStep = await measureExecutionStep(
-      executionSteps,
+    const implementationRoutingStep = await executionMachine.runStage(
       "routing-implementation",
       async () =>
         await rerouteRuntimeForPlan({
@@ -396,7 +401,7 @@ export class Orchestrator {
           plan,
           logger: this.logger
         }),
-      "Implementation routing evaluated during resume."
+      { detail: "Implementation routing evaluated during resume." }
     );
     const implementationRouting = implementationRoutingStep.result;
     await persistRoutingArtifacts(
@@ -417,27 +422,24 @@ export class Orchestrator {
       implementationMatches: saved.memory?.implementationMatches ?? 0,
       stored: false
     };
-    const implementationMemoryStep = await measureExecutionStep(
-      executionSteps,
+    const implementationMemoryStep = await executionMachine.runStage(
       "implementation-memory",
       async () => await loadImplementationMemoryContext(runtime.memory, task, plan, memoryStats, this.logger),
-      "Loaded implementation memories during resume."
+      { detail: "Loaded implementation memories during resume." }
     );
     const implementationMemoryContext = implementationMemoryStep.result;
 
-    const contextRestoreStep = await measureExecutionStep(
-      executionSteps,
+    const contextRestoreStep = await executionMachine.runStage(
       "context-restore",
       async () => await loadSavedContextArtifacts(artifactState, plan.readFiles ?? []),
-      "Loaded saved context artifacts for resume."
+      { detail: "Loaded saved context artifacts for resume." }
     );
     let contextFiles: ContextFile[] = contextRestoreStep.result;
     if (saved.status === "paused_after_plan" && contextFiles.length === 0) {
-      const contextResultStep = await measureExecutionStep(
-        executionSteps,
+      const contextResultStep = await executionMachine.runStage(
         "context",
         async () => await readAndPersistContext(repoRoot, plan, rules, artifactState, this.logger),
-        `Read ${plan.readFiles.length} context file(s) during resume.`
+        { detail: `Read ${plan.readFiles.length} context file(s) during resume.` }
       );
       const contextResult = contextResultStep.result;
       contextFiles = contextResult.contextFiles;
@@ -467,7 +469,7 @@ export class Orchestrator {
           latestReviewSummary,
           iterationResults,
           latestToolResults: saved.latestToolResults ?? [],
-          executionSteps
+          executionMachine
         },
         resultStatus: "resumed_completed",
         persistedStatus: "resumed_completed",
@@ -495,7 +497,7 @@ export class Orchestrator {
         latestReviewSummary,
         iterationResults,
         latestToolResults: saved.latestToolResults ?? [],
-        executionSteps
+        executionMachine
       },
       contextFiles,
       rules,

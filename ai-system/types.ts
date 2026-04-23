@@ -159,6 +159,27 @@ export interface ToolConfigurationSummary {
 }
 
 export type ExecutionStepStatus = "completed" | "failed" | "paused" | "skipped";
+export type ExecutionTransitionStatus = "entered" | ExecutionStepStatus | "cancelled";
+export type ExecutionStage =
+  | "routing-planning"
+  | "project-tree"
+  | "planning-memory"
+  | "planner"
+  | "context-expansion"
+  | "routing-implementation"
+  | "implementation-memory"
+  | "context"
+  | "context-restore"
+  | "iteration-generate"
+  | "iteration-tools"
+  | "iteration-review"
+  | "iteration-fix"
+  | "write-files"
+  | "memory-store"
+  | "cancelled"
+  | "success"
+  | "failure"
+  | "paused";
 export type FailureClass =
   | "paused"
   | "cancelled"
@@ -175,6 +196,16 @@ export interface ExecutionStepSummary {
   detail?: string;
 }
 
+export interface ExecutionTransition {
+  stage: ExecutionStage;
+  status: ExecutionTransitionStatus;
+  timestamp: string;
+  durationMs?: number;
+  detail?: string;
+  iteration?: number;
+  metadata?: Record<string, unknown>;
+}
+
 export interface FailureSummary {
   class: FailureClass;
   reason: string;
@@ -183,6 +214,9 @@ export interface FailureSummary {
 export interface ExecutionSummary {
   totalDurationMs: number;
   steps: ExecutionStepSummary[];
+  transitions: ExecutionTransition[];
+  currentStage: ExecutionStage | null;
+  terminalStage: ExecutionStage | null;
   failure: FailureSummary | null;
 }
 

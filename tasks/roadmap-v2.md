@@ -20,7 +20,7 @@ Already strong today:
 
 Current bottlenecks:
 - tool execution still runs directly on the host machine
-- context selection is still heuristic-heavy and not dependency-aware
+- execution flow needs explicit stage transitions for safer resume/retry evolution
 - automation is still optimized most deeply for Node.js / TypeScript projects
 
 ## Phase A: Sandboxing & Safety
@@ -116,6 +116,31 @@ Scope:
   - category-aware history buckets (`docs`, `risky`, `general`)
   - profile scoring adjustments based on recent provider success/failure by role
   - role-level adaptive overrides when one provider materially outperforms another for the same category
+
+## Phase F: Resilient Execution Flow
+
+Status: `done`
+
+Goal:
+- replace implicit execution state with explicit stage transitions so resume/failure handling can evolve without layering more hidden control flow
+
+Delivered:
+- explicit execution state machine with entered/completed/failed/paused/cancelled transitions
+- transition persistence into artifact timelines during live runs
+- execution summaries now include:
+  - `transitions`
+  - `currentStage`
+  - `terminalStage`
+- orchestrator and generation loop now drive:
+  - planning routing
+  - context loading
+  - generation/fix iterations
+  - tool checks
+  - review
+  - write
+  - memory store
+  through the state machine instead of raw step logging
+- CLI run summaries now surface execution stage information directly
 
 ## Phase E: Platform Orchestration
 

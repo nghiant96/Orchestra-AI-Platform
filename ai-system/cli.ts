@@ -1681,6 +1681,9 @@ function printResult(result: OrchestratorResult): void {
   if (result.execution) {
     console.log(`- execution: total=${formatDuration(result.execution.totalDurationMs)}`);
     console.log(
+      `- execution stage: current=${result.execution.currentStage ?? "none"}, terminal=${result.execution.terminalStage ?? "none"}`
+    );
+    console.log(
       `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
     );
     if (result.execution.steps.length > 0) {
@@ -1800,6 +1803,7 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
   console.log(`- issues: high=${issueCounts.high ?? 0}, medium=${issueCounts.medium ?? 0}, low=${issueCounts.low ?? 0}`);
   if (execution) {
     console.log(`- execution: total=${formatDuration(execution.totalDurationMs)}`);
+    console.log(`- execution stage: current=${execution.currentStage ?? "none"}, terminal=${execution.terminalStage ?? "none"}`);
     console.log(
       `- failure class: ${execution.failure ? `${execution.failure.class} (${execution.failure.reason})` : "none"}`
     );
@@ -1866,6 +1870,9 @@ function printCurrentChangeReviewResult(result: CurrentChangeReviewResult): void
   );
   console.log(`- changed files: ${result.changedFiles.join(", ") || "(none)"}`);
   console.log(`- execution: total=${formatDuration(result.execution.totalDurationMs)}`);
+  console.log(
+    `- execution stage: current=${result.execution.currentStage ?? "none"}, terminal=${result.execution.terminalStage ?? "none"}`
+  );
   console.log(
     `- failure class: ${result.execution.failure ? `${result.execution.failure.class} (${result.execution.failure.reason})` : "none"}`
   );

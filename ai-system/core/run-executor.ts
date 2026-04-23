@@ -7,7 +7,7 @@ import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
 import type {
   ContextFile,
-  ExecutionStepSummary,
+  ExecutionSummary,
   FileGenerationResult,
   GeneratedFile,
   IterationResult,
@@ -41,11 +41,13 @@ import {
   buildStoppedResult,
   finalizeArtifactState,
   persistContextArtifacts,
+  persistExecutionTransition,
   persistIterationArtifacts,
   persistRunState,
   type ArtifactState
 } from "./artifacts.js";
-import { buildExecutionSummary, measureExecutionStep, recordExecutionStep } from "./execution-summary.js";
+import { buildExecutionSummary } from "./execution-summary.js";
+import { ExecutionStateMachine } from "./execution-state-machine.js";
 
 export interface RuntimeDependencies {
   plannerProvider: JsonProvider;
@@ -66,7 +68,19 @@ export interface LoopExecutionState {
   latestReviewSummary: string;
   iterationResults: IterationResult[];
   latestToolResults: import("../types.js").ToolExecutionResult[];
-  executionSteps: ExecutionStepSummary[];
+  executionMachine: ExecutionStateMachine;
+}
+
+export function createExecutionStateMachine(
+  artifactState: ArtifactState,
+  summary?: ExecutionSummary | null
+): ExecutionStateMachine {
+  return new ExecutionStateMachine({
+    summary,
+    onTransition: async (transition) => {
+      await persistExecutionTransition(artifactState, transition);
+    }
+  });
 }
 
 export function createRuntimeDependencies(repoRoot: string, rules: RulesConfig, logger: Logger): RuntimeDependencies {
@@ -175,25 +189,35 @@ export async function executeGenerationLoop({
     latestReviewSummary: initialState.latestReviewSummary,
     iterationResults: [...initialState.iterationResults],
     latestToolResults: [...initialState.latestToolResults],
-    executionSteps: [...initialState.executionSteps]
+    executionMachine: initialState.executionMachine
   };
 
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
     logger.step(`Generation loop ${iteration}/${rules.max_iterations}${startIteration > 1 ? " (resumed)" : ""}`);
     const iterationStartedAt = Date.now();
 
-    state.currentResult = await generateCandidate({
-      iteration,
-      task,
-      plan,
-      currentResult: state.currentResult,
-      latestReviewSummary: state.latestReviewSummary,
-      acceptedIssues: state.acceptedIssues,
-      repoRoot,
-      implementationMemoryContext,
-      contextFiles,
-      runtime
-    });
+    const generationStage = iteration === 1 && !state.currentResult ? "iteration-generate" : "iteration-fix";
+    const generation = await state.executionMachine.runStage(
+      generationStage,
+      async () =>
+        await generateCandidate({
+          iteration,
+          task,
+          plan,
+          currentResult: state.currentResult,
+          latestReviewSummary: state.latestReviewSummary,
+          acceptedIssues: state.acceptedIssues,
+          repoRoot,
+          implementationMemoryContext,
+          contextFiles,
+          runtime
+        }),
+      {
+        iteration,
+        detail: iteration === 1 && !state.currentResult ? "Generating candidate files." : "Fixing blocking issues from prior review."
+      }
+    );
+    state.currentResult = generation.result;
 
     state.currentResult.files = sanitizeGeneratedFiles(state.currentResult.files, plan, rules, repoRoot);
     if (state.currentResult.files.length === 0) {
@@ -208,39 +232,55 @@ export async function executeGenerationLoop({
     const diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
     const validationIssues = validateCandidateFiles(state.currentResult.files);
 
-    const toolExecution = await measureExecutionStep(state.executionSteps, `iteration-${iteration}-tools`, async () => {
-      if (!dryRun) {
-        return await runToolChecks({
-          repoRoot,
-          changedFiles: state.currentResult!.files,
-          rules,
-          logger
-        });
-      }
+    const toolExecution = await state.executionMachine.runStage(
+      "iteration-tools",
+      async () => {
+        if (!dryRun) {
+          return await runToolChecks({
+            repoRoot,
+            changedFiles: state.currentResult!.files,
+            rules,
+            logger
+          });
+        }
 
-      logger.info("Skipping command-based tool checks in dry-run mode until a full isolated repo sandbox is available.");
-      return await createDryRunToolExecutionSummary({
-        repoRoot,
-        rules,
-        reason: "dry-run mode does not materialize a complete repository sandbox yet"
-      });
-    });
+        logger.info("Skipping command-based tool checks in dry-run mode until a full isolated repo sandbox is available.");
+        return await createDryRunToolExecutionSummary({
+          repoRoot,
+          rules,
+          reason: "dry-run mode does not materialize a complete repository sandbox yet"
+        });
+      },
+      {
+        iteration,
+        detail: "Running repository tool checks for generated files."
+      }
+    );
 
     state.latestToolResults = toolExecution.result.results;
     const preReviewIssues = mergeIssues(toolExecution.result.issues, validationIssues);
 
     logger.step(`Reviewing generated files with ${runtime.reviewerProvider.id}`);
-    const review = normalizeReviewResult(
-      await runtime.reviewer.reviewCode(
-        task,
-        originalFiles,
-        state.currentResult.files,
-        preReviewIssues,
-        diffSummaries,
-        repoRoot,
-        implementationMemoryContext
-      )
+    const reviewStage = await state.executionMachine.runStage(
+      "iteration-review",
+      async () =>
+        normalizeReviewResult(
+          await runtime.reviewer.reviewCode(
+            task,
+            originalFiles,
+            state.currentResult!.files,
+            preReviewIssues,
+            diffSummaries,
+            repoRoot,
+            implementationMemoryContext
+          )
+        ),
+      {
+        iteration,
+        detail: `Reviewer provider: ${runtime.reviewerProvider.id}.`
+      }
     );
+    const review = reviewStage.result;
 
     state.latestReviewSummary = review.summary;
     state.acceptedIssues = mergeIssues(review.issues, preReviewIssues);
@@ -282,13 +322,11 @@ export async function executeGenerationLoop({
       );
       if (!confirmed) {
         logger.warn("Task paused by user after generation checkpoint.");
-        recordExecutionStep(
-          state.executionSteps,
-          `iteration-${iteration}`,
-          iterationDurationMs,
-          "paused",
-          `Paused after generation checkpoint with ${state.acceptedIssues.length} issue(s).`
-        );
+        await state.executionMachine.pauseStage("paused", {
+          iteration,
+          durationMs: 0,
+          detail: `Paused after generation checkpoint with ${state.acceptedIssues.length} issue(s).`
+        });
         const result = buildStoppedResult({
           status: "paused_after_generate",
           dryRun,
@@ -303,7 +341,8 @@ export async function executeGenerationLoop({
           memoryStats,
           artifactState,
           latestToolResults: state.latestToolResults,
-          executionSteps: state.executionSteps
+          executionSteps: state.executionMachine.getSteps(),
+          executionTransitions: state.executionMachine.getTransitions()
         });
         await persistRunState(
           artifactState,
@@ -314,21 +353,14 @@ export async function executeGenerationLoop({
             pauseAfterGenerate,
             latestReviewSummary: state.latestReviewSummary,
             latestToolResults: state.latestToolResults,
-            execution: result.execution
+            execution: result.execution,
+            executionTransitions: state.executionMachine.getTransitions()
           },
           logger
         );
         return { result, state };
       }
     }
-
-    recordExecutionStep(
-      state.executionSteps,
-      `iteration-${iteration}`,
-      iterationDurationMs,
-      "completed",
-      `Issues: high=${summarizeIssueCounts(state.acceptedIssues).high ?? 0}, medium=${summarizeIssueCounts(state.acceptedIssues).medium ?? 0}, low=${summarizeIssueCounts(state.acceptedIssues).low ?? 0}.`
-    );
 
     if (!hasBlockingIssues(state.acceptedIssues)) {
       const result = await finalizeSuccessfulRun({
@@ -395,15 +427,21 @@ export async function finalizeSuccessfulRun({
   const originals = await readOriginalFiles(repoRoot, state.currentResult.files.map((file) => file.path));
   if (!dryRun) {
     logger.step("Writing files atomically");
-    await measureExecutionStep(state.executionSteps, "write-files", async () => {
-      await writeFilesAtomically(repoRoot, state.currentResult?.files ?? [], originals);
-    }, `${state.currentResult.files.length} file(s) written.`);
+    await state.executionMachine.runStage(
+      "write-files",
+      async () => {
+        await writeFilesAtomically(repoRoot, state.currentResult?.files ?? [], originals);
+      },
+      { detail: `${state.currentResult.files.length} file(s) written.` }
+    );
   } else {
-    recordExecutionStep(state.executionSteps, "write-files", 0, "skipped", "Dry run skipped file writes.");
+    await state.executionMachine.skipStage("write-files", {
+      durationMs: 0,
+      detail: "Dry run skipped file writes."
+    });
   }
 
-  const memoryStore = await measureExecutionStep(
-    state.executionSteps,
+  const memoryStore = await state.executionMachine.runStage(
     "memory-store",
     async () =>
       await safelyStoreMemory(
@@ -420,13 +458,20 @@ export async function finalizeSuccessfulRun({
         },
         logger
       ),
-    "Persisted successful run summary to memory."
+    {
+      detail: "Persisted successful run summary to memory."
+    }
   );
   memoryStats.stored = memoryStore.result;
+  await state.executionMachine.completeStage("success", {
+    durationMs: 0,
+    detail: "Run completed successfully."
+  });
 
   const execution = buildExecutionSummary({
     status: resultStatus ?? persistedStatus,
-    steps: state.executionSteps,
+    steps: state.executionMachine.getSteps(),
+    transitions: state.executionMachine.getTransitions(),
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults
@@ -462,7 +507,8 @@ export async function finalizeSuccessfulRun({
       pauseAfterGenerate,
       latestReviewSummary: state.latestReviewSummary,
       latestToolResults: state.latestToolResults,
-      execution
+      execution,
+      executionTransitions: state.executionMachine.getTransitions()
     },
     logger
   );
@@ -503,8 +549,7 @@ export async function finalizeFailedRun({
   persistedStatus: RunStatus;
   logger: Logger;
 }): Promise<OrchestratorResult> {
-  const memoryStore = await measureExecutionStep(
-    state.executionSteps,
+  const memoryStore = await state.executionMachine.runStage(
     "memory-store",
     async () =>
       await safelyStoreMemory(
@@ -521,13 +566,20 @@ export async function finalizeFailedRun({
         },
         logger
       ),
-    "Persisted failed run summary to memory."
+    {
+      detail: "Persisted failed run summary to memory."
+    }
   );
   memoryStats.stored = memoryStore.result;
+  await state.executionMachine.completeStage("failure", {
+    durationMs: 0,
+    detail: "Run finished with blocking issues or failed checks."
+  });
 
   const execution = buildExecutionSummary({
     status: resultStatus ?? persistedStatus,
-    steps: state.executionSteps,
+    steps: state.executionMachine.getSteps(),
+    transitions: state.executionMachine.getTransitions(),
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults
@@ -563,7 +615,8 @@ export async function finalizeFailedRun({
       pauseAfterGenerate,
       latestReviewSummary: state.latestReviewSummary,
       latestToolResults: state.latestToolResults,
-      execution
+      execution,
+      executionTransitions: state.executionMachine.getTransitions()
     },
     logger
   );

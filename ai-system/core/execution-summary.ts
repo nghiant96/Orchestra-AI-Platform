@@ -1,6 +1,8 @@
 import type {
   ExecutionStepStatus,
   ExecutionStepSummary,
+  ExecutionStage,
+  ExecutionTransition,
   ExecutionSummary,
   FailureSummary,
   IterationResult,
@@ -48,20 +50,30 @@ export async function measureExecutionStep<T>(
 export function buildExecutionSummary({
   status,
   steps,
+  transitions,
+  currentStage,
   finalIssues = [],
   latestToolResults = [],
   iterations = []
 }: {
   status?: RunStatus | string;
   steps?: ExecutionStepSummary[];
+  transitions?: ExecutionTransition[];
+  currentStage?: ExecutionStage | null;
   finalIssues?: ReviewIssue[];
   latestToolResults?: ToolExecutionResult[];
   iterations?: IterationResult[];
 }): ExecutionSummary {
   const normalizedSteps = Array.isArray(steps) ? steps.map((step) => ({ ...step })) : [];
+  const normalizedTransitions = Array.isArray(transitions) ? transitions.map((entry) => ({ ...entry })) : [];
+  const resolvedCurrentStage = currentStage ?? deriveCurrentStage(normalizedTransitions);
+  const terminalStage = deriveTerminalStage(normalizedTransitions);
   return {
     totalDurationMs: normalizedSteps.reduce((total, step) => total + Math.max(0, step.durationMs || 0), 0),
     steps: normalizedSteps,
+    transitions: normalizedTransitions,
+    currentStage: resolvedCurrentStage,
+    terminalStage,
     failure: classifyRunFailure({
       status,
       finalIssues,
@@ -69,6 +81,29 @@ export function buildExecutionSummary({
       iterations
     })
   };
+}
+
+function deriveCurrentStage(transitions: ExecutionTransition[]): ExecutionStage | null {
+  let activeStage: ExecutionStage | null = null;
+  for (const transition of transitions) {
+    if (transition.status === "entered") {
+      activeStage = transition.stage;
+      continue;
+    }
+    if (activeStage === transition.stage) {
+      activeStage = null;
+    }
+  }
+  return activeStage;
+}
+
+function deriveTerminalStage(transitions: ExecutionTransition[]): ExecutionStage | null {
+  for (let index = transitions.length - 1; index >= 0; index -= 1) {
+    if (transitions[index]?.status !== "entered") {
+      return transitions[index]?.stage ?? null;
+    }
+  }
+  return null;
 }
 
 function classifyRunFailure({

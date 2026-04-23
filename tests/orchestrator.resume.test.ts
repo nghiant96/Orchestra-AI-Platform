@@ -205,10 +205,10 @@ async function createTestRepo(): Promise<{
           data_dir: ".ai-system-artifacts"
         },
         providers: {
-          planner: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 3000 },
-          reviewer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 3000 },
-          generator: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 3000 },
-          fixer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 3000 }
+          planner: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
+          reviewer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
+          generator: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
+          fixer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 }
         }
       },
       null,
