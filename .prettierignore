@@ -1,0 +1,7 @@
+.DS_Store
+node_modules
+dist
+coverage
+.env
+.ai-system.json
+.ai-system-artifacts

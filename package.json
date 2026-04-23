@@ -15,7 +15,10 @@
     "ai:help": "node --import tsx ai-system/cli.ts --help",
     "docker:up": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=change-me docker compose up -d ai-coding-system",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f ai-coding-system"
+    "docker:logs": "docker compose logs -f ai-coding-system",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write ."
   },
   "bin": {
     "ai": "./bin/ai.js",
