@@ -1,17 +1,28 @@
-# Project Lessons
+# Lessons Learned
 
-Use this file to capture recurring mistakes, corrections from the user, and project-specific rules worth reusing.
+## 2026-04-23: Do NOT batch-modify files outside scope
 
-## Template
+**Mistake**: Used `grep | sed` to batch-replace `from "node:` → `from "` across ~30 files,
+touching many files that were working fine and not part of the current task.
 
-- Date:
-- Trigger:
-- Lesson:
-- Preventive Rule:
+**Rule**: Never use blind regex replacements across an entire codebase. Only touch files
+that are explicitly part of the current task. If a systemic issue exists (like missing `@types/node`),
+fix the root cause (install the package) instead of patching every file.
 
-## Entries
+## 2026-04-23: ProviderSummary is serialized data — do NOT change its shape
 
-- Date: 2026-04-22
-- Trigger: The user pointed out that task tracking was being kept in AI-CODING-SYSTEM even when the actual work was happening in another project.
-- Lesson: `tasks/todo.md` and `tasks/lessons.md` must be scoped to the active project/workspace, not automatically to the AI-CODING-SYSTEM repo.
-- Preventive Rule: When working in another project, read and write task-management files under that project's root; only use AI-CODING-SYSTEM `tasks/` files when this repo itself is the active workspace.
+**Mistake**: Changed `ProviderSummary` fields from `string` to `JsonProvider` (object with methods).
+`ProviderSummary` is persisted to JSON on disk and read back. Changing it to objects would break
+all serialization/deserialization and every CLI command that reads run state.
+
+**Rule**: Before changing a type's shape, check if it's used in serialization (JSON.stringify,
+file persistence, CLI output). Serializable interfaces must stay as plain data (strings, numbers,
+arrays of primitives) — never contain class instances or methods.
+
+## 2026-04-23: Match project import conventions
+
+**Mistake**: Created new files with `import path from "path"` while the project consistently
+uses `import path from "node:path"`.
+
+**Rule**: Before writing new files, check the import convention of existing files in the project
+and follow it exactly.

@@ -1,3 +1,4 @@
+import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
 import type { AgentDependencies, ContextFile, FileGenerationResult, JsonSchema, PlanResult } from "../types.js";
 
 export class GeneratorAgent {
@@ -16,15 +17,10 @@ export class GeneratorAgent {
     cwd: string,
     memoryContext = ""
   ): Promise<FileGenerationResult> {
-    const systemPrompt = [
-      "You are the code generation agent for a local coding system.",
-      "Return JSON only.",
-      "Return full replacement content for each file.",
-      "Never return snippets, ellipses, or placeholders.",
-      "Only write repo-relative paths.",
-      "Prefer the smallest complete change that satisfies the task.",
-      "When updating existing files, preserve unrelated logic and avoid removing existing functionality unless the task requires it."
-    ].join(" ");
+    const template = await loadPromptTemplate("generator");
+    const systemPrompt = compilePrompt(template, {
+      rules_summary: "" // TODO: Add project rules summary if needed
+    });
 
     const prompt = JSON.stringify(
       {

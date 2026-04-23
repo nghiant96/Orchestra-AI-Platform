@@ -1,3 +1,4 @@
+import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
 import type { AgentDependencies, JsonSchema, PlanResult } from "../types.js";
 
 export class PlannerAgent {
@@ -10,15 +11,10 @@ export class PlannerAgent {
   }
 
   async planTask(task: string, treeString: string, cwd: string, memoryContext = ""): Promise<PlanResult> {
-    const systemPrompt = [
-      "You are the planning agent for a local coding system.",
-      "Return JSON only.",
-      "Pick the minimum safe context needed to complete the task.",
-      `Select at most ${this.rules.max_files} existing files to read.`,
-      "Use only repo-relative paths.",
-      "Never request .env, secrets, keys, certificates, or files outside the repo.",
-      "Keep the implementation prompt concise and concrete."
-    ].join(" ");
+    const template = await loadPromptTemplate("planner");
+    const systemPrompt = compilePrompt(template, {
+      max_files: this.rules.max_files
+    });
 
     const prompt = [
       `Task: ${task}`,

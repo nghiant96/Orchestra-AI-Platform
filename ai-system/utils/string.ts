@@ -98,3 +98,9 @@ export function maskSecrets<T>(value: T): T | string {
     .replace(/(AIza[0-9A-Za-z_-]{10,})/g, "AIza***")
     .replace(/(ya29\.[0-9A-Za-z._-]+)/g, "ya29.***");
 }
+
+export function estimateTokenCount(text: string): number {
+  if (!text) return 0;
+  // Heuristic: ~4 characters per token for English text/code
+  return Math.ceil(text.length / 4);
+}

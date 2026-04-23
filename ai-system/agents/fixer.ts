@@ -1,3 +1,4 @@
+import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
 import { FILE_OUTPUT_SCHEMA } from "./generator.js";
 import type { AgentDependencies, FileGenerationResult, PlanResult, ReviewIssue } from "../types.js";
 
@@ -19,14 +20,8 @@ export class FixerAgent {
     cwd: string,
     memoryContext = ""
   ): Promise<FileGenerationResult> {
-    const systemPrompt = [
-      "You are the code fix agent for a local coding system.",
-      "Return JSON only.",
-      "Fix the reported blocking issues in the provided files.",
-      "Return full replacement content for every changed file.",
-      "Do not invent extra files unless strictly required to resolve the issues.",
-      "Preserve unrelated logic while fixing the reported problems."
-    ].join(" ");
+    const template = await loadPromptTemplate("fixer");
+    const systemPrompt = compilePrompt(template, {});
 
     const prompt = JSON.stringify(
       {

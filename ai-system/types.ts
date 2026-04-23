@@ -234,6 +234,13 @@ export interface ExecutionBudgetSummary {
   exceeded: "duration" | "cost" | null;
 }
 
+export interface ProviderUsageMetric {
+  role: ProviderRole;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
 export interface ExecutionProviderMetric {
   provider: string;
   role: ProviderRole;
@@ -317,6 +324,7 @@ export interface RunJsonOptions {
 export interface JsonProvider {
   id: string;
   runJson<T = unknown>(options: RunJsonOptions): Promise<T>;
+  getUsage?(): ProviderUsageMetric[];
 }
 
 export interface AgentDependencies {

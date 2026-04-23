@@ -1,3 +1,4 @@
+import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
 import type {
   AgentDependencies,
   ContextFile,
@@ -26,15 +27,8 @@ export class ReviewerAgent {
     cwd: string,
     memoryContext = ""
   ): Promise<ReviewResult> {
-    const systemPrompt = [
-      "You are the review agent for a local coding system.",
-      "Return JSON only.",
-      "Only report concrete issues backed by the provided code.",
-      "Mark bugs, correctness problems, path safety issues, and malformed JSON as high or medium.",
-      "Do not mark style-only concerns as blocking.",
-      "Each issue must include the exact file path and an exact code-level suggested fix.",
-      "Prioritize unintended deletions and large changes outside task scope."
-    ].join(" ");
+    const template = await loadPromptTemplate("reviewer");
+    const systemPrompt = compilePrompt(template, {});
 
     const prompt = JSON.stringify(
       {
