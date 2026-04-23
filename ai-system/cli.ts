@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { createLogger } from "./utils/logger.js";
+import { createCliLogger } from "./utils/logger.js";
 import type { OrchestratorResult, RoutingDecision } from "./types.js";
 import { maskSecrets } from "./utils/string.js";
 import type { ConfigInspection, SetupCheckResult } from "./core/config-workflow.js";
@@ -48,7 +48,7 @@ interface CliOptions {
   task: string;
 }
 
-type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "outputJson" | "savePath">;
+type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "savePath">;
 type CliCommand =
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
@@ -466,53 +466,62 @@ async function runTask({
   reviewFiles: _reviewFiles,
   force: _force,
   workflowMode: _workflowMode,
+  outputJson = false,
   task
 }: TaskRunOptions): Promise<OrchestratorResult> {
   applyProviderPreset(providerPreset);
 
   const { Orchestrator } = await import("./core/orchestrator.js");
-  const logger = createLogger();
+  const loggerHandle = createCliLogger({ outputJson });
   const orchestrator = new Orchestrator({
     repoRoot: cwd,
-    logger,
+    logger: loggerHandle.logger,
     configPath
   });
+  try {
+    if (resumeTarget) {
+      return (await orchestrator.resume(resumeTarget)) as OrchestratorResult;
+    }
 
-  if (resumeTarget) {
-    return (await orchestrator.resume(resumeTarget)) as OrchestratorResult;
+    return (await orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate })) as OrchestratorResult;
+  } finally {
+    loggerHandle.dispose();
   }
-
-  return (await orchestrator.run(task, { dryRun, interactive, pauseAfterPlan, pauseAfterGenerate })) as OrchestratorResult;
 }
 
 async function runReviewWorkflow(options: TaskRunOptions): Promise<
   | { kind: "task-run"; result: OrchestratorResult }
   | { kind: "current-review"; result: CurrentChangeReviewResult }
 > {
+  const loggerHandle = createCliLogger({ outputJson: options.outputJson });
+  try {
   const workflow = await import("./core/current-change-review.js");
-  const review = await workflow.reviewCurrentRepoChanges({
-    repoRoot: options.cwd,
-    configPath: options.configPath,
-    providerPreset: options.providerPreset,
-    task: options.task,
-    targetMode: options.reviewFiles.length > 0 ? "files" : options.reviewBase ? "base-ref" : options.reviewStaged ? "staged" : "working-tree",
-    targetDetail: options.reviewBase,
-    targetFiles: options.reviewFiles,
-    logger: createLogger()
-  });
+    const review = await workflow.reviewCurrentRepoChanges({
+      repoRoot: options.cwd,
+      configPath: options.configPath,
+      providerPreset: options.providerPreset,
+      task: options.task,
+      targetMode: options.reviewFiles.length > 0 ? "files" : options.reviewBase ? "base-ref" : options.reviewStaged ? "staged" : "working-tree",
+      targetDetail: options.reviewBase,
+      targetFiles: options.reviewFiles,
+      logger: loggerHandle.logger
+    });
 
-  if (review) {
-    return { kind: "current-review", result: review };
-  }
+    if (review) {
+      return { kind: "current-review", result: review };
+    }
 
-  if (options.reviewFiles.length > 0) {
-    throw new Error(`No reviewable changes found in the requested file scope: ${options.reviewFiles.join(", ")}`);
-  }
-  if (!options.task.trim()) {
-    throw new Error("No working tree changes found to review, and no task was provided.");
-  }
+    if (options.reviewFiles.length > 0) {
+      throw new Error(`No reviewable changes found in the requested file scope: ${options.reviewFiles.join(", ")}`);
+    }
+    if (!options.task.trim()) {
+      throw new Error("No working tree changes found to review, and no task was provided.");
+    }
 
-  return { kind: "task-run", result: await runTask(options) };
+    return { kind: "task-run", result: await runTask(options) };
+  } finally {
+    loggerHandle.dispose();
+  }
 }
 
 async function runInteractiveSession(initialOptions: CliOptions): Promise<void> {
@@ -560,6 +569,7 @@ async function runInteractiveSession(initialOptions: CliOptions): Promise<void> 
           providerPreset: state.providerPreset,
           resumeTarget: state.resumeTarget,
           workflowMode: "standard",
+          outputJson: false,
           reviewStaged: false,
           reviewBase: null,
           reviewFiles: [],
@@ -720,20 +730,25 @@ async function runCliCommand({ cwd, configPath, globalConfig, providerPreset, co
     }
     case "apply-artifact": {
       const workflow = await import("./core/artifact-apply.js");
-      const result = await workflow.applyArtifactCandidate({
-        repoRoot: cwd,
-        configPath,
-        target: command.target,
-        dryRun,
-        force,
-        logger: createLogger()
-      });
-      if (outputJson) {
-        await outputJsonResult(result, savePath);
+      const loggerHandle = createCliLogger({ outputJson });
+      try {
+        const result = await workflow.applyArtifactCandidate({
+          repoRoot: cwd,
+          configPath,
+          target: command.target,
+          dryRun,
+          force,
+          logger: loggerHandle.logger
+        });
+        if (outputJson) {
+          await outputJsonResult(result, savePath);
+          return;
+        }
+        printArtifactApplyResult(result);
         return;
+      } finally {
+        loggerHandle.dispose();
       }
-      printArtifactApplyResult(result);
-      return;
     }
   }
 }

@@ -137,6 +137,40 @@ test("VectorIndex uses symbol-aware chunks so matches stay near the relevant fun
   }
 });
 
+test("VectorIndex AST chunking ignores commented declarations and still finds arrow-function symbols", async () => {
+  const repoRoot = await createTempRepo({
+    "src/auth/token.ts": [
+      "// export function fakeValidateAuthToken(token: string) { return false; }",
+      "const helper = 'auth helper';",
+      "",
+      "export const validateAuthToken = async (token: string) => {",
+      "  return token.startsWith('auth_');",
+      "};",
+      "",
+      "export const buildAuditMessage = (userId: string) => `audit:${userId}`;"
+    ].join("\n")
+  });
+
+  try {
+    const rules = createRules();
+    const index = new VectorIndex({
+      repoRoot,
+      rules,
+      config: rules.vector_search
+    });
+
+    await index.indexWorkspace();
+    const matches = await index.search("Fix validateAuthToken auth token bug", 2);
+
+    assert.equal(matches[0]?.path, "src/auth/token.ts");
+    assert.match(matches[0]?.preview ?? "", /validateAuthToken/);
+    assert.doesNotMatch(matches[0]?.preview ?? "", /fakeValidateAuthToken/);
+    assert.equal(matches[0]?.startLine, 4);
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("expandContextReadFiles adds vector-matched files even when planner misses them", async () => {
   const repoRoot = await createTempRepo({
     "src/main.ts": "export function startApp() { return 'ready'; }\n",

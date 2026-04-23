@@ -8,9 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@types/blessed':
+        specifier: ^0.1.27
+        version: 0.1.27
       '@xenova/transformers':
         specifier: ^2.17.2
         version: 2.17.2
+      blessed:
+        specifier: ^0.1.81
+        version: 0.1.81
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
@@ -214,6 +220,9 @@ packages:
   '@protobufjs/utf8@1.1.0':
     resolution: {integrity: sha512-Vvn3zZrhQZkkBE8LSuW3em98c0FwgO4nxzv6OdSxPKJIEKY2bGbHn+mhGIPerzI4twdxaP8/0+06HBpwf345Lw==}
 
+  '@types/blessed@0.1.27':
+    resolution: {integrity: sha512-ZOQGjLvWDclAXp0rW5iuUBXeD6Gr1PkitN7tj7/G8FCoSzTsij6OhXusOzMKhwrZ9YlL2Pmu0d6xJ9zVvk+Hsg==}
+
   '@types/long@4.0.2':
     resolution: {integrity: sha512-MqTGEo5bj5t157U6fA/BiDynNkn0YknVdh48CMPkTSpFTVmvao5UQmm7uEF6xBEo7qIMAlY/JSleYaE6VOdpaA==}
 
@@ -277,6 +286,11 @@ packages:
 
   bl@4.1.0:
     resolution: {integrity: sha512-1W07cM9gS6DcLperZfFSj+bWLtaPGSOHWhPiGzXmvVJbRLdG82sH/Kn8EtW1VqWVA54AKf2h5k5BbnIbwF3h6w==}
+
+  blessed@0.1.81:
+    resolution: {integrity: sha512-LoF5gae+hlmfORcG1M5+5XZi4LBmvlXTzwJWzUlPryN/SJdSflZvROM2TwkT0GMpq7oqT48NRd4GS7BiVBc5OQ==}
+    engines: {node: '>= 0.8.0'}
+    hasBin: true
 
   buffer@5.7.1:
     resolution: {integrity: sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==}
@@ -603,6 +617,10 @@ snapshots:
 
   '@protobufjs/utf8@1.1.0': {}
 
+  '@types/blessed@0.1.27':
+    dependencies:
+      '@types/node': 20.19.39
+
   '@types/long@4.0.2': {}
 
   '@types/node@20.19.39':
@@ -662,6 +680,8 @@ snapshots:
       buffer: 5.7.1
       inherits: 2.0.4
       readable-stream: 3.6.2
+
+  blessed@0.1.81: {}
 
   buffer@5.7.1:
     dependencies:

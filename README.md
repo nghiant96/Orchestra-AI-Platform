@@ -194,6 +194,7 @@ Recommended config workflow:
 - Use `ai apply --from-artifact <target>` to apply a saved candidate from artifacts without rerunning generation
 - Add `--force` to `ai apply --from-artifact` when you intentionally want to apply a candidate that still has blocking review issues
 - Each `ai apply --from-artifact` invocation now persists an audit event under the run artifacts and surfaces the latest apply event in `ai runs latest/show`
+- Interactive TTY runs now open a live `blessed` dashboard for status and recent activity; set `AI_SYSTEM_DISABLE_TUI=true` when you want plain console logging instead
 
 Tool execution workflow:
 
@@ -218,7 +219,7 @@ Tool execution workflow:
 - Context intelligence now supports:
   - dependency-aware file expansion from planner-selected files
   - semantic vector search over embedded local chunks when `vector_search.enabled=true`
-  - symbol-aware chunking before fixed-size fallback, so semantic matches stay closer to function/class boundaries
+  - AST-backed symbol-aware chunking for TS/JS-family files before fixed-size fallback, so semantic matches stay closer to real function/class/module boundaries
   - ranked context selection so planner files, write targets, dependency neighbors, and semantic matches are ordered before byte-budget trimming
   - budget-aware context trimming so pinned files stay in and oversized low-value candidates are dropped before prompt assembly
   - operator visibility for top ranked context contributors in `ai runs latest/show`

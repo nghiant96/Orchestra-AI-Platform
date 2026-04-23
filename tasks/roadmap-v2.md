@@ -22,6 +22,7 @@ Current bottlenecks:
 - tool execution still runs directly on the host machine
 - execution flow needs explicit stage transitions for safer resume/retry evolution
 - automation is still optimized most deeply for Node.js / TypeScript projects
+- live operator visibility is still evolving beyond the default TTY dashboard
 
 ## Phase A: Sandboxing & Safety
 
@@ -81,7 +82,7 @@ Suggested deliverables:
 - Delivered in MVP:
   - dependency-aware expansion around planner-selected files
   - embedded local vector index with semantic chunk search
-  - symbol-aware chunking so semantic matches stay near function/class boundaries before falling back to fixed-size blocks
+  - AST-backed symbol-aware chunking for TS/JS-family files so semantic matches stay near real function/class/module boundaries before falling back to fixed-size blocks
   - orchestrator integration that appends top semantic matches to `plan.readFiles`
   - ranked context selection that prioritizes planner-selected files, write targets, dependency neighbors, and semantic matches
   - working-tree change hints that promote dirty files only when they are dependency-connected to the current plan

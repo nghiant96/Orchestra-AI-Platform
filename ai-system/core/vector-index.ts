@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import ts from "typescript";
 import { resolveRepoPath, shouldSkipPath } from "./context.js";
 import { generateEmbedding, cosineSimilarity } from "../utils/embeddings.js";
 import { toPosixPath } from "../utils/string.js";
@@ -24,7 +25,7 @@ interface IndexedFileRecord {
 }
 
 interface VectorIndexSnapshot {
-  version: 2;
+  version: 3;
   config: {
     chunkSize: number;
     chunkOverlap: number;
@@ -144,7 +145,7 @@ export class VectorIndex {
     }
 
     const snapshot: VectorIndexSnapshot = {
-      version: 2,
+      version: 3,
       config: {
         chunkSize: this.config.chunk_size,
         chunkOverlap: this.config.chunk_overlap,
@@ -200,7 +201,7 @@ export class VectorIndex {
     try {
       const raw = await fs.readFile(this.snapshotPath, "utf8");
       const parsed = JSON.parse(raw) as VectorIndexSnapshot;
-      if (parsed?.version !== 2 || !Array.isArray(parsed?.files)) {
+      if (parsed?.version !== 3 || !Array.isArray(parsed?.files)) {
         return null;
       }
       return parsed;
@@ -271,7 +272,7 @@ async function buildChunkRecords({
   chunkSize: number;
   chunkOverlap: number;
 }): Promise<VectorChunkRecord[]> {
-  const chunks = chunkText(content, chunkSize, chunkOverlap);
+  const chunks = chunkText(relativePath, content, chunkSize, chunkOverlap);
   const records: VectorChunkRecord[] = [];
   let index = 0;
   for (const chunk of chunks) {
@@ -294,6 +295,7 @@ async function buildChunkRecords({
 }
 
 function chunkText(
+  relativePath: string,
   content: string,
   chunkSize: number,
   chunkOverlap: number
@@ -303,7 +305,7 @@ function chunkText(
     return [];
   }
 
-  const symbolChunks = chunkTextBySymbols(text, chunkSize);
+  const symbolChunks = chunkTextBySymbols(relativePath, text, chunkSize);
   if (symbolChunks.length > 0) {
     return symbolChunks;
   }
@@ -312,28 +314,25 @@ function chunkText(
 }
 
 function chunkTextBySymbols(
+  relativePath: string,
   content: string,
   chunkSize: number
 ): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
-  const lines = String(content || "").split("\n");
-  if (lines.length === 0) {
+  const text = String(content || "");
+  if (!text.trim()) {
     return [];
   }
 
-  const symbolStarts = detectSymbolStarts(lines);
-  if (symbolStarts.length === 0) {
+  const symbolRanges = detectSymbolRanges(relativePath, text);
+  if (symbolRanges.length === 0) {
     return [];
   }
 
   const chunks: Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> = [];
   const safeChunkSize = Math.max(chunkSize, 200);
 
-  for (let index = 0; index < symbolStarts.length; index += 1) {
-    const current = symbolStarts[index];
-    const next = symbolStarts[index + 1];
-    const endLineExclusive = next ? next.lineNumber - 1 : lines.length;
-    const lineSlice = lines.slice(current.lineNumber - 1, endLineExclusive);
-    const rawText = lineSlice.join("\n").trim();
+  for (const current of symbolRanges) {
+    const rawText = current.text.trim();
     if (!rawText) {
       continue;
     }
@@ -341,8 +340,8 @@ function chunkTextBySymbols(
     if (rawText.length <= safeChunkSize * 1.25) {
       chunks.push({
         text: rawText,
-        startLine: current.lineNumber,
-        endLine: endLineExclusive,
+        startLine: current.startLine,
+        endLine: current.endLine,
         symbolName: current.symbolName
       });
       continue;
@@ -352,8 +351,8 @@ function chunkTextBySymbols(
     for (const nested of nestedChunks) {
       chunks.push({
         text: nested.text,
-        startLine: current.lineNumber + nested.startLine - 1,
-        endLine: current.lineNumber + nested.endLine - 1,
+        startLine: current.startLine + nested.startLine - 1,
+        endLine: current.startLine + nested.endLine - 1,
         symbolName: current.symbolName
       });
     }
@@ -392,42 +391,135 @@ function chunkTextFixed(
   return chunks;
 }
 
-function detectSymbolStarts(lines: string[]): Array<{ lineNumber: number; symbolName?: string }> {
-  const starts: Array<{ lineNumber: number; symbolName?: string }> = [];
-  const patterns = [
-    /^\s*export\s+(async\s+)?function\s+([A-Za-z_$][\w$]*)/,
-    /^\s*(async\s+)?function\s+([A-Za-z_$][\w$]*)/,
-    /^\s*export\s+(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(async\s*)?\(/,
-    /^\s*(const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(async\s*)?\(/,
-    /^\s*export\s+class\s+([A-Za-z_$][\w$]*)/,
-    /^\s*class\s+([A-Za-z_$][\w$]*)/,
-    /^\s*def\s+([A-Za-z_][\w]*)\s*\(/,
-    /^\s*class\s+([A-Za-z_][\w]*)\s*[:(]/,
-    /^\s*func\s+([A-Za-z_][\w]*)\s*\(/,
-    /^\s*(pub\s+)?fn\s+([A-Za-z_][\w]*)\s*\(/,
-    /^\s*(public|private|protected|internal)?\s*(class|interface|enum)\s+([A-Za-z_][\w]*)/,
-    /^\s*(public|private|protected|internal)?\s*fun\s+([A-Za-z_][\w]*)\s*\(/,
-    /^\s*(public|private|protected|internal)?\s*struct\s+([A-Za-z_][\w]*)/,
-    /^\s*(public|private|protected|internal)?\s*(func|class|struct|enum)\s+([A-Za-z_][\w]*)/
-  ];
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    for (const pattern of patterns) {
-      const match = line.match(pattern);
-      if (!match) {
-        continue;
-      }
-      const symbolName = [...match].reverse().find((value) => value && /^[A-Za-z_$][\w$]*$/.test(value));
-      starts.push({
-        lineNumber: index + 1,
-        symbolName
-      });
-      break;
-    }
+function detectSymbolRanges(
+  relativePath: string,
+  content: string
+): Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> {
+  const extension = path.extname(relativePath).toLowerCase();
+  if (!isTypeScriptFamilyExtension(extension)) {
+    return [];
   }
 
-  return starts;
+  const sourceFile = ts.createSourceFile(
+    relativePath,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    resolveScriptKind(extension)
+  );
+  const ranges = extractTopLevelSymbolRanges(sourceFile, content);
+  return dedupeAndSortSymbolRanges(ranges);
+}
+
+function extractTopLevelSymbolRanges(
+  sourceFile: ts.SourceFile,
+  content: string
+): Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> {
+  const ranges: Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> = [];
+  for (const statement of sourceFile.statements) {
+    for (const candidate of extractStatementSymbolNodes(statement)) {
+      const range = buildSymbolRange(candidate.node, candidate.symbolName, sourceFile, content);
+      if (range) {
+        ranges.push(range);
+      }
+    }
+  }
+  return ranges;
+}
+
+function extractStatementSymbolNodes(
+  statement: ts.Statement
+): Array<{ node: ts.Node; symbolName?: string }> {
+  if (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isEnumDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) {
+    return [{ node: statement, symbolName: statement.name?.text }];
+  }
+
+  if (ts.isModuleDeclaration(statement)) {
+    return [{ node: statement, symbolName: statement.name.getText() }];
+  }
+
+  if (!ts.isVariableStatement(statement)) {
+    return [];
+  }
+
+  const results: Array<{ node: ts.Node; symbolName?: string }> = [];
+  for (const declaration of statement.declarationList.declarations) {
+    if (!ts.isIdentifier(declaration.name) || !declaration.initializer) {
+      continue;
+    }
+    const symbolName = declaration.name.text;
+    const initializer = declaration.initializer;
+    if (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer) || ts.isClassExpression(initializer) || ts.isObjectLiteralExpression(initializer)) {
+      results.push({ node: declaration, symbolName });
+    }
+  }
+  return results;
+}
+
+function buildSymbolRange(
+  node: ts.Node,
+  symbolName: string | undefined,
+  sourceFile: ts.SourceFile,
+  content: string
+): { startLine: number; endLine: number; text: string; symbolName?: string } | null {
+  const start = node.getStart(sourceFile);
+  const end = node.getEnd();
+  if (end <= start) {
+    return null;
+  }
+
+  const text = content.slice(start, end).trim();
+  if (!text) {
+    return null;
+  }
+
+  const startLine = sourceFile.getLineAndCharacterOfPosition(start).line + 1;
+  const endLine = sourceFile.getLineAndCharacterOfPosition(Math.max(end - 1, start)).line + 1;
+  return {
+    startLine,
+    endLine,
+    text,
+    symbolName
+  };
+}
+
+function dedupeAndSortSymbolRanges(
+  ranges: Array<{ startLine: number; endLine: number; text: string; symbolName?: string }>
+): Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> {
+  const seen = new Set<string>();
+  return ranges
+    .filter((entry) => {
+      const key = `${entry.startLine}:${entry.endLine}:${entry.symbolName ?? ""}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
+}
+
+function isTypeScriptFamilyExtension(extension: string): boolean {
+  return new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]).has(extension);
+}
+
+function resolveScriptKind(extension: string): ts.ScriptKind {
+  switch (extension) {
+    case ".ts":
+      return ts.ScriptKind.TS;
+    case ".tsx":
+      return ts.ScriptKind.TSX;
+    case ".js":
+      return ts.ScriptKind.JS;
+    case ".jsx":
+      return ts.ScriptKind.JSX;
+    case ".mjs":
+      return ts.ScriptKind.JS;
+    case ".cjs":
+      return ts.ScriptKind.JS;
+    default:
+      return ts.ScriptKind.Unknown;
+  }
 }
 
 function mergeAdjacentSmallChunks(

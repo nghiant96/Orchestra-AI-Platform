@@ -1,3 +1,12 @@
+- [x] Replace regex-based symbol chunking in ai-system/core/vector-index.ts with TypeScript AST-based symbol extraction
+- [x] Add optional TUI dashboard for CLI live visibility using blessed, with safe fallback to plain logger
+- [x] Add/update tests for AST chunking edge cases and TUI-safe behavior, then verify with typecheck and targeted/full tests
+
+Review/result:
+- AST chunking now uses the TypeScript compiler API for TS/JS-family files, which removes regex-based false positives and keeps semantic chunks aligned to real declarations.
+- CLI task and review flows now use an optional `blessed` dashboard on real TTYs, with automatic fallback to plain logging for `--json`, non-TTY, and disabled-dashboard cases.
+- Verified with `pnpm exec tsc --noEmit`, `pnpm test`, `node --import tsx --test tests/vector-index.test.ts tests/logger.test.ts`, `node --import tsx ./bin/ai.js --help`, and a TTY smoke for the dashboard path.
+
 - [x] Add stage-targeted retry/resume semantics on top of the execution state machine
 - [x] Persist retry hints for failed runs so resume can restart from the last viable stage instead of replaying the whole loop
 - [x] Add per-stage/provider latency and estimated cost accounting and feed it into adaptive routing
