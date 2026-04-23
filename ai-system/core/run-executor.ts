@@ -446,7 +446,7 @@ export async function finalizeSuccessfulRun({
     finalIssues: state.acceptedIssues,
     providers: runtime.providerSummary,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, state.currentResult, true, state.latestToolResults, execution),
+    artifacts: finalizeArtifactState(artifactState, state.currentResult, true, state.latestToolResults, [], execution),
     latestToolResults: state.latestToolResults,
     execution,
     wroteFiles: !dryRun
@@ -547,7 +547,7 @@ export async function finalizeFailedRun({
     finalIssues: state.acceptedIssues,
     providers: runtime.providerSummary,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, execution),
+    artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, [], execution),
     latestToolResults: state.latestToolResults,
     execution,
     wroteFiles: false

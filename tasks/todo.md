@@ -43,3 +43,13 @@ Review/result:
 - Phase B MVP now combines dependency-aware expansion with an embedded local vector index, so the orchestrator can pull semantically related files into `plan.readFiles` even when the planner misses them by name.
 - The vector search implementation is local-first and reuses the existing `@xenova/transformers` embedder; when embeddings are unavailable, search still degrades safely to lexical ranking instead of hard-failing.
 - Verified with `pnpm exec tsc --noEmit` and targeted tests for `VectorIndex`, `Context Intelligence`, and `DependencyGraph`.
+
+- [x] Enable `vector_search` in the project config and run a real implementation-oriented query against the repo
+- [x] Persist top semantic matches into artifacts and surface them in operator-facing run summaries
+- [x] Evaluate whether the current embedded index is good enough before considering a heavier vector DB backend
+
+Review/result:
+- `vector_search` is now enabled in `.ai-system.json`, and the repo stores its embedded semantic index under `.ai-system-vector/`.
+- Planner plan artifacts and `artifact-index.json` now persist `latestVectorMatches`, and `ai runs latest/show` prints those matches when a run has a `run-state`.
+- Real-world evaluation showed two concrete ranking issues: self-indexing of `.ai-system-artifacts` and over-ranking of docs/tests. Those were fixed by excluding internal artifact/index directories and reweighting paths so implementation code outranks docs/test scaffolding for implementation-style queries.
+- After the fix, a direct semantic query for `Fix docker sandbox environment passthrough for tool checks` returns `ai-system/core/tool-executor.ts` and related execution files as the top matches. That is good enough to keep the current embedded approach for now; moving to LanceDB/Chroma would add complexity before ranking quality, provider stability, and artifact UX need it.

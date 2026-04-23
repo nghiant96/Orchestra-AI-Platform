@@ -15,6 +15,7 @@ import type {
   ReviewIssue,
   RoutingDecision,
   ToolExecutionResult,
+  VectorSearchMatch,
   RunStatus,
   RulesConfig
 } from "../types.js";
@@ -44,6 +45,7 @@ export interface PersistedRunState {
   memory?: Partial<MemoryStats>;
   artifacts?: ArtifactSummary | null;
   latestToolResults?: ToolExecutionResult[];
+  latestVectorMatches?: VectorSearchMatch[];
   execution?: ExecutionSummary | null;
 }
 
@@ -55,6 +57,7 @@ export interface RecentRunSummary {
     issueCounts?: Record<string, number>;
     providers?: ProviderSummary;
     latestToolResults?: ToolExecutionResult[];
+    latestVectorMatches?: VectorSearchMatch[];
     execution?: ExecutionSummary | null;
   };
   artifactIndex: {
@@ -67,6 +70,7 @@ export interface RecentRunSummary {
     latestProvider?: string | null;
     latestFiles?: string[];
     latestToolResults?: ToolExecutionResult[];
+    latestVectorMatches?: VectorSearchMatch[];
     iterationCount?: number;
     stepPaths?: Record<string, string>;
     execution?: ExecutionSummary | null;
@@ -123,6 +127,7 @@ export function buildStoppedResult({
   memoryStats,
   artifactState,
   latestToolResults = [],
+  latestVectorMatches = [],
   executionSteps = []
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
@@ -138,6 +143,7 @@ export function buildStoppedResult({
   memoryStats: MemoryStats;
   artifactState: ArtifactState;
   latestToolResults?: ToolExecutionResult[];
+  latestVectorMatches?: VectorSearchMatch[];
   executionSteps?: ExecutionStepSummary[];
 }): OrchestratorResult {
   const execution = buildExecutionSummary({
@@ -161,7 +167,7 @@ export function buildStoppedResult({
     finalIssues,
     providers,
     memory: memoryStats,
-    artifacts: finalizeArtifactState(artifactState, result, false, latestToolResults, execution),
+    artifacts: finalizeArtifactState(artifactState, result, false, latestToolResults, latestVectorMatches, execution),
     latestToolResults,
     execution,
     wroteFiles: false
@@ -202,6 +208,7 @@ export async function persistPlanArtifacts(
     task: string;
     rawPlan: unknown;
     plan: PlanResult;
+    vectorMatches?: VectorSearchMatch[];
     provider: string;
     durationMs?: number;
   },
@@ -218,7 +225,8 @@ export async function persistPlanArtifacts(
     provider: payload.provider,
     task: payload.task,
     rawPlan: payload.rawPlan,
-    normalizedPlan: payload.plan
+    normalizedPlan: payload.plan,
+    vectorMatches: payload.vectorMatches ?? []
   };
   await fs.writeFile(path.join(stepPath, "plan.json"), JSON.stringify(manifest, null, 2), "utf8");
   state.stepPaths.plan = stepPath;
@@ -234,7 +242,8 @@ export async function persistPlanArtifacts(
   await writeArtifactIndex(state, {
     latestStep: "01-plan",
     latestTask: payload.task,
-    latestProvider: payload.provider
+    latestProvider: payload.provider,
+    latestVectorMatches: payload.vectorMatches ?? []
   });
   logger?.info(`Saved planner checkpoint at ${stepPath}`);
   return stepPath;
@@ -457,6 +466,7 @@ export async function persistRunState(
     pauseAfterGenerate?: boolean;
     latestReviewSummary?: string;
     latestToolResults?: ToolExecutionResult[];
+    latestVectorMatches?: VectorSearchMatch[];
     execution?: ExecutionSummary | null;
     executionSteps?: ExecutionStepSummary[];
   },
@@ -469,6 +479,15 @@ export async function persistRunState(
   const statePath = path.join(state.runDir, "run-state.json");
   ensureArtifactVisibilityPaths(state);
   state.stepPaths.runState = statePath;
+  const existingIndex = state.stepPaths.index
+    ? await readJsonIfExists<RecentRunSummary["artifactIndex"]>(state.stepPaths.index)
+    : null;
+  const explicitVectorMatches = payload.latestVectorMatches;
+  const artifactVectorMatches =
+    Array.isArray(payload.artifacts?.latestVectorMatches) && payload.artifacts.latestVectorMatches.length > 0
+      ? payload.artifacts.latestVectorMatches
+      : undefined;
+  const effectiveVectorMatches = explicitVectorMatches ?? artifactVectorMatches ?? existingIndex?.latestVectorMatches ?? [];
   const serializable = {
     version: 1,
     status: payload.status ?? (payload.ok ? "completed" : "failed"),
@@ -491,6 +510,7 @@ export async function persistRunState(
         payload.result,
         payload.ok === true,
         payload.latestToolResults ?? [],
+        payload.latestVectorMatches ?? [],
         payload.execution ??
           buildExecutionSummary({
             status: payload.status ?? (payload.ok ? "completed" : "failed"),
@@ -505,6 +525,7 @@ export async function persistRunState(
     pauseAfterGenerate: payload.pauseAfterGenerate ?? false,
     latestReviewSummary: payload.latestReviewSummary ?? "",
     latestToolResults: payload.latestToolResults ?? [],
+    latestVectorMatches: effectiveVectorMatches,
     execution:
       payload.execution ??
       buildExecutionSummary({
@@ -527,20 +548,27 @@ export async function persistRunState(
       iterations: serializable.iterations.length,
       wroteFiles: serializable.wroteFiles,
       failureClass: serializable.execution?.failure?.class ?? null,
-      totalDurationMs: serializable.execution?.totalDurationMs ?? 0,
-      latestToolResults: (serializable.latestToolResults ?? []).map((entry) => ({
-        name: entry.name,
-        ok: entry.ok,
-        skipped: entry.skipped
-      }))
-    }
-  });
+          totalDurationMs: serializable.execution?.totalDurationMs ?? 0,
+          latestToolResults: (serializable.latestToolResults ?? []).map((entry) => ({
+            name: entry.name,
+            ok: entry.ok,
+            skipped: entry.skipped
+          })),
+          latestVectorMatches: (serializable.latestVectorMatches ?? []).map((entry) => ({
+            path: entry.path,
+            score: entry.score,
+            startLine: entry.startLine,
+            endLine: entry.endLine
+          }))
+        }
+      });
   await writeArtifactIndex(state, {
     latestStep: "run-state",
     latestStatus: serializable.status,
     latestTask: payload.task,
     latestFiles: serializable.artifacts?.latestFiles ?? [],
     latestToolResults: serializable.latestToolResults ?? [],
+    latestVectorMatches: effectiveVectorMatches,
     execution: serializable.execution ?? null
   });
   logger?.info(`Saved resumable run state at ${statePath}`);
@@ -552,6 +580,7 @@ export function finalizeArtifactState(
   currentResult: FileGenerationResult | null,
   ok: boolean,
   latestToolResults: ToolExecutionResult[] = [],
+  latestVectorMatches: VectorSearchMatch[] = [],
   execution: ExecutionSummary | null = null
 ): ArtifactSummary | null {
   if (!state.enabled || !state.runDir) {
@@ -566,6 +595,7 @@ export function finalizeArtifactState(
     stepPaths: state.stepPaths,
     latestFiles: currentResult?.files?.map((file) => file.path) ?? [],
     latestToolResults,
+    latestVectorMatches,
     execution
   };
 }
@@ -819,6 +849,7 @@ async function writeArtifactIndex(
     latestProvider?: string;
     latestFiles?: string[];
     latestToolResults?: ToolExecutionResult[];
+    latestVectorMatches?: VectorSearchMatch[];
     execution?: ExecutionSummary | null;
   }
 ): Promise<void> {
@@ -832,6 +863,8 @@ async function writeArtifactIndex(
     return;
   }
 
+  const existingIndex = (await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath)) ?? null;
+
   const index = {
     updatedAt: new Date().toISOString(),
     runPath: state.runDir,
@@ -842,6 +875,7 @@ async function writeArtifactIndex(
     latestProvider: payload.latestProvider ?? null,
     latestFiles: payload.latestFiles ?? [],
     latestToolResults: payload.latestToolResults ?? [],
+    latestVectorMatches: payload.latestVectorMatches ?? existingIndex?.latestVectorMatches ?? [],
     execution: payload.execution ?? null,
     iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
     stepPaths: state.stepPaths

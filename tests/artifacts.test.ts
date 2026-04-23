@@ -30,7 +30,8 @@ import type {
   ReviewIssue,
   RoutingDecision,
   RulesConfig,
-  ToolExecutionResult
+  ToolExecutionResult,
+  VectorSearchMatch
 } from "../ai-system/types.js";
 
 const execFileAsync = promisify(execFile);
@@ -92,6 +93,16 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       exitCode: 0
     }
   ];
+  const vectorMatches: VectorSearchMatch[] = [
+    {
+      id: "src/auth.ts#1",
+      path: "src/auth.ts",
+      score: 0.91,
+      startLine: 3,
+      endLine: 12,
+      preview: "export function validateAuthToken(token: string) { ... }"
+    }
+  ];
 
   try {
     const state = createArtifactState(tempDir, rules);
@@ -100,6 +111,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       task: "checkpoint task",
       rawPlan: { prompt: plan.prompt },
       plan,
+      vectorMatches,
       provider: providers.planner
     });
     await persistContextArtifacts(state, {
@@ -178,12 +190,16 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       latestStep: string;
       iterationCount: number;
       latestToolResults: ToolExecutionResult[];
+      latestVectorMatches?: VectorSearchMatch[];
       stepPaths: Record<string, string>;
       execution?: { failure?: { class?: string } | null };
     };
     const iterationManifest = JSON.parse(
       await fs.readFile(path.join(state.latestIterationPath as string, "manifest.json"), "utf8")
     ) as { toolResults: ToolExecutionResult[] };
+    const planManifest = JSON.parse(await fs.readFile(path.join(state.stepPaths.plan as string, "plan.json"), "utf8")) as {
+      vectorMatches?: VectorSearchMatch[];
+    };
 
     assert.deepEqual(restoredContexts, contextFiles);
     assert.equal(restored.runDir, state.runDir);
@@ -200,9 +216,11 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     assert.ok(index.stepPaths.timeline);
     assert.ok(index.stepPaths.index);
     assert.equal(index.latestToolResults.length, 0);
+    assert.equal(index.latestVectorMatches?.[0]?.path, "src/auth.ts");
     assert.equal(index.execution?.failure?.class, "paused");
     assert.equal(iterationManifest.toolResults.length, 1);
     assert.equal(iterationManifest.toolResults[0]?.name, "lint");
+    assert.equal(planManifest.vectorMatches?.[0]?.path, "src/auth.ts");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -381,7 +399,7 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
       task: "Update auth session handling",
       decision: implementationDecision
     });
-    const artifacts = finalizeArtifactState(state, result, false, toolResults, execution);
+    const artifacts = finalizeArtifactState(state, result, false, toolResults, [], execution);
     await persistRunState(state, {
       status: "failed",
       task: "Update auth session handling",

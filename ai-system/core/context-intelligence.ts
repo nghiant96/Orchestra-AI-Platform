@@ -44,7 +44,7 @@ export async function expandContextReadFiles({
     const indexed = await vectorIndex.indexWorkspace();
     logger?.info(`Indexed ${indexed.fileCount} file(s) into ${indexed.chunkCount} semantic chunk(s).`);
     vectorMatches = await vectorIndex.search(
-      [task, prompt, ...(initialReadFiles ?? []), ...(writeTargets ?? [])].filter(Boolean).join("\n"),
+      [task, prompt, ...(initialReadFiles ?? [])].filter(Boolean).join("\n"),
       rules.vector_search?.max_results
     );
   }

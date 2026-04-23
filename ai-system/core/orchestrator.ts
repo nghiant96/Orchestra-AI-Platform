@@ -158,6 +158,7 @@ export class Orchestrator {
         task,
         rawPlan,
         plan,
+        vectorMatches: contextExpansion.vectorMatches,
         provider: runtime.plannerProvider.id,
         durationMs: plannerStep.durationMs
       },

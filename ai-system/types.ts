@@ -316,6 +316,7 @@ export interface ArtifactSummary {
   stepPaths: Record<string, string>;
   latestFiles: string[];
   latestToolResults?: ToolExecutionResult[];
+  latestVectorMatches?: VectorSearchMatch[];
   execution?: ExecutionSummary | null;
 }
 

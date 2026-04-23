@@ -182,6 +182,7 @@ Recommended config workflow:
 - Use `ai runs latest` to inspect the latest artifact-backed run summary quickly, including execution time, failure class, and step durations
 - Use `ai runs list` to browse recent artifact-backed runs
 - Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
+- `ai runs latest/show` will also surface persisted semantic vector matches when Phase B context expansion is active for that run
 - Add `--json` to `ai runs ...`, `ai review`, or `ai apply --from-artifact` when you want machine-readable output
 - Add `--save /path/to/file.json` together with `--json` when you want the CLI to write the payload directly to disk for automation/reporting
 - Example reporting flow:

@@ -3,6 +3,15 @@
     "enabled": true,
     "backend": "openmemory"
   },
+  "vector_search": {
+    "enabled": true,
+    "data_dir": ".ai-system-vector",
+    "max_results": 4,
+    "max_indexed_files": 200,
+    "max_file_bytes": 65536,
+    "chunk_size": 1200,
+    "chunk_overlap": 200
+  },
   "routing": {
     "enabled": false
   },

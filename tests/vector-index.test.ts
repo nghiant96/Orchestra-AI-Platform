@@ -106,3 +106,61 @@ test("expandContextReadFiles adds vector-matched files even when planner misses 
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
 });
+
+test("VectorIndex prefers code files over roadmap docs for implementation queries", async () => {
+  const repoRoot = await createTempRepo({
+    "ai-system/core/tool-executor.ts":
+      "export function buildToolInvocation() { return 'docker sandbox passthrough env'; }\n",
+    "tasks/roadmap-v2.md":
+      "# Roadmap\nImprove docker sandbox passthrough and semantic vector search for future work.\n",
+    "README.md":
+      "Docker sandbox passthrough notes and high level setup instructions.\n"
+  });
+
+  try {
+    const rules = createRules();
+    const index = new VectorIndex({
+      repoRoot,
+      rules,
+      config: rules.vector_search
+    });
+
+    await index.indexWorkspace();
+    const matches = await index.search("Fix docker sandbox passthrough environment variables", 3);
+
+    assert.equal(matches[0]?.path, "ai-system/core/tool-executor.ts");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("VectorIndex ignores internal artifact and vector index directories", async () => {
+  const repoRoot = await createTempRepo({
+    "ai-system/core/tool-executor.ts": "export function buildToolInvocation() { return 'docker env'; }\n",
+    ".ai-system-artifacts/run-1/01-plan/plan.json": JSON.stringify({ task: "Fix docker sandbox env" }, null, 2),
+    ".ai-system-vector/index.json": JSON.stringify({ stale: true }, null, 2)
+  });
+
+  try {
+    const rules = createRules({
+      artifacts: {
+        enabled: true,
+        data_dir: ".ai-system-artifacts"
+      }
+    });
+    const index = new VectorIndex({
+      repoRoot,
+      rules,
+      config: rules.vector_search
+    });
+
+    await index.indexWorkspace();
+    const matches = await index.search("Fix docker sandbox environment variables", 5);
+
+    assert.equal(matches.some((match) => match.path.startsWith(".ai-system-artifacts/")), false);
+    assert.equal(matches.some((match) => match.path.startsWith(".ai-system-vector/")), false);
+    assert.equal(matches[0]?.path, "ai-system/core/tool-executor.ts");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});

@@ -104,7 +104,7 @@ export class VectorIndex {
   }
 
   async indexWorkspace(): Promise<{ fileCount: number; chunkCount: number }> {
-    const candidates = await collectCandidateFiles(this.repoRoot, this.rules, this.config.max_indexed_files);
+    const candidates = await collectCandidateFiles(this.repoRoot, this.rules, this.config.data_dir, this.config.max_indexed_files);
     const existingSnapshot = await this.readSnapshot();
     const existingFiles = new Map(existingSnapshot?.files.map((entry) => [entry.path, entry]));
     const files: IndexedFileRecord[] = [];
@@ -209,8 +209,17 @@ export class VectorIndex {
   }
 }
 
-async function collectCandidateFiles(repoRoot: string, rules: RulesConfig, maxIndexedFiles: number): Promise<string[]> {
+async function collectCandidateFiles(
+  repoRoot: string,
+  rules: RulesConfig,
+  vectorDataDir: string,
+  maxIndexedFiles: number
+): Promise<string[]> {
   const entries: string[] = [];
+  const internalExcludedDirs = new Set([
+    rules.artifacts?.data_dir ?? ".ai-system-artifacts",
+    vectorDataDir || ".ai-system-vector"
+  ]);
   await walk(repoRoot, "");
   return entries.slice(0, maxIndexedFiles);
 
@@ -220,7 +229,7 @@ async function collectCandidateFiles(repoRoot: string, rules: RulesConfig, maxIn
 
     for (const item of items) {
       const relativePath = toPosixPath(path.posix.join(relativeDir, item.name));
-      if (shouldSkipPath(relativePath, rules)) {
+      if (shouldSkipPath(relativePath, rules) || isInternalIndexPath(relativePath, internalExcludedDirs)) {
         continue;
       }
 
@@ -234,6 +243,20 @@ async function collectCandidateFiles(repoRoot: string, rules: RulesConfig, maxIn
       }
     }
   }
+}
+
+function isInternalIndexPath(relativePath: string, internalExcludedDirs: Set<string>): boolean {
+  const normalized = toPosixPath(relativePath).replace(/\/+$/, "");
+  for (const entry of internalExcludedDirs) {
+    const candidate = toPosixPath(String(entry || "")).replace(/\/+$/, "");
+    if (!candidate) {
+      continue;
+    }
+    if (normalized === candidate || normalized.startsWith(`${candidate}/`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function buildChunkRecords({
@@ -336,7 +359,7 @@ function scoreChunk(chunk: VectorChunkRecord, queryTokens: Set<string>, queryEmb
   }
 
   const semanticScore = queryEmbedding && chunk.embedding ? cosineSimilarity(queryEmbedding, chunk.embedding) * 8 : 0;
-  return keywordScore + semanticScore;
+  return keywordScore + semanticScore + scorePathWeight(chunk.path);
 }
 
 function tokenize(text: string): Set<string> {
@@ -352,6 +375,33 @@ function tokenize(text: string): Set<string> {
 function buildPreview(text: string): string {
   const flattened = text.replace(/\s+/g, " ").trim();
   return flattened.length <= 220 ? flattened : `${flattened.slice(0, 217)}...`;
+}
+
+function scorePathWeight(relativePath: string): number {
+  const normalizedPath = toPosixPath(relativePath);
+  const extension = path.extname(normalizedPath).toLowerCase();
+
+  if (normalizedPath.startsWith("ai-system/core/") || normalizedPath.startsWith("docker/")) {
+    return 4;
+  }
+
+  if (normalizedPath.startsWith("ai-system/") || normalizedPath.startsWith("src/") || normalizedPath.startsWith("packages/")) {
+    return 2;
+  }
+
+  if (normalizedPath.startsWith("tests/")) {
+    return 1;
+  }
+
+  if (normalizedPath === "README.md" || normalizedPath.startsWith("docs/") || normalizedPath.startsWith("tasks/")) {
+    return -4;
+  }
+
+  if (extension === ".md" || extension === ".mdx") {
+    return -3;
+  }
+
+  return 0;
 }
 
 function numberOrDefault(value: unknown, fallback: number): number {

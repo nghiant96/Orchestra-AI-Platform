@@ -1766,6 +1766,7 @@ function summarizeToolResults(results: Array<{ ok: boolean; skipped: boolean }>)
 function printRecentRunSummary(summary: RecentRunSummary): void {
   const status = summary.runState.status ?? summary.artifactIndex?.latestStatus ?? "(unknown)";
   const latestToolResults = summary.runState.latestToolResults ?? summary.artifactIndex?.latestToolResults ?? [];
+  const latestVectorMatches = summary.runState.latestVectorMatches ?? summary.artifactIndex?.latestVectorMatches ?? [];
   const issueCounts = summary.runState.issueCounts ?? summarizeIssueCountsFromIssues(summary.runState.finalIssues ?? []);
   const changedFiles = summary.runState.result?.files?.map((file) => file.path) ?? summary.artifactIndex?.latestFiles ?? [];
   const execution = summary.runState.execution ?? summary.artifactIndex?.execution ?? null;
@@ -1817,6 +1818,12 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
       console.log(
         `  - ${tool.name}: ${tool.skipped ? "skipped" : tool.ok ? "passed" : "failed"} (${tool.durationMs}ms)${tool.scope ? ` [scope=${tool.scope}]` : ""}${tool.sandboxMode ? ` [sandbox=${tool.sandboxMode}]` : ""}${tool.workingDirectory ? ` [cwd=${tool.workingDirectory}]` : ""}${tool.command ? ` -> ${tool.command}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}` : ""}`
       );
+    }
+  }
+  if (latestVectorMatches.length > 0) {
+    console.log("- semantic matches:");
+    for (const match of latestVectorMatches) {
+      console.log(`  - ${match.path}:${match.startLine}-${match.endLine} (score=${match.score.toFixed(3)})`);
     }
   }
   if (summary.runState.latestReviewSummary) {

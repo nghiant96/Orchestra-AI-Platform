@@ -2,4 +2,5 @@
 .env
 .ai-system-memory/
 .ai-system-artifacts/
+.ai-system-vector/
 *.yaml
