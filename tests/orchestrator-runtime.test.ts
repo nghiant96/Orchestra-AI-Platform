@@ -328,6 +328,78 @@ test("adaptive routing favors the fast profile when recent docs reviews succeed 
   });
 });
 
+test("adaptive routing penalizes slower and costlier reviewers when quality is otherwise equal", async () => {
+  await withEnv({}, async () => {
+    const rules = createRules();
+    const repoRoot = await createTempRepo();
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T12-00-00-000Z-c11111",
+      status: "completed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "claude-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"],
+      providerMetrics: [
+        { provider: "claude-cli", role: "reviewer", totalDurationMs: 9000, estimatedCostUnits: 12 }
+      ]
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T12-05-00-000Z-c22222",
+      status: "completed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "gemini-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"],
+      providerMetrics: [
+        { provider: "gemini-cli", role: "reviewer", totalDurationMs: 1200, estimatedCostUnits: 1.5 }
+      ]
+    });
+    await seedAdaptiveRun(repoRoot, rules, {
+      runName: "run-2026-04-23T12-10-00-000Z-c33333",
+      status: "completed",
+      task: "Refactor shared service helpers",
+      providers: {
+        planner: "gemini-cli",
+        reviewer: "gemini-cli",
+        generator: "codex-cli",
+        fixer: "codex-cli"
+      },
+      latestFiles: ["src/shared/service.ts"],
+      providerMetrics: [
+        { provider: "gemini-cli", role: "reviewer", totalDurationMs: 1000, estimatedCostUnits: 1.4 }
+      ]
+    });
+
+    const decision = await buildRoutingDecision({
+      repoRoot,
+      rules,
+      task: "Refactor shared service helpers",
+      stage: "implementation",
+      plan: {
+        prompt: "Refactor shared service helpers",
+        readFiles: ["src/shared/service.ts"],
+        writeTargets: ["src/shared/service.ts"],
+        notes: []
+      }
+    });
+
+    try {
+      assert.equal(decision.roleProviders.reviewer, "gemini-cli");
+      assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+});
+
 async function withEnv(env: Record<string, string>, callback: () => Promise<void>): Promise<void> {
   const keys = [
     "AI_SYSTEM_PROVIDER",
@@ -381,7 +453,8 @@ async function seedAdaptiveRun(
     providers,
     latestFiles,
     issueCounts = { high: 0, medium: 0, low: 0 },
-    failureClass = null
+    failureClass = null,
+    providerMetrics = []
   }: {
     runName: string;
     status: string;
@@ -390,6 +463,7 @@ async function seedAdaptiveRun(
     latestFiles: string[];
     issueCounts?: Record<string, number>;
     failureClass?: string | null;
+    providerMetrics?: Array<{ provider: string; role: "planner" | "reviewer" | "generator" | "fixer"; totalDurationMs: number; estimatedCostUnits: number }>;
   }
 ): Promise<void> {
   const runDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts", runName);
@@ -408,6 +482,7 @@ async function seedAdaptiveRun(
         execution: {
           totalDurationMs: 100,
           steps: [],
+          providerMetrics,
           failure: failureClass ? { class: failureClass, reason: failureClass } : null
         }
       },

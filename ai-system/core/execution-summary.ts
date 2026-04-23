@@ -2,10 +2,13 @@ import type {
   ExecutionStepStatus,
   ExecutionStepSummary,
   ExecutionStage,
+  ExecutionProviderMetric,
   ExecutionTransition,
   ExecutionSummary,
   FailureSummary,
   IterationResult,
+  ProviderSummary,
+  RetryHint,
   ReviewIssue,
   RunStatus,
   ToolExecutionResult
@@ -52,6 +55,8 @@ export function buildExecutionSummary({
   steps,
   transitions,
   currentStage,
+  retryHint,
+  providers,
   finalIssues = [],
   latestToolResults = [],
   iterations = []
@@ -60,6 +65,8 @@ export function buildExecutionSummary({
   steps?: ExecutionStepSummary[];
   transitions?: ExecutionTransition[];
   currentStage?: ExecutionStage | null;
+  retryHint?: RetryHint | null;
+  providers?: ProviderSummary | null;
   finalIssues?: ReviewIssue[];
   latestToolResults?: ToolExecutionResult[];
   iterations?: IterationResult[];
@@ -79,7 +86,9 @@ export function buildExecutionSummary({
       finalIssues,
       latestToolResults,
       iterations
-    })
+    }),
+    retryHint: retryHint ?? null,
+    providerMetrics: providers ? buildProviderMetrics(normalizedSteps, providers) : []
   };
 }
 
@@ -104,6 +113,79 @@ function deriveTerminalStage(transitions: ExecutionTransition[]): ExecutionStage
     }
   }
   return null;
+}
+
+const STAGE_ROLE_MAP: Partial<Record<ExecutionStage, keyof ProviderSummary>> = {
+  planner: "planner",
+  "iteration-generate": "generator",
+  "iteration-fix": "fixer",
+  "iteration-review": "reviewer"
+};
+
+const PROVIDER_COST_UNITS: Record<string, number> = {
+  "codex-cli": 1,
+  "gemini-cli": 1.1,
+  "claude-cli": 1.5
+};
+
+function buildProviderMetrics(steps: ExecutionStepSummary[], providers: ProviderSummary): ExecutionProviderMetric[] {
+  const metrics = new Map<string, ExecutionProviderMetric>();
+
+  for (const step of steps) {
+    const stage = normalizeExecutionStage(step.name);
+    const role = stage ? STAGE_ROLE_MAP[stage] : undefined;
+    if (!stage || !role) {
+      continue;
+    }
+
+    const provider = providers[role];
+    if (!provider) {
+      continue;
+    }
+
+    const key = `${role}:${provider}`;
+    const metric =
+      metrics.get(key) ??
+      {
+        provider,
+        role,
+        stages: [],
+        totalDurationMs: 0,
+        estimatedCostUnits: 0
+      };
+    if (!metric.stages.includes(stage)) {
+      metric.stages.push(stage);
+    }
+    metric.totalDurationMs += Math.max(0, step.durationMs || 0);
+    metric.estimatedCostUnits += resolveCostUnits(provider, step.durationMs);
+    metrics.set(key, metric);
+  }
+
+  return [...metrics.values()];
+}
+
+function normalizeExecutionStage(stepName: string): ExecutionStage | null {
+  if (!stepName) {
+    return null;
+  }
+  if (stepName.startsWith("iteration-generate")) {
+    return "iteration-generate";
+  }
+  if (stepName.startsWith("iteration-fix")) {
+    return "iteration-fix";
+  }
+  if (stepName.startsWith("iteration-review")) {
+    return "iteration-review";
+  }
+  if (stepName === "planner") {
+    return "planner";
+  }
+  return null;
+}
+
+function resolveCostUnits(provider: string, durationMs: number): number {
+  const baseUnit = PROVIDER_COST_UNITS[provider] ?? 1;
+  return Number(((Math.max(0, durationMs) / 1000) * baseUnit).toFixed(3));
 }
 
 function classifyRunFailure({

@@ -131,6 +131,7 @@ Delivered:
   - `transitions`
   - `currentStage`
   - `terminalStage`
+- stage-targeted retry hints persisted into failed runs so resume can restart from `iteration-tools`, `iteration-fix`, `write-files`, or `memory-store` instead of replaying the whole flow
 - orchestrator and generation loop now drive:
   - planning routing
   - context loading
@@ -141,6 +142,7 @@ Delivered:
   - memory store
   through the state machine instead of raw step logging
 - CLI run summaries now surface execution stage information directly
+- failed runs can now be resumed from targeted stages when enough state was persisted
 
 ## Phase E: Platform Orchestration
 

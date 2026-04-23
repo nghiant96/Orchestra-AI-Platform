@@ -1,10 +1,10 @@
-- [x] Define explicit execution state machine contract and migrate execution summary to stage-driven data
-- [x] Persist stage transitions into artifacts/timeline while keeping resume compatibility with existing run-state readers
-- [x] Refactor orchestrator and run executor to drive planning/context/generate/check/review/write/store through state machine helpers
-- [x] Add regression tests for stage transitions, pause/resume compatibility, and CLI-visible execution stages
+- [x] Add stage-targeted retry/resume semantics on top of the execution state machine
+- [x] Persist retry hints for failed runs so resume can restart from the last viable stage instead of replaying the whole loop
+- [x] Add per-stage/provider latency and estimated cost accounting and feed it into adaptive routing
+- [x] Add regression tests for failed-stage resume and cost/latency-aware routing, then verify with typecheck and full test suite
 
 Review/result:
-- Execution flow is now driven by an explicit state machine instead of implicit step logging. The new contract records entered/completed/failed/paused/cancelled transitions and carries `currentStage` / `terminalStage` in `ExecutionSummary`.
-- Live runs now append execution-stage transition events to artifact timelines as they happen, while `run-state.json` and CLI summaries expose the richer execution state without breaking older summaries that only had step logs.
-- `run-executor` now models generation, fix, tool checks, review, write, and memory-store as separate execution stages, and `orchestrator` uses the same state machine for planning/context/resume flow. This makes the next step toward partial retry/resume much cleaner.
-- Verified with `pnpm exec tsc --noEmit`, `pnpm test`, and `node --import tsx ./bin/ai.js --help`.
+- Failed runs now persist `execution.retryHint`, and `resume()` accepts retryable failed runs in addition to paused runs. The resume path can now restart directly from saved stages like `iteration-tools`, `iteration-fix`, `write-files`, and `memory-store` when enough state exists.
+- Unexpected mid-run failures no longer just bubble out and disappear. They are persisted as failed run states with explicit retry hints, which makes the new state machine materially useful instead of just descriptive.
+- Execution summaries now include provider-level metrics derived from stage timings. Adaptive routing uses those metrics to penalize providers that are materially slower or more expensive when quality is otherwise comparable.
+- Verified with `pnpm exec tsc --noEmit`, `pnpm test`, `node --import tsx --test tests/orchestrator.resume.test.ts tests/orchestrator-runtime.test.ts tests/execution-state-machine.test.ts tests/artifacts.test.ts`, and `node --import tsx ./bin/ai.js --help`.

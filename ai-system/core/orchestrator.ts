@@ -15,6 +15,7 @@ import type {
   MemoryStats,
   OrchestratorResult,
   PlanResult,
+  RetryHint,
   ReviewIssue
 } from "../types.js";
 import {
@@ -33,9 +34,11 @@ import { loadOrchestratorRuntime, loadRules, rerouteRuntimeForPlan } from "./orc
 import {
   createExecutionStateMachine,
   executeGenerationLoop,
+  finalizeErroredRun,
   finalizeFailedRun,
   finalizeSuccessfulRun,
   loadImplementationMemoryContext,
+  type LoopExecutionState,
   readAndPersistContext
 } from "./run-executor.js";
 import { buildExecutionSummary } from "./execution-summary.js";
@@ -256,6 +259,7 @@ export class Orchestrator {
           status: "cancelled",
           steps: executionMachine.getSteps(),
           transitions: executionMachine.getTransitions(),
+          providers: implementationRuntime.providerSummary,
           finalIssues: [],
           latestToolResults: [],
           iterations: []
@@ -281,70 +285,97 @@ export class Orchestrator {
       }
     }
 
-    const implementationMemoryStep = await executionMachine.runStage(
-      "implementation-memory",
-      async () => await loadImplementationMemoryContext(implementationRuntime.memory, task, plan, memoryStats, this.logger),
-      { detail: "Loaded implementation memories." }
-    );
-    const implementationMemoryContext = implementationMemoryStep.result;
-    const contextStep = await executionMachine.runStage(
-      "context",
-      async () => await readAndPersistContext(repoRoot, plan, rules, artifactState, this.logger),
-      { detail: `Read ${plan.readFiles.length} context file(s).` }
-    );
-    const { contextFiles, skippedFiles } = contextStep.result;
+    let skippedFiles: string[] = [];
+    let workingState: LoopExecutionState = {
+      currentResult: null,
+      acceptedIssues: [],
+      latestReviewSummary: "",
+      iterationResults: [],
+      latestToolResults: [],
+      executionMachine
+    };
 
-    const loopExecution = await executeGenerationLoop({
-      startIteration: 1,
-      task,
-      dryRun,
-      pauseAfterPlan,
-      pauseAfterGenerate,
-      repoRoot,
-      configPath,
-      plan,
-      skippedFiles,
-      implementationMemoryContext,
-      runtime: implementationRuntime,
-      memoryStats,
-      artifactState,
-      initialState: {
-        currentResult: null,
-        acceptedIssues: [],
-        latestReviewSummary: "",
-        iterationResults: [],
-        latestToolResults: [],
-        executionMachine
-      },
-      contextFiles,
-      rules,
-      logger: this.logger,
-      confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
-      successResultStatus: undefined,
-      successPersistedStatus: "completed"
-    });
+    try {
+      const implementationMemoryStep = await executionMachine.runStage(
+        "implementation-memory",
+        async () => await loadImplementationMemoryContext(implementationRuntime.memory, task, plan, memoryStats, this.logger),
+        { detail: "Loaded implementation memories." }
+      );
+      const implementationMemoryContext = implementationMemoryStep.result;
+      const contextStep = await executionMachine.runStage(
+        "context",
+        async () => await readAndPersistContext(repoRoot, plan, rules, artifactState, this.logger),
+        { detail: `Read ${plan.readFiles.length} context file(s).` }
+      );
+      const { contextFiles } = contextStep.result;
+      skippedFiles = contextStep.result.skippedFiles;
 
-    if (loopExecution.result) {
-      return loopExecution.result;
+      const loopExecution = await executeGenerationLoop({
+        startIteration: 1,
+        task,
+        dryRun,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        repoRoot,
+        configPath,
+        plan,
+        skippedFiles,
+        implementationMemoryContext,
+        runtime: implementationRuntime,
+        memoryStats,
+        artifactState,
+        initialState: workingState,
+        contextFiles,
+        rules,
+        logger: this.logger,
+        confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
+        successResultStatus: undefined,
+        successPersistedStatus: "completed"
+      });
+      workingState = loopExecution.state;
+
+      if (loopExecution.result) {
+        return loopExecution.result;
+      }
+
+      return finalizeFailedRun({
+        task,
+        dryRun,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        repoRoot,
+        configPath,
+        plan,
+        skippedFiles,
+        runtime: implementationRuntime,
+        memoryStats,
+        artifactState,
+        state: loopExecution.state,
+        retryHint: createIterationLimitRetryHint(loopExecution.state),
+        resultStatus: undefined,
+        persistedStatus: "failed",
+        logger: this.logger
+      });
+    } catch (error) {
+      const normalized = error as Error;
+      this.logger.error(normalized.message);
+      return await finalizeErroredRun({
+        task,
+        dryRun,
+        pauseAfterPlan,
+        pauseAfterGenerate,
+        repoRoot,
+        configPath,
+        plan,
+        skippedFiles,
+        runtime: implementationRuntime,
+        memoryStats,
+        artifactState,
+        state: workingState,
+        retryHint: createRetryHintFromState(workingState, normalized),
+        logger: this.logger
+      });
     }
-
-    return finalizeFailedRun({
-      task,
-      dryRun,
-      pauseAfterPlan,
-      pauseAfterGenerate,
-      repoRoot,
-      configPath,
-      plan,
-      skippedFiles,
-      runtime: implementationRuntime,
-      memoryStats,
-      artifactState,
-      state: loopExecution.state,
-      resultStatus: undefined,
-      persistedStatus: "failed",
-      logger: this.logger
-    });
   }
 
   async resume(resumeTarget: string): Promise<OrchestratorResult> {
@@ -355,8 +386,8 @@ export class Orchestrator {
 
     const statePath = await resolveResumeStatePath(repoRoot, rules, resumeTarget);
     const saved = JSON.parse(await fs.readFile(statePath, "utf8")) as PersistedRunState;
-    if (!saved?.status || !String(saved.status).startsWith("paused_")) {
-      throw new Error(`Resume target is not a paused run state: ${statePath}`);
+    if (!saved?.status || !isResumableRunStatus(saved.status, saved.execution?.retryHint ?? null)) {
+      throw new Error(`Resume target is not resumable: ${statePath}`);
     }
 
     const task = saved.task ?? "";
@@ -376,6 +407,7 @@ export class Orchestrator {
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
     const executionMachine = createExecutionStateMachine(artifactState, saved.execution ?? null);
+    const resumeStrategy = resolveResumeStrategy(saved, currentResult, acceptedIssues, iterationResults);
     await executionMachine.runStage(
       "routing-planning",
       async () => {
@@ -450,7 +482,7 @@ export class Orchestrator {
       iterationResults = [];
     }
 
-    if (saved.status === "paused_after_generate" && currentResult && !hasBlockingIssues(acceptedIssues)) {
+    if ((saved.status === "paused_after_generate" || resumeStrategy.kind === "finalize-success") && currentResult && !hasBlockingIssues(acceptedIssues)) {
       return finalizeSuccessfulRun({
         task,
         dryRun,
@@ -471,14 +503,55 @@ export class Orchestrator {
           latestToolResults: saved.latestToolResults ?? [],
           executionMachine
         },
+        startAtStage: resumeStrategy.kind === "finalize-success" ? resumeStrategy.stage : "write-files",
         resultStatus: "resumed_completed",
         persistedStatus: "resumed_completed",
         logger: this.logger
       });
     }
 
+    if (resumeStrategy.kind === "finalize-failure") {
+      return finalizeFailedRun({
+        task,
+        dryRun,
+        pauseAfterPlan: false,
+        pauseAfterGenerate,
+        repoRoot,
+        configPath,
+        plan,
+        skippedFiles,
+        runtime,
+        memoryStats,
+        artifactState,
+        state: {
+          currentResult,
+          acceptedIssues,
+          latestReviewSummary,
+          iterationResults,
+          latestToolResults: saved.latestToolResults ?? [],
+          executionMachine
+        },
+        retryHint: saved.execution?.retryHint ?? createIterationLimitRetryHint({
+          currentResult,
+          acceptedIssues,
+          latestReviewSummary,
+          iterationResults,
+          latestToolResults: saved.latestToolResults ?? [],
+          executionMachine
+        }),
+        startAtStage: resumeStrategy.stage,
+        resultStatus: "failed",
+        persistedStatus: "failed",
+        logger: this.logger
+      });
+    }
+
+    if (resumeStrategy.kind !== "loop") {
+      throw new Error("Unexpected non-loop resume strategy reached generation loop.");
+    }
+
     const loopExecution = await executeGenerationLoop({
-      startIteration: currentResult ? iterationResults.length + 1 : 1,
+      startIteration: resumeStrategy.startIteration,
       task,
       dryRun,
       pauseAfterPlan: false,
@@ -503,6 +576,7 @@ export class Orchestrator {
       rules,
       logger: this.logger,
       confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
+      resumeFromStage: resumeStrategy.resumeFromStage,
       successResultStatus: "resumed_completed",
       successPersistedStatus: "resumed_completed"
     });
@@ -524,12 +598,132 @@ export class Orchestrator {
       memoryStats,
       artifactState,
       state: loopExecution.state,
+      retryHint: createIterationLimitRetryHint(loopExecution.state),
       resultStatus: "failed",
       persistedStatus: "failed",
       logger: this.logger
     });
   }
 
+}
+
+function isResumableRunStatus(status: string, retryHint: RetryHint | null): boolean {
+  return status.startsWith("paused_") || (status === "failed" && !!retryHint);
+}
+
+function createIterationLimitRetryHint(state: LoopExecutionState): RetryHint | null {
+  if (!state.currentResult || !hasBlockingIssues(state.acceptedIssues)) {
+    return null;
+  }
+
+  return {
+    stage: "iteration-fix",
+    iteration: state.iterationResults.length + 1,
+    reason: "Retry the next fix iteration using the latest candidate and review issues."
+  };
+}
+
+function createRetryHintFromState(state: LoopExecutionState, error: Error): RetryHint {
+  const transitions = state.executionMachine.getTransitions();
+  const lastFailedTransition = [...transitions].reverse().find((entry) => entry.status === "failed");
+  const failedStage = lastFailedTransition?.stage ?? "failure";
+  const failedIteration = lastFailedTransition?.iteration;
+
+  if (failedStage === "iteration-review" || failedStage === "iteration-tools") {
+    return {
+      stage: "iteration-tools",
+      iteration: failedIteration ?? Math.max(1, state.iterationResults.length),
+      reason: error.message
+    };
+  }
+
+  if (failedStage === "iteration-generate" || failedStage === "iteration-fix") {
+    return {
+      stage: failedStage,
+      iteration:
+        failedIteration ??
+        Math.max(1, state.iterationResults.length + (failedStage === "iteration-fix" ? 1 : 0)),
+      reason: error.message
+    };
+  }
+
+  if (failedStage === "write-files" || failedStage === "memory-store" || failedStage === "context" || failedStage === "implementation-memory") {
+    return {
+      stage: failedStage,
+      reason: error.message
+    };
+  }
+
+  return {
+    stage: "iteration-generate",
+    iteration: state.iterationResults.length + 1,
+    reason: error.message
+  };
+}
+
+function resolveResumeStrategy(
+  saved: PersistedRunState,
+  currentResult: FileGenerationResult | null,
+  acceptedIssues: ReviewIssue[],
+  iterationResults: IterationResult[]
+):
+  | { kind: "loop"; startIteration: number; resumeFromStage?: "iteration-generate" | "iteration-tools" }
+  | { kind: "finalize-success"; stage: "write-files" | "memory-store" }
+  | { kind: "finalize-failure"; stage: "memory-store" } {
+  const blockingIssues = hasBlockingIssues(acceptedIssues);
+  if (saved.status === "paused_after_plan") {
+    return { kind: "loop", startIteration: 1 };
+  }
+
+  if (saved.status === "paused_after_generate") {
+    if (currentResult && !blockingIssues) {
+      return { kind: "finalize-success", stage: "write-files" };
+    }
+    return {
+      kind: "loop",
+      startIteration: currentResult ? iterationResults.length + 1 : 1,
+      resumeFromStage: "iteration-generate"
+    };
+  }
+
+  const retryHint = saved.execution?.retryHint;
+  if (!retryHint) {
+    return {
+      kind: "loop",
+      startIteration: currentResult ? iterationResults.length + 1 : 1,
+      resumeFromStage: currentResult ? "iteration-generate" : undefined
+    };
+  }
+
+  if (retryHint.stage === "write-files") {
+    return { kind: "finalize-success", stage: "write-files" };
+  }
+
+  if (retryHint.stage === "memory-store") {
+    return blockingIssues ? { kind: "finalize-failure", stage: "memory-store" } : { kind: "finalize-success", stage: "memory-store" };
+  }
+
+  if (retryHint.stage === "iteration-tools" || retryHint.stage === "iteration-review") {
+    return {
+      kind: "loop",
+      startIteration: retryHint.iteration ?? Math.max(1, iterationResults.length),
+      resumeFromStage: "iteration-tools"
+    };
+  }
+
+  if (retryHint.stage === "iteration-generate" || retryHint.stage === "iteration-fix") {
+    return {
+      kind: "loop",
+      startIteration: retryHint.iteration ?? Math.max(1, currentResult ? iterationResults.length + 1 : 1),
+      resumeFromStage: "iteration-generate"
+    };
+  }
+
+  return {
+    kind: "loop",
+    startIteration: currentResult ? iterationResults.length + 1 : 1,
+    resumeFromStage: currentResult ? "iteration-generate" : undefined
+  };
 }
 
 async function safelySearchMemory(memory: MemoryAdapter, payload: Parameters<MemoryAdapter["searchRelevant"]>[0], logger?: Logger) {

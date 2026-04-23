@@ -161,6 +161,7 @@ export function buildStoppedResult({
     status,
     steps: executionSteps,
     transitions: executionTransitions,
+    providers,
     finalIssues,
     latestToolResults,
     iterations
@@ -549,6 +550,7 @@ export async function persistRunState(
             status: payload.status ?? (payload.ok ? "completed" : "failed"),
             steps: payload.executionSteps ?? [],
             transitions: payload.executionTransitions ?? [],
+            providers: payload.providers,
             finalIssues: payload.finalIssues ?? [],
             latestToolResults: payload.latestToolResults ?? [],
             iterations: payload.iterations ?? []
@@ -567,6 +569,7 @@ export async function persistRunState(
         status: payload.status ?? (payload.ok ? "completed" : "failed"),
         steps: payload.executionSteps ?? [],
         transitions: payload.executionTransitions ?? [],
+        providers: payload.providers,
         finalIssues: payload.finalIssues ?? [],
         latestToolResults: payload.latestToolResults ?? [],
         iterations: payload.iterations ?? []

@@ -26,7 +26,9 @@ const DEFAULT_ADAPTIVE_CONFIG = {
   reviewer_weight: 1.5,
   generator_weight: 0.75,
   fixer_weight: 0.75,
-  role_override_threshold: 1.5
+  role_override_threshold: 1.5,
+  latency_weight: 0.15,
+  cost_weight: 0.1
 } as const;
 const DEFAULT_FAST_KEYWORDS = [
   "readme",
@@ -150,6 +152,7 @@ interface AdaptiveRunRecord {
   task: string;
   latestFiles: string[];
   providers: Partial<Record<ProviderRole, string>>;
+  providerMetrics: Partial<Record<ProviderRole, { durationMs: number; estimatedCostUnits: number }>>;
   success: boolean;
   category: "docs" | "risky" | "general";
 }
@@ -159,6 +162,8 @@ interface AdaptiveProviderStat {
   samples: number;
   successes: number;
   failures: number;
+  totalDurationMs: number;
+  totalCostUnits: number;
 }
 
 interface AdaptiveRoutingInsights {
@@ -178,6 +183,8 @@ interface AdaptiveRoutingConfigShape {
   generator_weight: number;
   fixer_weight: number;
   role_override_threshold: number;
+  latency_weight: number;
+  cost_weight: number;
 }
 
 export async function buildRoutingDecision({
@@ -365,7 +372,7 @@ async function buildAdaptiveRoutingInsights({
     };
   }
 
-  const roleStats = buildAdaptiveRoleStats(relevantRuns, adaptive.failure_weight);
+  const roleStats = buildAdaptiveRoleStats(relevantRuns, adaptive);
   const profileScores = buildAdaptiveProfileScores(rules, stage, roleStats, adaptive);
   const profileSignal = createAdaptiveProfileSignal(category, relevantRuns.length, profileScores);
   return {
@@ -572,7 +579,7 @@ function collectRoutingKeywords(routing: RoutingConfig, profileName: "fast" | "s
 
 function buildAdaptiveRoleStats(
   runs: AdaptiveRunRecord[],
-  failureWeight: number
+  adaptive: AdaptiveRoutingConfigShape
 ): Partial<Record<ProviderRole, Record<string, AdaptiveProviderStat>>> {
   const stats: Partial<Record<ProviderRole, Record<string, AdaptiveProviderStat>>> = {};
 
@@ -583,15 +590,27 @@ function buildAdaptiveRoleStats(
         continue;
       }
       const roleStats = (stats[role] ??= {});
-      const providerStats = (roleStats[providerType] ??= { score: 0, samples: 0, successes: 0, failures: 0 });
+      const providerStats = (roleStats[providerType] ??= {
+        score: 0,
+        samples: 0,
+        successes: 0,
+        failures: 0,
+        totalDurationMs: 0,
+        totalCostUnits: 0
+      });
+      const metric = run.providerMetrics[role] ?? { durationMs: 0, estimatedCostUnits: 0 };
       providerStats.samples += 1;
+      providerStats.totalDurationMs += metric.durationMs;
+      providerStats.totalCostUnits += metric.estimatedCostUnits;
       if (run.success) {
         providerStats.successes += 1;
         providerStats.score += 1;
       } else {
         providerStats.failures += 1;
-        providerStats.score -= failureWeight;
+        providerStats.score -= adaptive.failure_weight;
       }
+      providerStats.score -= (metric.durationMs / 1000) * adaptive.latency_weight;
+      providerStats.score -= metric.estimatedCostUnits * adaptive.cost_weight;
     }
   }
 
@@ -740,7 +759,17 @@ async function loadAdaptiveRunHistory(repoRoot: string, rules: RulesConfig, look
         providers?: Partial<Record<ProviderRole, string>>;
         result?: { files?: Array<{ path?: string }> } | null;
         artifacts?: { latestFiles?: string[] } | null;
-        execution?: { failure?: { class?: string | null } | null } | null;
+        execution?:
+          | {
+              failure?: { class?: string | null } | null;
+              providerMetrics?: Array<{
+                provider?: string;
+                role?: ProviderRole;
+                totalDurationMs?: number;
+                estimatedCostUnits?: number;
+              }>;
+            }
+          | null;
         issueCounts?: Record<string, number>;
       };
       const status = String(parsed.status || "");
@@ -758,10 +787,22 @@ async function loadAdaptiveRunHistory(repoRoot: string, rules: RulesConfig, look
       const mediumIssues = Number(parsed.issueCounts?.medium ?? 0);
       const failureClass = parsed.execution?.failure?.class ?? null;
       const success = (status === "completed" || status === "resumed_completed") && !failureClass && highIssues === 0 && mediumIssues === 0;
+      const providerMetrics = Object.fromEntries(
+        (parsed.execution?.providerMetrics ?? [])
+          .filter((entry) => entry?.role)
+          .map((entry) => [
+            entry.role as ProviderRole,
+            {
+              durationMs: Number(entry.totalDurationMs ?? 0),
+              estimatedCostUnits: Number(entry.estimatedCostUnits ?? 0)
+            }
+          ])
+      ) as AdaptiveRunRecord["providerMetrics"];
       history.push({
         task: parsed.task ?? "",
         latestFiles,
         providers: parsed.providers ?? {},
+        providerMetrics,
         success,
         category
       });

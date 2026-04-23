@@ -48,7 +48,9 @@
       "reviewer_weight": 1.5,
       "generator_weight": 0.75,
       "fixer_weight": 0.75,
-      "role_override_threshold": 1.5
+      "role_override_threshold": 1.5,
+      "latency_weight": 0.15,
+      "cost_weight": 0.1
     },
     "profiles": {
       "fast": {

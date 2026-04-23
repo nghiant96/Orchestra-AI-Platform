@@ -211,6 +211,20 @@ export interface FailureSummary {
   reason: string;
 }
 
+export interface RetryHint {
+  stage: ExecutionStage;
+  iteration?: number;
+  reason: string;
+}
+
+export interface ExecutionProviderMetric {
+  provider: string;
+  role: ProviderRole;
+  stages: ExecutionStage[];
+  totalDurationMs: number;
+  estimatedCostUnits: number;
+}
+
 export interface ExecutionSummary {
   totalDurationMs: number;
   steps: ExecutionStepSummary[];
@@ -218,6 +232,8 @@ export interface ExecutionSummary {
   currentStage: ExecutionStage | null;
   terminalStage: ExecutionStage | null;
   failure: FailureSummary | null;
+  retryHint?: RetryHint | null;
+  providerMetrics?: ExecutionProviderMetric[];
 }
 
 export interface MemoryConfig {

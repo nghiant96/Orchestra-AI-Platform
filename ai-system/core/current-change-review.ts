@@ -144,6 +144,7 @@ export async function reviewCurrentRepoChanges({
     execution: buildExecutionSummary({
       status: issues.some((issue) => issue.severity === "high" || issue.severity === "medium") ? "failed" : "completed",
       steps: executionSteps,
+      providers: runtime.providerSummary,
       finalIssues: issues,
       latestToolResults: toolExecution.results,
       iterations: []

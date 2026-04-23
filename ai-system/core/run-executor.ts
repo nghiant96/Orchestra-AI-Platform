@@ -18,6 +18,7 @@ import type {
   OrchestratorResult,
   PlanResult,
   ProviderSummary,
+  RetryHint,
   ReviewIssue,
   RunStatus,
   RulesConfig
@@ -159,6 +160,7 @@ export async function executeGenerationLoop({
   rules,
   logger,
   confirmCheckpoint,
+  resumeFromStage,
   successResultStatus,
   successPersistedStatus
 }: {
@@ -180,6 +182,7 @@ export async function executeGenerationLoop({
   rules: RulesConfig;
   logger: Logger;
   confirmCheckpoint: (message: string, artifactPath?: string | null) => Promise<boolean>;
+  resumeFromStage?: "iteration-generate" | "iteration-tools";
   successResultStatus?: RunStatus;
   successPersistedStatus: RunStatus;
 }): Promise<{ result: OrchestratorResult | null; state: LoopExecutionState }> {
@@ -191,33 +194,39 @@ export async function executeGenerationLoop({
     latestToolResults: [...initialState.latestToolResults],
     executionMachine: initialState.executionMachine
   };
+  let pendingResumeStage = resumeFromStage;
 
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
     logger.step(`Generation loop ${iteration}/${rules.max_iterations}${startIteration > 1 ? " (resumed)" : ""}`);
     const iterationStartedAt = Date.now();
+    const shouldSkipGeneration = pendingResumeStage === "iteration-tools" && iteration === startIteration;
 
-    const generationStage = iteration === 1 && !state.currentResult ? "iteration-generate" : "iteration-fix";
-    const generation = await state.executionMachine.runStage(
-      generationStage,
-      async () =>
-        await generateCandidate({
+    if (!shouldSkipGeneration) {
+      const generationStage = iteration === 1 && !state.currentResult ? "iteration-generate" : "iteration-fix";
+      const generation = await state.executionMachine.runStage(
+        generationStage,
+        async () =>
+          await generateCandidate({
+            iteration,
+            task,
+            plan,
+            currentResult: state.currentResult,
+            latestReviewSummary: state.latestReviewSummary,
+            acceptedIssues: state.acceptedIssues,
+            repoRoot,
+            implementationMemoryContext,
+            contextFiles,
+            runtime
+          }),
+        {
           iteration,
-          task,
-          plan,
-          currentResult: state.currentResult,
-          latestReviewSummary: state.latestReviewSummary,
-          acceptedIssues: state.acceptedIssues,
-          repoRoot,
-          implementationMemoryContext,
-          contextFiles,
-          runtime
-        }),
-      {
-        iteration,
-        detail: iteration === 1 && !state.currentResult ? "Generating candidate files." : "Fixing blocking issues from prior review."
-      }
-    );
-    state.currentResult = generation.result;
+          detail: iteration === 1 && !state.currentResult ? "Generating candidate files." : "Fixing blocking issues from prior review."
+        }
+      );
+      state.currentResult = generation.result;
+    } else if (!state.currentResult) {
+      throw new Error("Cannot resume tool/review stages without a current generation result.");
+    }
 
     state.currentResult.files = sanitizeGeneratedFiles(state.currentResult.files, plan, rules, repoRoot);
     if (state.currentResult.files.length === 0) {
@@ -382,6 +391,8 @@ export async function executeGenerationLoop({
       });
       return { result, state };
     }
+
+    pendingResumeStage = undefined;
   }
 
   return { result: null, state };
@@ -400,6 +411,7 @@ export async function finalizeSuccessfulRun({
   memoryStats,
   artifactState,
   state,
+  startAtStage,
   resultStatus,
   persistedStatus,
   logger
@@ -416,6 +428,7 @@ export async function finalizeSuccessfulRun({
   memoryStats: MemoryStats;
   artifactState: ArtifactState;
   state: LoopExecutionState;
+  startAtStage?: "write-files" | "memory-store";
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
   logger: Logger;
@@ -425,7 +438,7 @@ export async function finalizeSuccessfulRun({
   }
 
   const originals = await readOriginalFiles(repoRoot, state.currentResult.files.map((file) => file.path));
-  if (!dryRun) {
+  if (!dryRun && startAtStage !== "memory-store") {
     logger.step("Writing files atomically");
     await state.executionMachine.runStage(
       "write-files",
@@ -434,7 +447,7 @@ export async function finalizeSuccessfulRun({
       },
       { detail: `${state.currentResult.files.length} file(s) written.` }
     );
-  } else {
+  } else if (startAtStage !== "memory-store") {
     await state.executionMachine.skipStage("write-files", {
       durationMs: 0,
       detail: "Dry run skipped file writes."
@@ -472,9 +485,11 @@ export async function finalizeSuccessfulRun({
     status: resultStatus ?? persistedStatus,
     steps: state.executionMachine.getSteps(),
     transitions: state.executionMachine.getTransitions(),
+    providers: runtime.providerSummary,
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
-    iterations: state.iterationResults
+    iterations: state.iterationResults,
+    retryHint: null
   });
 
   const result: OrchestratorResult = {
@@ -529,6 +544,8 @@ export async function finalizeFailedRun({
   memoryStats,
   artifactState,
   state,
+  retryHint,
+  startAtStage,
   resultStatus,
   persistedStatus,
   logger
@@ -545,6 +562,8 @@ export async function finalizeFailedRun({
   memoryStats: MemoryStats;
   artifactState: ArtifactState;
   state: LoopExecutionState;
+  retryHint?: RetryHint | null;
+  startAtStage?: "memory-store";
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
   logger: Logger;
@@ -580,9 +599,11 @@ export async function finalizeFailedRun({
     status: resultStatus ?? persistedStatus,
     steps: state.executionMachine.getSteps(),
     transitions: state.executionMachine.getTransitions(),
+    providers: runtime.providerSummary,
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
-    iterations: state.iterationResults
+    iterations: state.iterationResults,
+    retryHint
   });
 
   const result: OrchestratorResult = {
@@ -610,6 +631,86 @@ export async function finalizeFailedRun({
     {
       ...result,
       status: persistedStatus,
+      task,
+      pauseAfterPlan,
+      pauseAfterGenerate,
+      latestReviewSummary: state.latestReviewSummary,
+      latestToolResults: state.latestToolResults,
+      execution,
+      executionTransitions: state.executionMachine.getTransitions()
+    },
+    logger
+  );
+
+  return result;
+}
+
+export async function finalizeErroredRun({
+  task,
+  dryRun,
+  pauseAfterPlan,
+  pauseAfterGenerate,
+  repoRoot,
+  configPath,
+  plan,
+  skippedFiles,
+  runtime,
+  memoryStats,
+  artifactState,
+  state,
+  retryHint,
+  logger
+}: {
+  task: string;
+  dryRun: boolean;
+  pauseAfterPlan: boolean;
+  pauseAfterGenerate: boolean;
+  repoRoot: string;
+  configPath: string | null;
+  plan: PlanResult;
+  skippedFiles: string[];
+  runtime: RuntimeDependencies;
+  memoryStats: MemoryStats;
+  artifactState: ArtifactState;
+  state: LoopExecutionState;
+  retryHint: RetryHint;
+  logger: Logger;
+}): Promise<OrchestratorResult> {
+  const execution = buildExecutionSummary({
+    status: "failed",
+    steps: state.executionMachine.getSteps(),
+    transitions: state.executionMachine.getTransitions(),
+    providers: runtime.providerSummary,
+    finalIssues: state.acceptedIssues,
+    latestToolResults: state.latestToolResults,
+    iterations: state.iterationResults,
+    retryHint
+  });
+
+  const result: OrchestratorResult = {
+    ok: false,
+    status: "failed",
+    dryRun,
+    repoRoot,
+    configPath,
+    plan,
+    result: state.currentResult,
+    iterations: state.iterationResults,
+    issueCounts: summarizeIssueCounts(state.acceptedIssues),
+    skippedContextFiles: skippedFiles,
+    finalIssues: state.acceptedIssues,
+    providers: runtime.providerSummary,
+    memory: memoryStats,
+    artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, [], [], execution),
+    latestToolResults: state.latestToolResults,
+    execution,
+    wroteFiles: false
+  };
+
+  await persistRunState(
+    artifactState,
+    {
+      ...result,
       task,
       pauseAfterPlan,
       pauseAfterGenerate,

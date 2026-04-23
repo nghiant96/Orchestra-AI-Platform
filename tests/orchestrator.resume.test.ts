@@ -173,6 +173,182 @@ test("Orchestrator.resume re-enters the fixer loop when a paused generation has 
   }
 });
 
+test("Orchestrator.resume retries a failed run from tool/review stages without regenerating files", async () => {
+  const repo = await createTestRepo();
+  const plan: PlanResult = {
+    prompt: "Review the existing candidate",
+    readFiles: ["src/input.ts"],
+    writeTargets: ["src/result.ts"],
+    notes: ["retry failed review stage"]
+  };
+
+  try {
+    await fs.writeFile(path.join(repo.repoRoot, "src/input.ts"), "export const input = 'context';\n", "utf8");
+    const rules = await repo.loadMergedRules();
+    const artifacts = createArtifactState(repo.repoRoot, rules);
+
+    await persistPlanArtifacts(artifacts, {
+      task: "Retry failed review stage",
+      rawPlan: plan,
+      plan,
+      provider: "gemini-cli"
+    });
+    await persistContextArtifacts(artifacts, {
+      readFiles: plan.readFiles,
+      skippedFiles: [],
+      contexts: [{ path: "src/input.ts", content: "export const input = 'context';\n" }]
+    });
+    await persistRunState(artifacts, {
+      status: "failed",
+      task: "Retry failed review stage",
+      dryRun: false,
+      repoRoot: repo.repoRoot,
+      configPath: repo.configPath,
+      plan,
+      result: {
+        summary: "Candidate ready for review",
+        files: [
+          {
+            path: "src/result.ts",
+            action: "create",
+            content: "export const output = 'from-generator';\n"
+          }
+        ]
+      },
+      iterations: [],
+      skippedContextFiles: [],
+      finalIssues: [],
+      providers: providerSummary(),
+      memory: { backend: "disabled", planningMatches: 0, implementationMatches: 0, stored: false },
+      wroteFiles: false,
+      latestReviewSummary: "",
+      latestToolResults: [],
+      execution: {
+        totalDurationMs: 10,
+        steps: [{ name: "iteration-tools-1", durationMs: 10, status: "failed", detail: "Reviewer process crashed." }],
+        transitions: [
+          { stage: "iteration-tools", status: "entered", timestamp: new Date().toISOString(), iteration: 1 },
+          {
+            stage: "iteration-tools",
+            status: "failed",
+            timestamp: new Date().toISOString(),
+            durationMs: 10,
+            detail: "Reviewer process crashed.",
+            iteration: 1
+          }
+        ],
+        currentStage: null,
+        terminalStage: "iteration-tools",
+        failure: { class: "unknown", reason: "Reviewer process crashed." },
+        retryHint: {
+          stage: "iteration-tools",
+          iteration: 1,
+          reason: "Retry tool and review stages with the saved candidate."
+        }
+      }
+    });
+
+    const result = await repo.orchestrator.resume("last");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "resumed_completed");
+    assert.deepEqual(await repo.readFakeRoles(), ["reviewer"]);
+    assert.equal(
+      await fs.readFile(path.join(repo.repoRoot, "src/result.ts"), "utf8"),
+      "export const output = 'from-generator';\n"
+    );
+  } finally {
+    await repo.cleanup();
+  }
+});
+
+test("Orchestrator.resume retries a failed write stage without rerunning generator or reviewer", async () => {
+  const repo = await createTestRepo();
+  const plan: PlanResult = {
+    prompt: "Write the saved result",
+    readFiles: ["src/input.ts"],
+    writeTargets: ["src/result.ts"],
+    notes: ["retry failed write stage"]
+  };
+
+  try {
+    await fs.writeFile(path.join(repo.repoRoot, "src/input.ts"), "export const input = 'context';\n", "utf8");
+    const rules = await repo.loadMergedRules();
+    const artifacts = createArtifactState(repo.repoRoot, rules);
+
+    await persistPlanArtifacts(artifacts, {
+      task: "Retry failed write stage",
+      rawPlan: plan,
+      plan,
+      provider: "gemini-cli"
+    });
+    await persistContextArtifacts(artifacts, {
+      readFiles: plan.readFiles,
+      skippedFiles: [],
+      contexts: [{ path: "src/input.ts", content: "export const input = 'context';\n" }]
+    });
+    await persistRunState(artifacts, {
+      status: "failed",
+      task: "Retry failed write stage",
+      dryRun: false,
+      repoRoot: repo.repoRoot,
+      configPath: repo.configPath,
+      plan,
+      result: {
+        summary: "Ready to write",
+        files: [
+          {
+            path: "src/result.ts",
+            action: "create",
+            content: "export const output = 'from-generator';\n"
+          }
+        ]
+      },
+      iterations: [{ iteration: 1, summary: "Looks good", issues: [] }],
+      skippedContextFiles: [],
+      finalIssues: [],
+      providers: providerSummary(),
+      memory: { backend: "disabled", planningMatches: 0, implementationMatches: 0, stored: false },
+      wroteFiles: false,
+      latestReviewSummary: "Looks good",
+      latestToolResults: [],
+      execution: {
+        totalDurationMs: 10,
+        steps: [{ name: "write-files", durationMs: 10, status: "failed", detail: "Disk full." }],
+        transitions: [
+          { stage: "write-files", status: "entered", timestamp: new Date().toISOString() },
+          {
+            stage: "write-files",
+            status: "failed",
+            timestamp: new Date().toISOString(),
+            durationMs: 10,
+            detail: "Disk full."
+          }
+        ],
+        currentStage: null,
+        terminalStage: "write-files",
+        failure: { class: "unknown", reason: "Disk full." },
+        retryHint: {
+          stage: "write-files",
+          reason: "Retry the atomic write with the saved candidate."
+        }
+      }
+    });
+
+    const result = await repo.orchestrator.resume("last");
+
+    assert.equal(result.ok, true);
+    assert.equal(result.status, "resumed_completed");
+    await assert.rejects(repo.readFakeRoles(), /ENOENT/);
+    assert.equal(
+      await fs.readFile(path.join(repo.repoRoot, "src/result.ts"), "utf8"),
+      "export const output = 'from-generator';\n"
+    );
+  } finally {
+    await repo.cleanup();
+  }
+});
+
 async function createTestRepo(): Promise<{
   repoRoot: string;
   configPath: string;

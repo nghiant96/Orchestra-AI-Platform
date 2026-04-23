@@ -1694,6 +1694,14 @@ function printResult(result: OrchestratorResult): void {
         );
       }
     }
+    if ((result.execution.providerMetrics ?? []).length > 0) {
+      console.log("- provider metrics:");
+      for (const metric of result.execution.providerMetrics ?? []) {
+        console.log(
+          `  - ${metric.role}/${metric.provider}: duration=${formatDuration(metric.totalDurationMs)}, cost=${metric.estimatedCostUnits.toFixed(2)}, stages=${metric.stages.join(",")}`
+        );
+      }
+    }
   }
   if ((result.latestToolResults ?? []).length > 0) {
     const toolCounts = summarizeToolResults(result.latestToolResults ?? []);
@@ -1815,6 +1823,14 @@ function printRecentRunSummary(summary: RecentRunSummary): void {
         );
       }
     }
+    if ((execution.providerMetrics ?? []).length > 0) {
+      console.log("- provider metrics:");
+      for (const metric of execution.providerMetrics ?? []) {
+        console.log(
+          `  - ${metric.role}/${metric.provider}: duration=${formatDuration(metric.totalDurationMs)}, cost=${metric.estimatedCostUnits.toFixed(2)}, stages=${metric.stages.join(",")}`
+        );
+      }
+    }
   }
   if (latestToolResults.length > 0) {
     const toolCounts = summarizeToolResults(latestToolResults);
@@ -1885,6 +1901,14 @@ function printCurrentChangeReviewResult(result: CurrentChangeReviewResult): void
     console.log("- step durations:");
     for (const step of result.execution.steps) {
       console.log(`  - ${step.name}: ${step.status} in ${formatDuration(step.durationMs)}${step.detail ? ` - ${step.detail}` : ""}`);
+    }
+  }
+  if ((result.execution.providerMetrics ?? []).length > 0) {
+    console.log("- provider metrics:");
+    for (const metric of result.execution.providerMetrics ?? []) {
+      console.log(
+        `  - ${metric.role}/${metric.provider}: duration=${formatDuration(metric.totalDurationMs)}, cost=${metric.estimatedCostUnits.toFixed(2)}, stages=${metric.stages.join(",")}`
+      );
     }
   }
   console.log(`- review summary: ${result.reviewSummary || "no summary"}`);
