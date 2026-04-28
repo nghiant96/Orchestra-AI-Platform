@@ -42,6 +42,14 @@ export interface ProviderConfigMap extends Record<string, ProviderConfig> {
 }
 
 export type ProviderRole = "planner" | "reviewer" | "generator" | "fixer";
+
+export const PROVIDER_TOKEN_COST_UNITS: Record<string, number> = {
+  "codex-cli": 0.01, // per 1k tokens
+  "gemini-cli": 0.015,
+  "claude-cli": 0.03,
+  "openai-compatible": 0.02
+};
+
 export type RoutingProfileName = "fast" | "balanced" | "safe";
 
 export type ProviderRoutingProfile = Partial<Record<ProviderRole, string>>;
@@ -236,9 +244,11 @@ export interface ExecutionBudgetSummary {
 
 export interface ProviderUsageMetric {
   role: ProviderRole;
+  provider: string;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  estimatedCostUnits: number;
 }
 
 export interface ExecutionProviderMetric {

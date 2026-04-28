@@ -171,6 +171,56 @@ test("VectorIndex AST chunking ignores commented declarations and still finds ar
   }
 });
 
+test("VectorIndex uses symbol-aware chunks for non-TypeScript code", async () => {
+  const repoRoot = await createTempRepo({
+    "services/payments.py": [
+      "def render_dashboard():",
+      "    return 'ok'",
+      "",
+      "def process_payment(amount):",
+      "    if amount < 0:",
+      "        raise ValueError('refund bug')",
+      "    return amount"
+    ].join("\n"),
+    "services/auth.go": [
+      "package services",
+      "",
+      "func RenderDashboard() string {",
+      "  return \"ok\"",
+      "}",
+      "",
+      "func ValidateAuthToken(token string) bool {",
+      "  return token != \"\"",
+      "}"
+    ].join("\n")
+  });
+
+  try {
+    const rules = createRules();
+    const index = new VectorIndex({
+      repoRoot,
+      rules,
+      config: rules.vector_search
+    });
+
+    await index.indexWorkspace();
+    const pythonMatches = await index.search("Fix refund bug in process_payment", 2);
+    const goMatches = await index.search("Fix ValidateAuthToken auth token bug", 2);
+
+    assert.equal(pythonMatches[0]?.path, "services/payments.py");
+    assert.match(pythonMatches[0]?.preview ?? "", /process_payment/);
+    assert.doesNotMatch(pythonMatches[0]?.preview ?? "", /render_dashboard/);
+    assert.equal(pythonMatches[0]?.startLine, 4);
+
+    assert.equal(goMatches[0]?.path, "services/auth.go");
+    assert.match(goMatches[0]?.preview ?? "", /ValidateAuthToken/);
+    assert.doesNotMatch(goMatches[0]?.preview ?? "", /RenderDashboard/);
+    assert.equal(goMatches[0]?.startLine, 7);
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("expandContextReadFiles adds vector-matched files even when planner misses them", async () => {
   const repoRoot = await createTempRepo({
     "src/main.ts": "export function startApp() { return 'ready'; }\n",

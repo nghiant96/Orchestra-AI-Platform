@@ -115,6 +115,7 @@ export async function reviewFailingChecks({
       status: normalized.some((issue) => issue.severity === "high" || issue.severity === "medium") ? "failed" : "completed",
       steps: executionSteps,
       providers: runtime.providerSummary,
+      usageMetrics: runtime.reviewerProvider.getUsage?.() ?? [],
       finalIssues: normalized,
       latestToolResults: toolExecution.results,
       iterations: []

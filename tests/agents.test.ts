@@ -45,7 +45,7 @@ describe("Agents Core", () => {
     const mockProvider: any = {
       runJson: mock.fn(async (_args: any) => {
         return {
-          files: [{ path: "src/index.ts", diff: "modified code" }],
+          files: [{ path: "src/index.ts", action: "update", content: "fixed" }],
           summary: "Did stuff"
         };
       })
@@ -59,10 +59,11 @@ describe("Agents Core", () => {
     };
 
     const generator = new GeneratorAgent({ provider: mockProvider, rules });
+    const plan = { prompt: "fix bug", readFiles: ["src/index.ts"], writeTargets: ["src/index.ts"], notes: [] };
     const result = await generator.generateCode(
       "fix bug",
-      { prompt: "fix bug", readFiles: [], writeTargets: [], notes: [] },
-      [], // contextFiles
+      plan,
+      [{ path: "src/index.ts", content: "" }], // contextFiles
       "/mock"
     );
 

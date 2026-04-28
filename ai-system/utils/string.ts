@@ -101,6 +101,9 @@ export function maskSecrets<T>(value: T): T | string {
 
 export function estimateTokenCount(text: string): number {
   if (!text) return 0;
-  // Heuristic: ~4 characters per token for English text/code
-  return Math.ceil(text.length / 4);
+  // Code is dense, English is sparse. Heuristic: ~3.5 chars/token for code-heavy content, 4 for others.
+  // A simple way to account for this is checking the ratio of whitespace to text length.
+  const whitespaceCount = (text.match(/\s/g) || []).length;
+  const charsPerToken = whitespaceCount / text.length > 0.15 ? 4.5 : 3.5;
+  return Math.ceil(text.length / charsPerToken);
 }

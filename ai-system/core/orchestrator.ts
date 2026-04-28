@@ -33,6 +33,7 @@ import {
 import { confirmCheckpoint, confirmPlan } from "./orchestrator-confirmation.js";
 import { loadOrchestratorRuntime, loadRules, rerouteRuntimeForPlan } from "./orchestrator-runtime.js";
 import {
+  collectProviderUsageMetrics,
   createExecutionStateMachine,
   executeGenerationLoop,
   finalizeErroredRun,
@@ -204,6 +205,15 @@ export class Orchestrator {
       this.logger
     );
     const implementationRuntime = implementationRouting.runtime;
+    const runRuntime = {
+      ...implementationRuntime,
+      plannerProvider: runtime.plannerProvider,
+      planner: runtime.planner,
+      providerSummary: {
+        ...implementationRuntime.providerSummary,
+        planner: runtime.plannerProvider.id
+      }
+    };
 
     if (pauseAfterPlan) {
       const confirmed = await confirmCheckpoint({
@@ -223,13 +233,14 @@ export class Orchestrator {
           repoRoot,
           configPath,
           plan,
-          providers: implementationRuntime.providerSummary,
+          providers: runRuntime.providerSummary,
           memoryStats,
           artifactState,
           latestContextRanking: contextExpansion.rankedCandidates,
           executionSteps: executionMachine.getSteps(),
           executionTransitions: executionMachine.getTransitions(),
-          budgetConfig: rules.execution?.budgets
+          budgetConfig: rules.execution?.budgets,
+          usageMetrics: collectProviderUsageMetrics(runRuntime)
         });
         await persistRunState(
           artifactState,
@@ -262,7 +273,8 @@ export class Orchestrator {
           steps: executionMachine.getSteps(),
           transitions: executionMachine.getTransitions(),
           budgetConfig: rules.execution?.budgets,
-          providers: implementationRuntime.providerSummary,
+          providers: runRuntime.providerSummary,
+          usageMetrics: collectProviderUsageMetrics(runRuntime),
           finalIssues: [],
           latestToolResults: [],
           iterations: []
@@ -279,7 +291,7 @@ export class Orchestrator {
           issueCounts: { high: 0, medium: 0, low: 0 },
           skippedContextFiles: [],
           finalIssues: [],
-          providers: implementationRuntime.providerSummary,
+          providers: runRuntime.providerSummary,
           memory: memoryStats,
           artifacts: null,
           execution,
@@ -301,7 +313,7 @@ export class Orchestrator {
     try {
       const implementationMemoryStep = await executionMachine.runStage(
         "implementation-memory",
-        async () => await loadImplementationMemoryContext(implementationRuntime.memory, task, plan, memoryStats, this.logger),
+        async () => await loadImplementationMemoryContext(runRuntime.memory, task, plan, memoryStats, this.logger),
         { detail: "Loaded implementation memories." }
       );
       const implementationMemoryContext = implementationMemoryStep.result;
@@ -324,7 +336,7 @@ export class Orchestrator {
         plan,
         skippedFiles,
         implementationMemoryContext,
-        runtime: implementationRuntime,
+        runtime: runRuntime,
         memoryStats,
         artifactState,
         initialState: workingState,
@@ -351,7 +363,7 @@ export class Orchestrator {
         configPath,
         plan,
         skippedFiles,
-        runtime: implementationRuntime,
+        runtime: runRuntime,
         memoryStats,
         artifactState,
         state: loopExecution.state,
@@ -373,7 +385,7 @@ export class Orchestrator {
         configPath,
         plan,
         skippedFiles,
-        runtime: implementationRuntime,
+        runtime: runRuntime,
         memoryStats,
         artifactState,
         state: workingState,

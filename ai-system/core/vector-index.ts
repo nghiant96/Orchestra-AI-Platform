@@ -17,6 +17,8 @@ interface VectorChunkRecord {
   symbolName?: string;
 }
 
+type SymbolRange = { startLine: number; endLine: number; text: string; symbolName?: string };
+
 interface IndexedFileRecord {
   path: string;
   mtimeMs: number;
@@ -394,28 +396,27 @@ function chunkTextFixed(
 function detectSymbolRanges(
   relativePath: string,
   content: string
-): Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> {
+): SymbolRange[] {
   const extension = path.extname(relativePath).toLowerCase();
-  if (!isTypeScriptFamilyExtension(extension)) {
-    return [];
+  if (isTypeScriptFamilyExtension(extension)) {
+    const sourceFile = ts.createSourceFile(
+      relativePath,
+      content,
+      ts.ScriptTarget.Latest,
+      true,
+      resolveScriptKind(extension)
+    );
+    return dedupeAndSortSymbolRanges(extractTopLevelSymbolRanges(sourceFile, content));
   }
 
-  const sourceFile = ts.createSourceFile(
-    relativePath,
-    content,
-    ts.ScriptTarget.Latest,
-    true,
-    resolveScriptKind(extension)
-  );
-  const ranges = extractTopLevelSymbolRanges(sourceFile, content);
-  return dedupeAndSortSymbolRanges(ranges);
+  return dedupeAndSortSymbolRanges(detectLineBasedSymbolRanges(extension, content));
 }
 
 function extractTopLevelSymbolRanges(
   sourceFile: ts.SourceFile,
   content: string
-): Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> {
-  const ranges: Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> = [];
+): SymbolRange[] {
+  const ranges: SymbolRange[] = [];
   for (const statement of sourceFile.statements) {
     for (const candidate of extractStatementSymbolNodes(statement)) {
       const range = buildSymbolRange(candidate.node, candidate.symbolName, sourceFile, content);
@@ -461,7 +462,7 @@ function buildSymbolRange(
   symbolName: string | undefined,
   sourceFile: ts.SourceFile,
   content: string
-): { startLine: number; endLine: number; text: string; symbolName?: string } | null {
+): SymbolRange | null {
   const start = node.getStart(sourceFile);
   const end = node.getEnd();
   if (end <= start) {
@@ -484,8 +485,8 @@ function buildSymbolRange(
 }
 
 function dedupeAndSortSymbolRanges(
-  ranges: Array<{ startLine: number; endLine: number; text: string; symbolName?: string }>
-): Array<{ startLine: number; endLine: number; text: string; symbolName?: string }> {
+  ranges: SymbolRange[]
+): SymbolRange[] {
   const seen = new Set<string>();
   return ranges
     .filter((entry) => {
@@ -497,6 +498,72 @@ function dedupeAndSortSymbolRanges(
       return true;
     })
     .sort((left, right) => left.startLine - right.startLine || left.endLine - right.endLine);
+}
+
+function detectLineBasedSymbolRanges(extension: string, content: string): SymbolRange[] {
+  const matcher = getLineBasedSymbolMatcher(extension);
+  if (!matcher) {
+    return [];
+  }
+
+  const lines = content.split(/\r?\n/);
+  const starts: Array<{ lineIndex: number; symbolName?: string }> = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const symbolName = matcher(lines[index] ?? "");
+    if (symbolName) {
+      starts.push({ lineIndex: index, symbolName });
+    }
+  }
+
+  return starts
+    .map((start, index): SymbolRange | null => {
+      const nextStart = starts[index + 1]?.lineIndex ?? lines.length;
+      const endIndex = Math.max(start.lineIndex, nextStart - 1);
+      const text = lines.slice(start.lineIndex, endIndex + 1).join("\n").trim();
+      if (!text) {
+        return null;
+      }
+      return {
+        startLine: start.lineIndex + 1,
+        endLine: endIndex + 1,
+        text,
+        symbolName: start.symbolName
+      };
+    })
+    .filter((entry): entry is SymbolRange => entry !== null);
+}
+
+function getLineBasedSymbolMatcher(extension: string): ((line: string) => string | null) | null {
+  switch (extension) {
+    case ".py":
+      return (line) => matchFirstGroup(line, /^\s*(?:async\s+def|def|class)\s+([A-Za-z_]\w*)\b/);
+    case ".go":
+      return (line) =>
+        matchFirstGroup(line, /^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_]\w*)\s*\(/) ??
+        matchFirstGroup(line, /^\s*type\s+([A-Za-z_]\w*)\s+(?:struct|interface)\b/);
+    case ".rs":
+      return (line) =>
+        matchFirstGroup(line, /^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait)\s+([A-Za-z_]\w*)\b/) ??
+        matchFirstGroup(line, /^\s*(?:pub(?:\([^)]*\))?\s+)?impl(?:<[^>]+>)?\s+([A-Za-z_]\w*)\b/);
+    case ".java":
+      return (line) =>
+        matchFirstGroup(line, /^\s*(?:public|private|protected|static|final|abstract|synchronized|\s)*\s*(?:class|interface|enum|record)\s+([A-Za-z_]\w*)\b/) ??
+        matchFirstGroup(line, /^\s*(?:public|private|protected|static|final|abstract|synchronized|\s)+[A-Za-z_<>, ?]+\s+([A-Za-z_]\w*)\s*\(/);
+    case ".kt":
+      return (line) =>
+        matchFirstGroup(line, /^\s*(?:public|private|protected|internal|data|sealed|open|abstract|final|\s)*\s*(?:class|interface|object|enum\s+class)\s+([A-Za-z_]\w*)\b/) ??
+        matchFirstGroup(line, /^\s*(?:public|private|protected|internal|suspend|inline|operator|override|\s)*\s*fun\s+(?:[A-Za-z_]\w*\.)?([A-Za-z_]\w*)\s*\(/);
+    case ".swift":
+      return (line) =>
+        matchFirstGroup(line, /^\s*(?:public|private|fileprivate|internal|open|final|\s)*\s*(?:class|struct|enum|protocol|actor)\s+([A-Za-z_]\w*)\b/) ??
+        matchFirstGroup(line, /^\s*(?:public|private|fileprivate|internal|open|static|class|mutating|\s)*\s*func\s+([A-Za-z_]\w*)\s*\(/);
+    default:
+      return null;
+  }
+}
+
+function matchFirstGroup(line: string, pattern: RegExp): string | null {
+  return pattern.exec(line)?.[1] ?? null;
 }
 
 function isTypeScriptFamilyExtension(extension: string): boolean {

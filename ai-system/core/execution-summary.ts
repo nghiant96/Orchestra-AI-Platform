@@ -10,6 +10,7 @@ import type {
   FailureSummary,
   IterationResult,
   ProviderSummary,
+  ProviderUsageMetric,
   RetryHint,
   ReviewIssue,
   RunStatus,
@@ -62,7 +63,8 @@ export function buildExecutionSummary({
   budgetConfig,
   finalIssues = [],
   latestToolResults = [],
-  iterations = []
+  iterations = [],
+  usageMetrics = []
 }: {
   status?: RunStatus | string;
   steps?: ExecutionStepSummary[];
@@ -74,13 +76,14 @@ export function buildExecutionSummary({
   finalIssues?: ReviewIssue[];
   latestToolResults?: ToolExecutionResult[];
   iterations?: IterationResult[];
+  usageMetrics?: ProviderUsageMetric[];
 }): ExecutionSummary {
   const normalizedSteps = Array.isArray(steps) ? steps.map((step) => ({ ...step })) : [];
   const normalizedTransitions = Array.isArray(transitions) ? transitions.map((entry) => ({ ...entry })) : [];
   const resolvedCurrentStage = currentStage ?? deriveCurrentStage(normalizedTransitions);
   const terminalStage = deriveTerminalStage(normalizedTransitions);
   const totalDurationMs = normalizedSteps.reduce((total, step) => total + Math.max(0, step.durationMs || 0), 0);
-  const providerMetrics = providers ? buildProviderMetrics(normalizedSteps, providers) : [];
+  const providerMetrics = providers ? buildProviderMetrics(normalizedSteps, providers, usageMetrics) : [];
   const budget = buildExecutionBudgetSummary({
     totalDurationMs,
     providerMetrics,
@@ -169,43 +172,47 @@ const STAGE_ROLE_MAP: Partial<Record<ExecutionStage, keyof ProviderSummary>> = {
   "iteration-review": "reviewer"
 };
 
-const PROVIDER_COST_UNITS: Record<string, number> = {
-  "codex-cli": 1,
-  "gemini-cli": 1.1,
-  "claude-cli": 1.5
-};
-
-function buildProviderMetrics(steps: ExecutionStepSummary[], providers: ProviderSummary): ExecutionProviderMetric[] {
+function buildProviderMetrics(
+  steps: ExecutionStepSummary[],
+  providers: ProviderSummary,
+  usageMetrics: ProviderUsageMetric[]
+): ExecutionProviderMetric[] {
   const metrics = new Map<string, ExecutionProviderMetric>();
+
+  const ensureMetric = (role: ProviderUsageMetric["role"], provider: string): ExecutionProviderMetric => {
+    const key = `${role}:${provider}`;
+    const metric = metrics.get(key) ?? {
+      provider,
+      role,
+      stages: [],
+      totalDurationMs: 0,
+      estimatedCostUnits: 0
+    };
+    metrics.set(key, metric);
+    return metric;
+  };
+
+  for (const usage of usageMetrics) {
+    const provider = usage.provider || providers[usage.role];
+    if (!provider) {
+      continue;
+    }
+    ensureMetric(usage.role, provider).estimatedCostUnits += Math.max(0, usage.estimatedCostUnits || 0);
+  }
 
   for (const step of steps) {
     const stage = normalizeExecutionStage(step.name);
     const role = stage ? STAGE_ROLE_MAP[stage] : undefined;
-    if (!stage || !role) {
-      continue;
-    }
+    if (!stage || !role) continue;
 
-    const provider = providers[role];
-    if (!provider) {
-      continue;
-    }
+    const providerId = providers[role];
+    if (!providerId) continue;
 
-    const key = `${role}:${provider}`;
-    const metric =
-      metrics.get(key) ??
-      {
-        provider,
-        role,
-        stages: [],
-        totalDurationMs: 0,
-        estimatedCostUnits: 0
-      };
+    const metric = ensureMetric(role, providerId);
     if (!metric.stages.includes(stage)) {
       metric.stages.push(stage);
     }
     metric.totalDurationMs += Math.max(0, step.durationMs || 0);
-    metric.estimatedCostUnits += resolveCostUnits(provider, step.durationMs);
-    metrics.set(key, metric);
   }
 
   return [...metrics.values()];
@@ -228,11 +235,6 @@ function normalizeExecutionStage(stepName: string): ExecutionStage | null {
     return "planner";
   }
   return null;
-}
-
-function resolveCostUnits(provider: string, durationMs: number): number {
-  const baseUnit = PROVIDER_COST_UNITS[provider] ?? 1;
-  return Number(((Math.max(0, durationMs) / 1000) * baseUnit).toFixed(3));
 }
 
 function classifyRunFailure({

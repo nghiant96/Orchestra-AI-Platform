@@ -42,7 +42,7 @@ export class ReviewerAgent {
       2
     );
 
-    return this.provider.runJson({
+    const rawResult = await this.provider.runJson({
       cwd,
       label: "reviewer output",
       systemPrompt,
@@ -51,7 +51,30 @@ export class ReviewerAgent {
       timeoutMs: this.rules.request_timeout_ms,
       retries: this.rules.request_retries,
       baseDelayMs: this.rules.retry_base_delay_ms
+    }) as ReviewResult;
+
+    return this.validateOutput(rawResult, originalFiles, candidateFiles);
+  }
+
+  private validateOutput(
+    result: ReviewResult,
+    originalFiles: Array<{ path: string }>,
+    candidateFiles: GeneratedFile[]
+  ): ReviewResult {
+    const validPaths = new Set([
+      ...originalFiles.map((f) => f.path),
+      ...candidateFiles.map((f) => f.path)
+    ]);
+
+    const filteredIssues = result.issues.filter((issue) => {
+      if (!issue.path) return true; // Global issues are ok
+      return validPaths.has(issue.path);
     });
+
+    return {
+      ...result,
+      issues: filteredIssues
+    };
   }
 }
 

@@ -15,6 +15,7 @@ import type {
   ContextSelectionCandidate,
   PlanResult,
   ProviderSummary,
+  ProviderUsageMetric,
   ReviewIssue,
   RoutingDecision,
   ToolExecutionResult,
@@ -139,7 +140,8 @@ export function buildStoppedResult({
   latestContextRanking = [],
   executionSteps = [],
   executionTransitions = [],
-  budgetConfig = null
+  budgetConfig = null,
+  usageMetrics = []
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
   dryRun: boolean;
@@ -159,6 +161,7 @@ export function buildStoppedResult({
   executionSteps?: ExecutionStepSummary[];
   executionTransitions?: ExecutionTransition[];
   budgetConfig?: ExecutionBudgetConfig | null;
+  usageMetrics?: ProviderUsageMetric[];
 }): OrchestratorResult {
   const execution = buildExecutionSummary({
     status,
@@ -168,7 +171,8 @@ export function buildStoppedResult({
     providers,
     finalIssues,
     latestToolResults,
-    iterations
+    iterations,
+    usageMetrics
   });
   return {
     ok: false,

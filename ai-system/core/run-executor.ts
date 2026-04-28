@@ -20,6 +20,7 @@ import type {
   OrchestratorResult,
   PlanResult,
   ProviderSummary,
+  ProviderUsageMetric,
   RetryHint,
   ReviewIssue,
   RunStatus,
@@ -201,7 +202,7 @@ export async function executeGenerationLoop({
   let pendingResumeStage = resumeFromStage;
 
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
-    const preIterationBudget = getExecutionBudgetSummary(state, runtime.providerSummary, budgetConfig);
+    const preIterationBudget = getExecutionBudgetSummary(state, runtime, budgetConfig);
     if (preIterationBudget?.exceeded) {
       const result = await finalizeFailedRun({
         task,
@@ -352,7 +353,7 @@ export async function executeGenerationLoop({
       artifactPath: artifactInfo?.iterationPath ?? null
     });
 
-    const postIterationBudget = getExecutionBudgetSummary(state, runtime.providerSummary, budgetConfig);
+    const postIterationBudget = getExecutionBudgetSummary(state, runtime, budgetConfig);
     if (postIterationBudget?.exceeded) {
       const result = await finalizeFailedRun({
         task,
@@ -404,7 +405,8 @@ export async function executeGenerationLoop({
           latestToolResults: state.latestToolResults,
           executionSteps: state.executionMachine.getSteps(),
           executionTransitions: state.executionMachine.getTransitions(),
-          budgetConfig
+          budgetConfig,
+          usageMetrics: collectProviderUsageMetrics(runtime)
         });
         await persistRunState(
           artifactState,
@@ -425,7 +427,7 @@ export async function executeGenerationLoop({
     }
 
     if (!hasBlockingIssues(state.acceptedIssues)) {
-      const successBudget = getExecutionBudgetSummary(state, runtime.providerSummary, budgetConfig);
+      const successBudget = getExecutionBudgetSummary(state, runtime, budgetConfig);
       if (successBudget?.exceeded) {
         const result = await finalizeFailedRun({
           task,
@@ -569,6 +571,7 @@ export async function finalizeSuccessfulRun({
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
+    usageMetrics: collectProviderUsageMetrics(runtime),
     retryHint: null
   });
 
@@ -686,6 +689,7 @@ export async function finalizeFailedRun({
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
+    usageMetrics: collectProviderUsageMetrics(runtime),
     retryHint
   });
 
@@ -770,6 +774,7 @@ export async function finalizeErroredRun({
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
+    usageMetrics: collectProviderUsageMetrics(runtime),
     retryHint
   });
 
@@ -813,7 +818,7 @@ export async function finalizeErroredRun({
 
 function getExecutionBudgetSummary(
   state: LoopExecutionState,
-  providers: ProviderSummary,
+  runtime: RuntimeDependencies,
   budgetConfig?: ExecutionBudgetConfig | null
 ): ExecutionBudgetSummary | null {
   return buildExecutionBudgetSummary({
@@ -821,10 +826,20 @@ function getExecutionBudgetSummary(
     providerMetrics: buildExecutionSummary({
       steps: state.executionMachine.getSteps(),
       transitions: state.executionMachine.getTransitions(),
-      providers
+      providers: runtime.providerSummary,
+      usageMetrics: collectProviderUsageMetrics(runtime)
     }).providerMetrics ?? [],
     budgetConfig
   });
+}
+
+export function collectProviderUsageMetrics(runtime: RuntimeDependencies): ProviderUsageMetric[] {
+  return [
+    ...(runtime.plannerProvider.getUsage?.() ?? []),
+    ...(runtime.reviewerProvider.getUsage?.() ?? []),
+    ...(runtime.generatorProvider.getUsage?.() ?? []),
+    ...(runtime.fixerProvider.getUsage?.() ?? [])
+  ];
 }
 
 function createBudgetRetryHint(

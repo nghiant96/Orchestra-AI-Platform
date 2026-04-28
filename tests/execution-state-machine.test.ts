@@ -44,3 +44,46 @@ test("buildExecutionSummary exposes current and terminal stages from transitions
   assert.equal(summary.terminalStage, "iteration-review");
   assert.equal(summary.totalDurationMs, 2000);
 });
+
+test("buildExecutionSummary uses provider usage cost while preserving duration metrics", () => {
+  const summary = buildExecutionSummary({
+    status: "failed",
+    steps: [
+      { name: "planner", durationMs: 1000, status: "completed" },
+      { name: "iteration-review", durationMs: 2000, status: "completed" }
+    ],
+    providers: {
+      planner: "gemini-cli",
+      reviewer: "claude-cli",
+      generator: "codex-cli",
+      fixer: "codex-cli"
+    },
+    usageMetrics: [
+      {
+        role: "planner",
+        provider: "gemini-cli",
+        promptTokens: 1000,
+        completionTokens: 500,
+        totalTokens: 1500,
+        estimatedCostUnits: 0.025
+      }
+    ],
+    budgetConfig: {
+      max_cost_units: 0.02
+    },
+    finalIssues: [],
+    latestToolResults: [],
+    iterations: []
+  });
+
+  const providerMetrics = summary.providerMetrics ?? [];
+  const plannerMetric = providerMetrics.find((metric) => metric.role === "planner");
+  const reviewerMetric = providerMetrics.find((metric) => metric.role === "reviewer");
+
+  assert.equal(plannerMetric?.estimatedCostUnits, 0.025);
+  assert.equal(plannerMetric?.totalDurationMs, 1000);
+  assert.equal(reviewerMetric?.estimatedCostUnits, 0);
+  assert.equal(reviewerMetric?.totalDurationMs, 2000);
+  assert.equal(summary.budget?.totalCostUnits, 0.025);
+  assert.equal(summary.budget?.exceeded, "cost");
+});

@@ -167,3 +167,14 @@ export function mergeConfig<T extends Record<string, unknown>>(base: T, override
 
   return output as T;
 }
+
+export function summarizeRules(rules: RulesConfig): string {
+  const parts: string[] = [];
+  parts.push(`- max_files: ${rules.max_files ?? 10}`);
+  parts.push(`- max_iterations: ${rules.max_iterations ?? 3}`);
+  parts.push(`- vector_search: ${rules.vector_search?.enabled ? "enabled" : "disabled"}`);
+  if (rules.tools) {
+    parts.push(`- tools: ${rules.tools.enabled ? "enabled" : "disabled"} (validation=${rules.tools.json_validation !== false})`);
+  }
+  return parts.join("\n");
+}
