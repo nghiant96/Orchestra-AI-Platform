@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ExecutionStateMachine } from "../ai-system/core/execution-state-machine.js";
 import { buildExecutionSummary } from "../ai-system/core/execution-summary.js";
+import { estimateProviderCost, estimateRunCostFromPlan } from "../ai-system/utils/cost-calculator.js";
 
 test("ExecutionStateMachine records explicit transitions and derives steps", async () => {
   const machine = new ExecutionStateMachine();
@@ -86,4 +87,60 @@ test("buildExecutionSummary uses provider usage cost while preserving duration m
   assert.equal(reviewerMetric?.totalDurationMs, 2000);
   assert.equal(summary.budget?.totalCostUnits, 0.025);
   assert.equal(summary.budget?.exceeded, "cost");
+});
+
+test("cost calculator estimates provider usage and pre-generation budget", () => {
+  const usage = estimateProviderCost({
+    role: "generator",
+    provider: "codex-cli",
+    promptTokens: 1000,
+    completionTokens: 500
+  });
+  assert.equal(usage.totalTokens, 1500);
+  assert.equal(usage.estimatedCostUnits, 0.015);
+
+  const estimate = estimateRunCostFromPlan({
+    task: "Fix a bug in auth handling",
+    plan: {
+      prompt: "Fix auth bug",
+      readFiles: ["src/auth.ts"],
+      writeTargets: ["src/auth.ts"],
+      notes: []
+    },
+    contextFiles: [
+      {
+        path: "src/auth.ts",
+        content: "export function validateAuthToken(token: string) { return token.length > 0; }\n".repeat(200)
+      }
+    ],
+    providerSummary: {
+      planner: "gemini-cli",
+      reviewer: "claude-cli",
+      generator: "codex-cli",
+      fixer: "codex-cli"
+    },
+    rules: {
+      max_iterations: 3,
+      max_files: 5,
+      max_context_bytes: 60000,
+      request_timeout_ms: 60000,
+      request_retries: 1,
+      retry_base_delay_ms: 250,
+      execution: {
+        budgets: {
+          max_cost_units: 0.0001
+        }
+      },
+      memory: { enabled: false, backend: "local-file" },
+      providers: {
+        planner: { type: "gemini-cli" },
+        reviewer: { type: "claude-cli" },
+        generator: { type: "codex-cli" },
+        fixer: { type: "codex-cli" }
+      }
+    }
+  });
+
+  assert.equal(estimate.usageMetrics.length, 2);
+  assert.equal(estimate.budget?.exceeded, "cost");
 });

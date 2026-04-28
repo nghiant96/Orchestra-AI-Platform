@@ -1,4 +1,4 @@
-import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
+import { compilePrompt, loadPromptExamplesForTask, loadPromptTemplate } from "../utils/prompt-loader.js";
 import { FILE_OUTPUT_SCHEMA } from "./generator.js";
 import type { AgentDependencies, FileGenerationResult, PlanResult, ReviewIssue } from "../types.js";
 
@@ -21,7 +21,13 @@ export class FixerAgent {
     memoryContext = ""
   ): Promise<FileGenerationResult> {
     const template = await loadPromptTemplate("fixer");
-    const systemPrompt = compilePrompt(template, {});
+    const examples = await loadPromptExamplesForTask(task, [
+      ...plan.readFiles,
+      ...plan.writeTargets,
+      ...currentFiles.map((file) => file.path),
+      ...issues.map((issue) => issue.path)
+    ]);
+    const systemPrompt = compilePrompt(template, { examples });
 
     const prompt = JSON.stringify(
       {

@@ -5,6 +5,8 @@ Return full replacement content for every changed file.
 Do not invent extra files unless strictly required to resolve the issues.
 Preserve unrelated logic while fixing the reported problems.
 
+{{examples}}
+
 **Scope Guidance:**
 - Stay strictly within the scope of the reported issues. Do not perform unrelated refactoring or "clean up" of files not mentioned in the review.
 - Ensure the fix directly addresses the reviewer's feedback and maintains project consistency.

@@ -7,6 +7,8 @@ Use only repo-relative paths.
 Never request .env, secrets, keys, certificates, or files outside the repo.
 Keep the implementation prompt concise and concrete.
 
+{{examples}}
+
 **Context Trade-offs:**
 - Prefer reading a few highly relevant files over scanning entire directories.
 - Avoid pulling in large files unless they contain critical logic or type definitions.

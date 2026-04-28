@@ -6,6 +6,7 @@ import {
 } from "./context.js";
 import { hasBlockingIssues } from "./reviewer.js";
 import { loadEnvironment } from "../utils/api.js";
+import { estimateRunCostFromPlan } from "../utils/cost-calculator.js";
 import type {
   ContextFile,
   ExecutionStage,
@@ -324,6 +325,50 @@ export class Orchestrator {
       );
       const { contextFiles } = contextStep.result;
       skippedFiles = contextStep.result.skippedFiles;
+
+      const costEstimate = estimateRunCostFromPlan({
+        task,
+        plan,
+        contextFiles,
+        providerSummary: runRuntime.providerSummary,
+        rules
+      });
+      if (costEstimate.budget?.exceeded === "cost") {
+        const message = `Estimated run cost ${costEstimate.budget.totalCostUnits.toFixed(3)} exceeds max_cost_units ${costEstimate.budget.maxCostUnits?.toFixed(3)}.`;
+        const confirmed = interactive
+          ? await confirmCheckpoint({
+              message,
+              artifactPath: artifactState.stepPaths.context,
+              logger: this.logger
+            })
+          : false;
+        if (!confirmed) {
+          this.logger.warn(`${message} Stopping before generation.`);
+          return finalizeFailedRun({
+            task,
+            dryRun,
+            pauseAfterPlan,
+            pauseAfterGenerate,
+            repoRoot,
+            configPath,
+            plan,
+            skippedFiles,
+            runtime: runRuntime,
+            memoryStats,
+            artifactState,
+            state: workingState,
+            retryHint: {
+              stage: "iteration-generate",
+              reason: "Resume generation after confirming or raising the cost budget."
+            },
+            resultStatus: "failed",
+            persistedStatus: "failed",
+            budgetConfig: rules.execution?.budgets,
+            additionalUsageMetrics: costEstimate.usageMetrics,
+            logger: this.logger
+          });
+        }
+      }
 
       const loopExecution = await executeGenerationLoop({
         startIteration: 1,

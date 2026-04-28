@@ -511,6 +511,169 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
   }
 });
 
+test("summarizeConfiguredTools auto-detects Python Go and Rust test adapters", async () => {
+  const scenarios = [
+    { projectType: "python", detectFile: "pyproject.toml", command: "pytest", args: [] },
+    { projectType: "go", detectFile: "go.mod", command: "go", args: ["test", "./..."] },
+    { projectType: "rust", detectFile: "Cargo.toml", command: "cargo", args: ["test"] }
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), `ai-system-tool-${scenario.projectType}-adapter-`));
+    try {
+      await fs.writeFile(path.join(tempDir, scenario.detectFile), "", "utf8");
+      const summaries = await summarizeConfiguredTools({
+        repoRoot: tempDir,
+        rules: createRules({
+          tools: {
+            enabled: true,
+            json_validation: true,
+            project_type: scenario.projectType,
+            commands: {
+              lint: { enabled: false },
+              typecheck: { enabled: false },
+              build: { enabled: false },
+              test: { enabled: true }
+            }
+          }
+        })
+      });
+      const testSummary = summaries.find((entry) => entry.name === "test");
+      assert.equal(testSummary?.enabled, true);
+      assert.equal(testSummary?.source, "adapter");
+      assert.equal(testSummary?.command, scenario.command);
+      assert.deepEqual(testSummary?.args, scenario.args);
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("runToolChecks preserves sandbox settings for configured non-Node adapters", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-configured-adapter-"));
+  const previousSecret = process.env.AI_SYSTEM_ADAPTER_SECRET;
+  process.env.AI_SYSTEM_ADAPTER_SECRET = "adapter-secret-visible";
+
+  try {
+    await fs.writeFile(path.join(tempDir, "pyproject.toml"), "[project]\nname = \"demo\"\n", "utf8");
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles: [{ path: "src/app.py", content: "print('ok')\n" }],
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: false,
+          project_type: "python",
+          sandbox: {
+            mode: "clean-env",
+            include_env: ["AI_SYSTEM_ADAPTER_SECRET"]
+          },
+          adapters: {
+            python: {
+              detect_files: ["pyproject.toml"],
+              changed_file_extensions: [".py"],
+              commands: {
+                test: {
+                  command: "node",
+                  args: ["-e", "console.log(process.env.AI_SYSTEM_ADAPTER_SECRET ?? 'missing')"]
+                }
+              }
+            }
+          },
+          commands: {
+            lint: { enabled: false },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: { enabled: true }
+          }
+        }
+      })
+    });
+
+    const testResult = summary.results.find((entry) => entry.name === "test");
+    assert.equal(testResult?.ok, true);
+    assert.equal(testResult?.sandboxMode, "clean-env");
+    assert.equal(testResult?.workingDirectory, ".");
+    assert.match(testResult?.stdout ?? "", /adapter-secret-visible/);
+  } finally {
+    if (previousSecret === undefined) {
+      delete process.env.AI_SYSTEM_ADAPTER_SECRET;
+    } else {
+      process.env.AI_SYSTEM_ADAPTER_SECRET = previousSecret;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks lets explicit tool commands override detected adapters", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-adapter-precedence-"));
+
+  try {
+    await fs.writeFile(path.join(tempDir, "pyproject.toml"), "[project]\nname = \"demo\"\n", "utf8");
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles: [{ path: "src/app.py", content: "print('ok')\n" }],
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: false,
+          project_type: "python",
+          commands: {
+            lint: { enabled: false },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: {
+              enabled: true,
+              command: "node",
+              args: ["-e", "console.log('configured command wins')"]
+            }
+          }
+        }
+      })
+    });
+
+    const testResult = summary.results.find((entry) => entry.name === "test");
+    assert.equal(testResult?.ok, true);
+    assert.equal(testResult?.command, "node");
+    assert.deepEqual(testResult?.args, ["-e", "console.log('configured command wins')"]);
+    assert.match(testResult?.stdout ?? "", /configured command wins/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks skips non-Node typecheck when adapter has no typecheck command", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-adapter-typecheck-skip-"));
+
+  try {
+    await fs.writeFile(path.join(tempDir, "pyproject.toml"), "[project]\nname = \"demo\"\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "tsconfig.json"), JSON.stringify({ compilerOptions: {} }), "utf8");
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles: [{ path: "src/app.py", content: "print('ok')\n" }],
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: false,
+          project_type: "python",
+          commands: {
+            lint: { enabled: false },
+            typecheck: { enabled: true },
+            build: { enabled: false },
+            test: { enabled: false }
+          }
+        }
+      })
+    });
+
+    const typecheckResult = summary.results.find((entry) => entry.name === "typecheck");
+    assert.equal(typecheckResult?.skipped, true);
+    assert.match(typecheckResult?.summary ?? "", /no configured or detected command/i);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("runToolChecks builds a safe docker invocation for workspace-scoped checks", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-docker-workspace-"));
   const changedFiles: GeneratedFile[] = [

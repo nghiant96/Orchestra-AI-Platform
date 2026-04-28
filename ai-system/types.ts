@@ -43,13 +43,6 @@ export interface ProviderConfigMap extends Record<string, ProviderConfig> {
 
 export type ProviderRole = "planner" | "reviewer" | "generator" | "fixer";
 
-export const PROVIDER_TOKEN_COST_UNITS: Record<string, number> = {
-  "codex-cli": 0.01, // per 1k tokens
-  "gemini-cli": 0.015,
-  "claude-cli": 0.03,
-  "openai-compatible": 0.02
-};
-
 export type RoutingProfileName = "fast" | "balanced" | "safe";
 
 export type ProviderRoutingProfile = Partial<Record<ProviderRole, string>>;
@@ -124,11 +117,24 @@ export interface ToolCommandConfig {
   [key: string]: unknown;
 }
 
+export type ToolProjectType = "auto" | "node" | "python" | "go" | "rust" | (string & {});
+
+export interface ToolAdapterConfig {
+  enabled?: boolean;
+  detect_files?: string[];
+  commands?: Partial<Record<ToolExecutionName, ToolCommandConfig>>;
+  changed_file_extensions?: string[];
+  working_directory?: string;
+  [key: string]: unknown;
+}
+
 export interface ToolExecutionConfig {
   enabled?: boolean;
   json_validation?: boolean;
   sandbox?: ToolSandboxConfig;
   commands?: Partial<Record<ToolExecutionName, ToolCommandConfig>>;
+  project_type?: ToolProjectType;
+  adapters?: Record<string, ToolAdapterConfig>;
   [key: string]: unknown;
 }
 
@@ -158,7 +164,7 @@ export interface ToolExecutionSummary {
 export interface ToolConfigurationSummary {
   name: ToolExecutionName;
   enabled: boolean;
-  source: "configured-command" | "configured-script" | "auto-detected-script" | "fallback" | "disabled" | "none";
+  source: "configured-command" | "configured-script" | "auto-detected-script" | "adapter" | "fallback" | "disabled" | "none";
   command?: string;
   args?: string[];
   scopedToChangedFiles?: boolean;

@@ -146,3 +146,25 @@
 - `pnpm run lint`: pass.
 - `pnpm test`: pass, 110/110 tests.
 - `git diff --check`: pass.
+
+---
+
+# Review_v3 Remaining P0/P1 Plan
+
+## Tasks
+
+- [x] Extract VectorIndex symbol parsing behind a parser registry
+- [x] Add non-Node tool adapters for Python, Go, and Rust
+- [x] Move provider token cost logic into a cost calculator
+- [x] Add pre-generation budget guard using existing run budgets
+- [x] Add prompt examples and optional few-shot injection
+- [x] Add focused tests for each new behavior
+- [x] Run `pnpm run typecheck`, `pnpm run lint`, `pnpm test`, and `git diff --check`
+
+## Review Result
+
+- Added `CodeSymbolParser` registry with TypeScript AST, line-based Python/Go/Rust/Java/Kotlin/Swift parsers, and plain-text fallback.
+- Added non-Node tool adapters with Python/Go/Rust detection, explicit command precedence, and sandbox preservation.
+- Moved token cost estimation to `ai-system/utils/cost-calculator.ts` and added pre-generation budget stop using `execution.budgets.max_cost_units`.
+- Added optional prompt example loading for planner/generator/reviewer/fixer and stricter agent validation for out-of-scope files/issues.
+- Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (118/118), `git diff --check`, `pnpm ai --help`, and `pnpm ai doctor` all pass.

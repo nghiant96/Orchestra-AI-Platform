@@ -2,9 +2,9 @@ import { CodexCliProvider } from "./codex-cli.js";
 import { GeminiCliProvider } from "./gemini-cli.js";
 import { ClaudeCliProvider } from "./claude-cli.js";
 import { OpenAICompatibleProvider } from "./openai-compatible.js";
+import { estimateProviderCost } from "../utils/cost-calculator.js";
 import { estimateTokenCount } from "../utils/string.js";
 import type { JsonProvider, Logger, RulesConfig, ProviderUsageMetric, ProviderRole, RunJsonOptions } from "../types.js";
-import { PROVIDER_TOKEN_COST_UNITS } from "../types.js";
 
 export class UsageTrackingProvider implements JsonProvider {
   private base: JsonProvider;
@@ -24,20 +24,12 @@ export class UsageTrackingProvider implements JsonProvider {
     const promptTokens = estimateTokenCount(options.systemPrompt || "") + estimateTokenCount(options.prompt || "");
     const result = await this.base.runJson<T>(options);
     const completionTokens = estimateTokenCount(JSON.stringify(result));
-    const totalTokens = promptTokens + completionTokens;
-
-    // Default to a generic cost if specific provider unit not found
-    const costPer1k = PROVIDER_TOKEN_COST_UNITS[this.id] ?? 0.02;
-    const estimatedCostUnits = (totalTokens / 1000) * costPer1k;
-
-    this.metrics.push({
+    this.metrics.push(estimateProviderCost({
       role: this.role,
       provider: this.id,
       promptTokens,
-      completionTokens,
-      totalTokens,
-      estimatedCostUnits
-    });
+      completionTokens
+    }));
 
     return result;
   }

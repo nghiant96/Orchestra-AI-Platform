@@ -1,4 +1,4 @@
-import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
+import { compilePrompt, loadPromptExamplesForTask, loadPromptTemplate } from "../utils/prompt-loader.js";
 import { summarizeRules } from "../utils/config.js";
 import type { AgentDependencies, ContextFile, FileGenerationResult, JsonSchema, PlanResult } from "../types.js";
 
@@ -19,8 +19,14 @@ export class GeneratorAgent {
     memoryContext = ""
   ): Promise<FileGenerationResult> {
     const template = await loadPromptTemplate("generator");
+    const examples = await loadPromptExamplesForTask(task, [
+      ...plan.readFiles,
+      ...plan.writeTargets,
+      ...contextFiles.map((file) => file.path)
+    ]);
     const systemPrompt = compilePrompt(template, {
-      rules_summary: summarizeRules(this.rules)
+      rules_summary: summarizeRules(this.rules),
+      examples
     });
 
     const prompt = JSON.stringify(
@@ -59,13 +65,19 @@ export class GeneratorAgent {
       ...contextFiles.map((f) => f.path)
     ]);
 
-    // Only keep files that are somewhat relevant to the plan's scope
     const filteredFiles = result.files.filter((file) => {
       if (allowedPaths.has(file.path)) return true;
-      // If it's a new file, it should ideally be in writeTargets
       if (file.action === "create" && plan.writeTargets.includes(file.path)) return true;
       return false;
     });
+
+    if (result.files.length > 0 && filteredFiles.length === 0) {
+      const returnedPaths = result.files.map((file) => file.path).join(", ");
+      const allowedPathList = [...allowedPaths].join(", ");
+      throw new Error(
+        `Generator returned files outside the planned scope (${returnedPaths}). Allowed paths: ${allowedPathList || "none"}.`
+      );
+    }
 
     return {
       ...result,

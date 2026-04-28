@@ -9,6 +9,7 @@ import type {
   Logger,
   ReviewIssue,
   RulesConfig,
+  ToolAdapterConfig,
   ToolCommandConfig,
   ToolConfigurationSummary,
   ToolExecutionScope,
@@ -74,6 +75,14 @@ interface WorkspaceScopeContext {
   packages: WorkspacePackageContext[];
 }
 
+interface ToolAdapterContext {
+  name: string;
+  cwd: string;
+  workingDirectory: string;
+  commands: Partial<Record<ToolExecutionName, ToolCommandConfig>>;
+  changedFileExtensions: string[];
+}
+
 export async function runToolChecks({
   repoRoot,
   changedFiles,
@@ -105,6 +114,7 @@ export async function runToolChecks({
   const packageManager = await detectPackageManager(repoRoot);
   const changedPaths = changedFiles.map((file) => file.path).filter(Boolean);
   const sandbox = resolveToolSandbox(tools.sandbox);
+  const adapterContexts = await detectToolAdapterContexts(repoRoot, changedPaths, tools);
 
   const toolNames: ToolExecutionName[] = ["lint", "typecheck", "build", "test"];
   for (const toolName of toolNames) {
@@ -115,6 +125,7 @@ export async function runToolChecks({
       packageScripts,
       packageManager,
       changedPaths,
+      adapterContexts,
       sandbox
     });
 
@@ -224,6 +235,7 @@ export async function summarizeConfiguredTools({
   const packageScripts = normalizeScripts(packageJson);
   const packageManager = await detectPackageManager(repoRoot);
   const sandbox = resolveToolSandbox(tools.sandbox);
+  const adapterContexts = await detectToolAdapterContexts(repoRoot, ["{changed-file-example}"], tools);
 
   const summaries: ToolConfigurationSummary[] = [];
   for (const toolName of ["lint", "typecheck", "build", "test"] as ToolExecutionName[]) {
@@ -235,6 +247,7 @@ export async function summarizeConfiguredTools({
       packageScripts,
       packageManager,
       changedPaths: ["{changed-file-example}"],
+      adapterContexts,
       sandbox
     });
 
@@ -400,6 +413,7 @@ async function resolveToolCommand({
   packageScripts,
   packageManager,
   changedPaths,
+  adapterContexts,
   sandbox
 }: {
   repoRoot: string;
@@ -408,6 +422,7 @@ async function resolveToolCommand({
   packageScripts: Record<string, string>;
   packageManager: "pnpm" | "yarn" | "npm";
   changedPaths: string[];
+  adapterContexts: ToolAdapterContext[];
   sandbox: ReturnType<typeof resolveToolSandbox>;
 }): Promise<ResolvedToolCommand | null> {
   const packageScope =
@@ -479,6 +494,14 @@ async function resolveToolCommand({
     }
   }
 
+  const adapterCommand = resolveAdapterToolCommand(toolName, adapterContexts, toolConfig, changedPaths, sandbox);
+  if (adapterCommand) {
+    return adapterCommand;
+  }
+  if (changedPaths.length > 0 && allChangedPathsHandledByAdapters(changedPaths, adapterContexts)) {
+    return null;
+  }
+
   if (toolName === "typecheck") {
     if (packageScope?.tsconfigPath) {
       const rootTscPath = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
@@ -528,6 +551,51 @@ async function resolveToolCommand({
     } catch {
       return null;
     }
+  }
+
+  return null;
+}
+
+function resolveAdapterToolCommand(
+  toolName: ToolExecutionName,
+  adapterContexts: ToolAdapterContext[],
+  toolConfig: ToolCommandConfig | undefined,
+  changedPaths: string[],
+  sandbox: ReturnType<typeof resolveToolSandbox>
+): ResolvedToolCommand | null {
+  for (const adapter of adapterContexts) {
+    const adapterCommandConfig = adapter.commands[toolName];
+    if (!adapterCommandConfig || adapterCommandConfig.enabled === false) {
+      continue;
+    }
+
+    const adapterChangedPaths = filterChangedPathsForAdapter(changedPaths, adapter);
+    const args = expandToolArgs(
+      (adapterCommandConfig.args ?? []).map(String),
+      adapterChangedPaths,
+      adapterCommandConfig.append_changed_files === true
+    );
+    if (!adapterCommandConfig.command) {
+      continue;
+    }
+
+    return {
+      name: toolName,
+      command: adapterCommandConfig.command,
+      args,
+      display: [adapterCommandConfig.command, ...args].join(" ").trim(),
+      cwd: adapter.cwd,
+      timeoutMs: numberOrDefault(adapterCommandConfig.timeout_ms ?? toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
+      retries: numberOrDefault(adapterCommandConfig.retries ?? toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
+      baseDelayMs: numberOrDefault(adapterCommandConfig.base_delay_ms ?? toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
+      source: "adapter",
+      scopedToChangedFiles: usesChangedFilePlaceholder(adapterCommandConfig.args ?? []) || adapterCommandConfig.append_changed_files === true,
+      scope: adapter.workingDirectory === "." ? "full" : "package",
+      sandboxMode: sandbox.mode,
+      image: sandbox.image,
+      env: sandbox.env,
+      workingDirectory: adapter.workingDirectory
+    };
   }
 
   return null;
@@ -876,6 +944,161 @@ async function findPackageTsconfigPath(packageDir: string): Promise<string | und
   }
 
   return undefined;
+}
+
+async function detectToolAdapterContexts(
+  repoRoot: string,
+  changedPaths: string[],
+  tools: NonNullable<RulesConfig["tools"]>
+): Promise<ToolAdapterContext[]> {
+  const projectType = String(tools.project_type ?? "auto");
+  const adapters = [
+    ...buildConfiguredToolAdapters(tools.adapters ?? {}),
+    ...buildBuiltinToolAdapters(projectType)
+  ];
+  const contexts: ToolAdapterContext[] = [];
+
+  for (const adapter of adapters) {
+    if (adapter.enabled === false) {
+      continue;
+    }
+    if (!shouldConsiderAdapter(adapter.name, projectType)) {
+      continue;
+    }
+    if (!changedPathsMatchAdapter(changedPaths, adapter.changed_file_extensions ?? [])) {
+      continue;
+    }
+
+    const workingDirectory = normalizeAdapterWorkingDirectory(adapter.working_directory);
+    const cwd = path.resolve(repoRoot, workingDirectory);
+    if (!isPathWithinRepo(repoRoot, cwd)) {
+      continue;
+    }
+    if (!(await adapterDetected(cwd, adapter.detect_files ?? []))) {
+      continue;
+    }
+
+    contexts.push({
+      name: adapter.name,
+      cwd,
+      workingDirectory,
+      commands: adapter.commands ?? {},
+      changedFileExtensions: (adapter.changed_file_extensions ?? []).map((entry) => entry.toLowerCase())
+    });
+  }
+
+  return contexts;
+}
+
+function buildConfiguredToolAdapters(adapters: Record<string, ToolAdapterConfig>): Array<ToolAdapterConfig & { name: string }> {
+  return Object.entries(adapters).map(([name, adapter]) => ({ name, ...adapter }));
+}
+
+function buildBuiltinToolAdapters(projectType: string): Array<ToolAdapterConfig & { name: string }> {
+  if (projectType === "node") {
+    return [];
+  }
+
+  const adapters: Array<ToolAdapterConfig & { name: string }> = [
+    {
+      name: "python",
+      detect_files: ["pyproject.toml", "pytest.ini", "requirements.txt"],
+      changed_file_extensions: [".py"],
+      commands: {
+        test: {
+          command: "pytest",
+          args: [],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.test
+        }
+      }
+    },
+    {
+      name: "go",
+      detect_files: ["go.mod"],
+      changed_file_extensions: [".go"],
+      commands: {
+        test: {
+          command: "go",
+          args: ["test", "./..."],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.test
+        }
+      }
+    },
+    {
+      name: "rust",
+      detect_files: ["Cargo.toml"],
+      changed_file_extensions: [".rs"],
+      commands: {
+        test: {
+          command: "cargo",
+          args: ["test"],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.test
+        }
+      }
+    }
+  ];
+
+  return projectType === "auto" ? adapters : adapters.filter((adapter) => adapter.name === projectType);
+}
+
+function shouldConsiderAdapter(adapterName: string, projectType: string): boolean {
+  return projectType === "auto" || projectType === adapterName;
+}
+
+function changedPathsMatchAdapter(changedPaths: string[], extensions: string[]): boolean {
+  if (extensions.length === 0 || changedPaths.length === 0 || changedPaths.includes("{changed-file-example}")) {
+    return true;
+  }
+  const normalizedExtensions = extensions.map((entry) => entry.toLowerCase());
+  return changedPaths.some((changedPath) => normalizedExtensions.includes(path.extname(changedPath).toLowerCase()));
+}
+
+function filterChangedPathsForAdapter(changedPaths: string[], adapter: ToolAdapterContext): string[] {
+  if (adapter.changedFileExtensions.length === 0) {
+    return changedPaths;
+  }
+  return changedPaths.filter((changedPath) =>
+    adapter.changedFileExtensions.includes(path.extname(changedPath).toLowerCase())
+  );
+}
+
+function allChangedPathsHandledByAdapters(changedPaths: string[], adapterContexts: ToolAdapterContext[]): boolean {
+  if (adapterContexts.length === 0) {
+    return false;
+  }
+  return changedPaths.every((changedPath) =>
+    adapterContexts.some(
+      (adapter) => adapter.changedFileExtensions.length === 0 || adapter.changedFileExtensions.includes(path.extname(changedPath).toLowerCase())
+    )
+  );
+}
+
+function normalizeAdapterWorkingDirectory(workingDirectory: unknown): string {
+  if (typeof workingDirectory !== "string" || !workingDirectory.trim()) {
+    return ".";
+  }
+  return normalizePath(workingDirectory.trim()).replace(/^\.\/+/, "") || ".";
+}
+
+async function adapterDetected(cwd: string, detectFiles: string[]): Promise<boolean> {
+  if (detectFiles.length === 0) {
+    return true;
+  }
+  for (const detectFile of detectFiles) {
+    try {
+      await fs.access(path.join(cwd, detectFile));
+      return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
+}
+
+function isPathWithinRepo(repoRoot: string, candidatePath: string): boolean {
+  const resolvedRoot = path.resolve(repoRoot);
+  const resolvedCandidate = path.resolve(candidatePath);
+  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
 }
 
 async function readPackageJson(packageJsonPath: string): Promise<Record<string, unknown> | null> {

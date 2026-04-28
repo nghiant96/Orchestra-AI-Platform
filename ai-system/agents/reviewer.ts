@@ -1,4 +1,4 @@
-import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
+import { compilePrompt, loadPromptExamplesForTask, loadPromptTemplate } from "../utils/prompt-loader.js";
 import type {
   AgentDependencies,
   DiffSummary,
@@ -27,7 +27,11 @@ export class ReviewerAgent {
     memoryContext = ""
   ): Promise<ReviewResult> {
     const template = await loadPromptTemplate("reviewer");
-    const systemPrompt = compilePrompt(template, {});
+    const examples = await loadPromptExamplesForTask(task, [
+      ...originalFiles.map((file) => file.path),
+      ...candidateFiles.map((file) => file.path)
+    ]);
+    const systemPrompt = compilePrompt(template, { examples });
 
     const prompt = JSON.stringify(
       {
@@ -66,14 +70,33 @@ export class ReviewerAgent {
       ...candidateFiles.map((f) => f.path)
     ]);
 
+    const droppedIssues: ReviewIssue[] = [];
     const filteredIssues = result.issues.filter((issue) => {
       if (!issue.path) return true; // Global issues are ok
-      return validPaths.has(issue.path);
+      const isValid = validPaths.has(issue.path);
+      if (!isValid) {
+        droppedIssues.push(issue);
+      }
+      return isValid;
     });
+    const validationNotes: ReviewIssue[] =
+      droppedIssues.length === 0
+        ? []
+        : [
+            {
+              severity: "low",
+              category: "validation",
+              path: "",
+              description: `Reviewer returned ${droppedIssues.length} issue(s) for paths outside review scope: ${[
+                ...new Set(droppedIssues.map((issue) => issue.path).filter(Boolean))
+              ].join(", ")}.`,
+              suggestedFix: "Use only original or candidate file paths in review issues."
+            }
+          ];
 
     return {
       ...result,
-      issues: filteredIssues
+      issues: [...filteredIssues, ...validationNotes]
     };
   }
 }

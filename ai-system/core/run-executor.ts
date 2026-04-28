@@ -632,6 +632,7 @@ export async function finalizeFailedRun({
   resultStatus,
   persistedStatus,
   budgetConfig,
+  additionalUsageMetrics = [],
   logger
 }: {
   task: string;
@@ -651,6 +652,7 @@ export async function finalizeFailedRun({
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
+  additionalUsageMetrics?: ProviderUsageMetric[];
   logger: Logger;
 }): Promise<OrchestratorResult> {
   const memoryStore = await state.executionMachine.runStage(
@@ -689,7 +691,7 @@ export async function finalizeFailedRun({
     finalIssues: state.acceptedIssues,
     latestToolResults: state.latestToolResults,
     iterations: state.iterationResults,
-    usageMetrics: collectProviderUsageMetrics(runtime),
+    usageMetrics: [...collectProviderUsageMetrics(runtime), ...(additionalUsageMetrics ?? [])],
     retryHint
   });
 

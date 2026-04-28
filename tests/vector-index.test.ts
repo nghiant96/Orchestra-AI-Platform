@@ -6,6 +6,7 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { VectorIndex } from "../ai-system/core/vector-index.js";
+import { detectSymbolRanges, getSymbolParserForPath } from "../ai-system/core/symbol-parsers.js";
 import { expandContextReadFiles } from "../ai-system/core/context-intelligence.js";
 import type { RulesConfig } from "../ai-system/types.js";
 
@@ -219,6 +220,24 @@ test("VectorIndex uses symbol-aware chunks for non-TypeScript code", async () =>
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
+});
+
+test("symbol parser registry selects extensible parsers and plain-text fallback", () => {
+  assert.equal(getSymbolParserForPath("src/service.ts").id, "typescript");
+  assert.equal(getSymbolParserForPath("services/payments.py").id, "python-line");
+  assert.equal(getSymbolParserForPath("cmd/server.go").id, "go-line");
+  assert.equal(getSymbolParserForPath("src/lib.rs").id, "rust-line");
+  assert.equal(getSymbolParserForPath("README.txt").id, "plain-text");
+
+  const rustRanges = detectSymbolRanges(
+    "src/lib.rs",
+    ["pub fn validate_token(token: &str) -> bool {", "  !token.is_empty()", "}", "", "pub struct Session {}"].join("\n")
+  );
+  assert.equal(rustRanges[0]?.symbolName, "validate_token");
+  assert.equal(rustRanges[0]?.startLine, 1);
+  assert.equal(rustRanges[1]?.symbolName, "Session");
+
+  assert.deepEqual(detectSymbolRanges("notes.txt", "def not_code(): pass"), []);
 });
 
 test("expandContextReadFiles adds vector-matched files even when planner misses them", async () => {

@@ -8,6 +8,8 @@ Only provide the files that need to be created or updated. Do not include unchan
 Prefer the smallest complete change that satisfies the task.
 Preserve unrelated logic and avoid removing existing functionality unless required.
 
+{{examples}}
+
 **Example Change:**
 {
   "files": [

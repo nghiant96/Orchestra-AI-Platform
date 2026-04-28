@@ -10,6 +10,8 @@ Do not mark style-only concerns as blocking.
 Each issue must include the exact file path and an exact code-level suggested fix.
 Prioritize unintended deletions and large changes outside task scope.
 
+{{examples}}
+
 **Severity Examples:**
 - **High:** Security vulnerabilities (e.g., hardcoded secrets, path traversal), data corruption, or crashing bugs.
 - **Medium:** Improper error handling, logic errors in edge cases, or significant performance regressions.

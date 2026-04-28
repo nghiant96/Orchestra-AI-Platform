@@ -1,4 +1,4 @@
-import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
+import { compilePrompt, loadPromptExamplesForTask, loadPromptTemplate } from "../utils/prompt-loader.js";
 import type { AgentDependencies, JsonSchema, PlanResult } from "../types.js";
 
 export class PlannerAgent {
@@ -12,8 +12,10 @@ export class PlannerAgent {
 
   async planTask(task: string, treeString: string, cwd: string, memoryContext = ""): Promise<PlanResult> {
     const template = await loadPromptTemplate("planner");
+    const examples = await loadPromptExamplesForTask(task);
     const systemPrompt = compilePrompt(template, {
-      max_files: this.rules.max_files
+      max_files: this.rules.max_files,
+      examples
     });
 
     const prompt = [
