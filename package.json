@@ -18,7 +18,9 @@
     "docker:logs": "docker compose logs -f ai-coding-system",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "dashboard:dev": "cd dashboard && pnpm dev",
+    "dashboard:build": "cd dashboard && pnpm build"
   },
   "bin": {
     "ai": "./bin/ai.js",

@@ -3,7 +3,7 @@ import { createAiSystemServer } from "./server-app.js";
 import { createLogger } from "./utils/logger.js";
 
 const port = Number(process.env.PORT || process.env.AI_SYSTEM_PORT || 3927);
-const defaultCwd = process.env.AI_SYSTEM_WORKDIR || "/workspace";
+const defaultCwd = process.env.AI_SYSTEM_WORKDIR || process.cwd();
 const authToken = process.env.AI_SYSTEM_SERVER_TOKEN || "";
 const allowedWorkdirs = (process.env.AI_SYSTEM_ALLOWED_WORKDIRS || defaultCwd)
   .split(",")

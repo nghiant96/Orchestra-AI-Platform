@@ -32,6 +32,17 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   queue.start();
 
   return http.createServer(async (req, res) => {
+    // Basic CORS support
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     try {
       const url = new URL(req.url || "/", "http://localhost");
       if (url.pathname === "/health" && req.method === "GET") {
