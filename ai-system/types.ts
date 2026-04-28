@@ -457,6 +457,7 @@ export interface VectorSearchConfig {
   max_file_bytes?: number;
   chunk_size?: number;
   chunk_overlap?: number;
+  ignore_patterns?: string[];
   parsers?: VectorParserConfig;
   [key: string]: unknown;
 }
