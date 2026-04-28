@@ -110,10 +110,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           cwd,
           dryRun: payload.dryRun !== false
         });
-        return respondJson(res, 202, {
-          jobId: job.jobId,
-          status: job.status
-        });
+        return respondJson(res, 202, job);
       }
 
       if (url.pathname === "/jobs" && req.method === "GET") {

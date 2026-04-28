@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-  Play, 
   RefreshCw, 
   XCircle, 
   CheckCircle, 
@@ -8,7 +7,6 @@ import {
   AlertCircle,
   Plus,
   Terminal,
-  ExternalLink,
   ChevronRight,
   FolderOpen,
   LayoutDashboard,
@@ -16,10 +14,11 @@ import {
   History,
   Search,
   Settings,
-  MoreVertical,
   Cpu,
   ShieldCheck,
-  Zap
+  Zap,
+  Eye,
+  LucideIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
@@ -27,6 +26,14 @@ import { twMerge } from 'tailwind-merge';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+interface ExecutionTransition {
+  stage: string;
+  status: string;
+  timestamp: string;
+  detail?: string;
+  iteration?: number;
 }
 
 interface Job {
@@ -42,6 +49,9 @@ interface Job {
   artifactPath?: string | null;
   resultSummary?: string | null;
   error?: string | null;
+  execution?: {
+    transitions?: ExecutionTransition[];
+  };
 }
 
 const StatusBadge = ({ status }: { status: Job['status'] }) => {
@@ -74,7 +84,7 @@ const StatusBadge = ({ status }: { status: Job['status'] }) => {
   );
 };
 
-const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: number, icon: any, color: string }) => (
+const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: number, icon: LucideIcon, color: string }) => (
   <motion.div 
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
@@ -90,6 +100,137 @@ const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: n
   </motion.div>
 );
 
+const JobDetailModal = ({ job, onClose }: { job: Job, onClose: () => void }) => {
+  const transitions = job.execution?.transitions || [];
+  
+  return (
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0, y: 20 }}
+        className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
+      >
+        <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h2 id="modal-title" className="text-xl font-bold text-slate-900">Job Details</h2>
+              <StatusBadge status={job.status} />
+            </div>
+            <p className="text-xs font-mono text-slate-400 uppercase tracking-widest">ID: {job.jobId}</p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-2 hover:bg-slate-200 rounded-full transition-colors text-slate-400 hover:text-slate-600"
+            aria-label="Close modal"
+          >
+            <XCircle size={24} />
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          <section>
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Terminal size={16} />
+              Task Definition
+            </h3>
+            <div className="bg-slate-900 rounded-2xl p-5 text-indigo-300 font-mono text-sm leading-relaxed border border-slate-800 shadow-inner">
+              {job.task}
+            </div>
+          </section>
+
+          <section>
+            <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+              <Activity size={16} />
+              Execution Timeline
+            </h3>
+            <div className="space-y-4">
+              {transitions.length === 0 ? (
+                <div className="text-center py-10 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  <Clock size={32} className="mx-auto text-slate-300 mb-3" />
+                  <p className="text-sm text-slate-400 font-medium">No execution steps recorded yet.</p>
+                </div>
+              ) : (
+                transitions.map((t, i) => (
+                  <div key={i} className="flex gap-4 group">
+                    <div className="flex flex-col items-center">
+                      <div className={cn(
+                        "w-8 h-8 rounded-full flex items-center justify-center shrink-0 border-2 z-10 transition-colors",
+                        t.status === 'entered' ? "bg-indigo-50 border-indigo-200 text-indigo-600" : 
+                        t.status === 'completed' ? "bg-emerald-50 border-emerald-200 text-emerald-600" :
+                        t.status === 'failed' ? "bg-rose-50 border-rose-200 text-rose-600" :
+                        "bg-slate-50 border-slate-200 text-slate-400"
+                      )}>
+                        {t.status === 'entered' ? <Zap size={14} className="animate-pulse" /> : 
+                         t.status === 'completed' ? <CheckCircle size={14} /> :
+                         t.status === 'failed' ? <AlertCircle size={14} /> :
+                         <Clock size={14} />}
+                      </div>
+                      {i < transitions.length - 1 && (
+                        <div className="w-0.5 flex-1 bg-slate-100 my-1 group-last:hidden" />
+                      )}
+                    </div>
+                    <div className="pb-6 flex-1">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-bold text-slate-900 uppercase tracking-tight">{t.stage.replace(/-/g, ' ')}</span>
+                        <span className="text-[10px] font-mono text-slate-400">{new Date(t.timestamp).toLocaleTimeString()}</span>
+                      </div>
+                      <p className="text-sm text-slate-500 font-medium">{t.detail || `Stage ${t.status}`}</p>
+                      {t.iteration !== undefined && (
+                        <span className="inline-block mt-2 px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold uppercase tracking-tighter">Iteration {t.iteration}</span>
+                      )}
+                    </div>
+                  </div>
+                )).reverse()
+              )}
+            </div>
+          </section>
+
+          {(job.resultSummary || job.error) && (
+            <section>
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <ShieldCheck size={16} />
+                Final Outcome
+              </h3>
+              <div className={cn(
+                "rounded-2xl p-5 border",
+                job.error ? "bg-rose-50 border-rose-100 text-rose-700" : "bg-emerald-50 border-emerald-100 text-emerald-700"
+              )}>
+                <p className="text-sm font-semibold whitespace-pre-wrap">{job.error || job.resultSummary}</p>
+              </div>
+            </section>
+          )}
+        </div>
+        
+        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+          <button 
+            onClick={onClose}
+            className="px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+          >
+            Dismiss
+          </button>
+          {job.artifactPath && (
+             <button className="px-6 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200 flex items-center gap-2">
+               <FolderOpen size={16} />
+               Explore Artifacts
+             </button>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,17 +239,19 @@ function App() {
   const [cwd, setCwd] = useState('');
   const [dryRun, setDryRun] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
-  const fetchJobs = useCallback(async () => {
-    try {
-      const response = await fetch('/jobs');
-      const data = await response.json();
-      setJobs(data.jobs || []);
-    } catch (error) {
-      console.error('Failed to fetch jobs:', error);
-    } finally {
-      setLoading(false);
-    }
+  const fetchJobs = useCallback(() => {
+    fetch('/jobs')
+      .then(res => res.json())
+      .then(data => {
+        setJobs(data.jobs || []);
+        setLoading(false);
+      })
+      .catch(error => {
+        console.error('Failed to fetch jobs:', error);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -127,6 +270,11 @@ function App() {
   const filteredJobs = useMemo(() => 
     jobs.filter(j => j.task.toLowerCase().includes(searchTerm.toLowerCase())),
     [jobs, searchTerm]
+  );
+
+  const selectedJob = useMemo(() => 
+    jobs.find(j => j.jobId === selectedJobId),
+    [jobs, selectedJobId]
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -156,7 +304,8 @@ function App() {
     }
   };
 
-  const handleCancel = async (jobId: string) => {
+  const handleCancel = async (e: React.MouseEvent, jobId: string) => {
+    e.stopPropagation();
     try {
       const response = await fetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
       if (response.ok) {
@@ -196,6 +345,7 @@ function App() {
             <button 
               onClick={() => fetchJobs()}
               className="p-2 text-slate-400 hover:text-indigo-600 transition-colors bg-slate-50 rounded-lg border border-slate-200"
+              aria-label="Refresh jobs"
             >
               <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -230,8 +380,9 @@ function App() {
               </h2>
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Instructions</label>
+                  <label htmlFor="task-input" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Instructions</label>
                   <textarea 
+                    id="task-input"
                     value={task}
                     onChange={(e) => setTask(e.target.value)}
                     placeholder="Describe what you want to implement or fix..."
@@ -240,10 +391,11 @@ function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Workspace</label>
+                  <label htmlFor="cwd-input" className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Workspace</label>
                   <div className="relative group">
                     <FolderOpen className="absolute left-4 top-3 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
                     <input 
+                      id="cwd-input"
                       type="text"
                       value={cwd}
                       onChange={(e) => setCwd(e.target.value)}
@@ -257,6 +409,7 @@ function App() {
                   <button 
                     type="button"
                     onClick={() => setDryRun(!dryRun)}
+                    aria-label={`Toggle dry run mode: ${dryRun ? 'on' : 'off'}`}
                     className={cn(
                       "w-11 h-6 rounded-full transition-colors relative",
                       dryRun ? "bg-indigo-600" : "bg-slate-200"
@@ -322,7 +475,16 @@ function App() {
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95 }}
                       transition={{ delay: index * 0.05 }}
-                      className="group bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300 overflow-hidden"
+                      className="group bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300 overflow-hidden cursor-pointer active:scale-[0.99]"
+                      onClick={() => setSelectedJobId(job.jobId)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          setSelectedJobId(job.jobId);
+                        }
+                      }}
+                      aria-label={`View details for job: ${job.task}`}
                     >
                       <div className="p-6">
                         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
@@ -349,7 +511,7 @@ function App() {
                           <div className="flex items-center gap-2 shrink-0">
                             {(job.status === 'queued' || job.status === 'running') && (
                               <button 
-                                onClick={() => handleCancel(job.jobId)}
+                                onClick={(e) => handleCancel(e, job.jobId)}
                                 className="group/btn text-xs font-bold text-rose-600 bg-white hover:bg-rose-600 hover:text-white px-4 py-2.5 rounded-xl border border-rose-200 hover:border-rose-600 transition-all flex items-center gap-2"
                               >
                                 <XCircle size={16} />
@@ -359,16 +521,16 @@ function App() {
                             {job.artifactPath && (
                               <div className="text-xs font-bold text-indigo-600 bg-indigo-50 px-4 py-2.5 rounded-xl border border-indigo-200 transition-all flex items-center gap-2">
                                 <ShieldCheck size={16} />
-                                Verified Artifacts
+                                Verified
                               </div>
                             )}
-                            <button className="p-2.5 text-slate-300 hover:text-slate-600 transition-colors">
-                              <MoreVertical size={20} />
-                            </button>
+                            <div className="p-2.5 text-slate-300 group-hover:text-indigo-600 transition-colors">
+                              <Eye size={20} />
+                            </div>
                           </div>
                         </div>
 
-                        {/* Expandable Result/Error Panel */}
+                        {/* Expandable Result/Error Panel (Short Preview) */}
                         <AnimatePresence>
                           {(job.resultSummary || job.error) && (
                             <motion.div 
@@ -388,7 +550,7 @@ function App() {
                                 </div>
                                 <div className="flex-1 space-y-1">
                                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Execution Summary</p>
-                                  <div className="text-sm">
+                                  <div className="text-sm truncate max-w-md">
                                     {job.error ? (
                                       <span className="text-rose-600 font-bold italic leading-relaxed">{job.error}</span>
                                     ) : (
@@ -410,6 +572,12 @@ function App() {
 
         </div>
       </main>
+
+      <AnimatePresence>
+        {selectedJob && (
+          <JobDetailModal job={selectedJob} onClose={() => setSelectedJobId(null)} />
+        )}
+      </AnimatePresence>
       
       {/* Bottom Status Bar */}
       <footer className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 py-2 px-6 z-50">
@@ -421,7 +589,7 @@ function App() {
             </div>
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
-              Worker ID: {Math.random().toString(36).substring(7)}
+              Worker ID: Dashboard-Node
             </div>
           </div>
           <div className="flex items-center gap-4">

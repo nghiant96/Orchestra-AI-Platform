@@ -23,6 +23,9 @@ export interface QueueJob {
   artifactPath?: string | null;
   resultSummary?: string | null;
   error?: string | null;
+  execution?: {
+    transitions?: import("../types.js").ExecutionTransition[];
+  };
 }
 
 export interface JobQueueRunInput {
@@ -166,7 +169,8 @@ export class FileBackedJobQueue {
         finishedAt: new Date().toISOString(),
         artifactPath: result.artifacts?.runPath ?? null,
         resultSummary: summarizeOrchestratorResult(result),
-        error: result.ok ? null : result.execution?.failure?.reason ?? "Run failed."
+        error: result.ok ? null : result.execution?.failure?.reason ?? "Run failed.",
+        execution: result.execution ? { transitions: result.execution.transitions } : undefined
       });
     } catch (error) {
       await this.updateJob(running, {
