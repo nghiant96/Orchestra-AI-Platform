@@ -1,7 +1,9 @@
 import http from "node:http";
 import path from "node:path";
 import { Orchestrator } from "./core/orchestrator.js";
-import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner } from "./core/job-queue.js";
+import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
+import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
+import { loadRules } from "./core/orchestrator-runtime.js";
 import type { Logger } from "./types.js";
 
 export interface ServerAppOptions {
@@ -113,15 +115,102 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         return respondJson(res, 202, job);
       }
 
+      if (url.pathname === "/config" && req.method === "GET") {
+        try {
+          const { rules, profile, globalProfile } = await loadRules(defaultCwd);
+          // Mask sensitive info
+          const safeRules = JSON.parse(JSON.stringify(rules));
+          if (safeRules.providers) {
+            for (const provider of Object.values(safeRules.providers as Record<string, any>)) {
+              if (provider.api_key) provider.api_key = "********";
+            }
+          }
+          if (safeRules.memory?.api_key) safeRules.memory.api_key = "********";
+
+          return respondJson(res, 200, {
+            rules: safeRules,
+            profile,
+            globalProfile
+          });
+        } catch (err) {
+          return respondJson(res, 500, { ok: false, error: (err as Error).message });
+        }
+      }
+
       if (url.pathname === "/jobs" && req.method === "GET") {
-        return respondJson(res, 200, {
-          jobs: await queue.list()
-        });
+        const jobs = await queue.list();
+        
+        // Also load recent runs from artifacts to show CLI runs
+        try {
+          const { rules } = await loadRules(defaultCwd);
+          const recentRuns = await listRecentRunSummaries(defaultCwd, rules, 20);
+          
+          const runJobs: QueueJob[] = recentRuns
+            .filter(run => !jobs.some(j => j.artifactPath === run.runPath || j.jobId === run.runName))
+            .map(run => ({
+              jobId: run.runName,
+              status: run.status as any,
+              task: run.task,
+              cwd: defaultCwd,
+              dryRun: run.dryRun,
+              createdAt: run.updatedAt || new Date().toISOString(),
+              updatedAt: run.updatedAt || new Date().toISOString(),
+              artifactPath: run.runPath,
+              resultSummary: run.execution?.failure?.reason || run.status,
+              diffSummaries: run.diffSummaries,
+              latestToolResults: run.latestToolResults,
+              execution: run.execution ? { 
+                transitions: run.execution.transitions,
+                providerMetrics: run.execution.providerMetrics,
+                budget: run.execution.budget,
+                totalDurationMs: run.execution.totalDurationMs
+              } : undefined
+            }));
+            
+          const merged = [...jobs, ...runJobs].sort((a, b) => 
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+
+          return respondJson(res, 200, {
+            jobs: merged.slice(0, 50)
+          });
+        } catch (err) {
+          // If artifacts can't be loaded, just return queue jobs
+          return respondJson(res, 200, { jobs });
+        }
       }
 
       const jobMatch = /^\/jobs\/([^/]+)(?:\/(cancel))?$/.exec(url.pathname);
       if (jobMatch && req.method === "GET" && !jobMatch[2]) {
-        const job = await queue.get(jobMatch[1] ?? "");
+        const jobId = jobMatch[1] ?? "";
+        let job = await queue.get(jobId);
+        
+        if (!job && jobId.startsWith("run-")) {
+          try {
+            const { rules } = await loadRules(defaultCwd);
+            const summary = await loadRunSummary(defaultCwd, rules, jobId);
+            if (summary && summary.runState) {
+              job = {
+                jobId: jobId,
+                status: (summary.runState.status || "completed") as any,
+                task: summary.runState.task || "",
+                cwd: defaultCwd,
+                dryRun: summary.runState.dryRun || false,
+                createdAt: summary.runState.execution?.transitions?.[0]?.timestamp || new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                artifactPath: path.dirname(summary.statePath),
+                resultSummary: summary.runState.latestReviewSummary,
+                error: summary.runState.status === "failed" ? "Run failed." : null,
+                diffSummaries: summary.runState.diffSummaries || summary.artifactIndex?.diffSummaries,
+                latestToolResults: summary.runState.latestToolResults || summary.artifactIndex?.latestToolResults,
+                execution: summary.runState.execution ? { transitions: summary.runState.execution.transitions } : undefined
+              };
+            }
+          } catch (err) {
+            // Not found in artifacts either
+          }
+        }
+        
         return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
       }
 

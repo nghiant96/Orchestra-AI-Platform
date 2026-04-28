@@ -23,8 +23,13 @@ export interface QueueJob {
   artifactPath?: string | null;
   resultSummary?: string | null;
   error?: string | null;
+  diffSummaries?: import("../types.js").DiffSummary[];
+  latestToolResults?: import("../types.js").ToolExecutionResult[];
   execution?: {
     transitions?: import("../types.js").ExecutionTransition[];
+    providerMetrics?: import("../types.js").ExecutionProviderMetric[];
+    budget?: import("../types.js").ExecutionBudgetSummary | null;
+    totalDurationMs?: number;
   };
 }
 
@@ -170,7 +175,14 @@ export class FileBackedJobQueue {
         artifactPath: result.artifacts?.runPath ?? null,
         resultSummary: summarizeOrchestratorResult(result),
         error: result.ok ? null : result.execution?.failure?.reason ?? "Run failed.",
-        execution: result.execution ? { transitions: result.execution.transitions } : undefined
+        diffSummaries: result.diffSummaries,
+        latestToolResults: result.latestToolResults,
+        execution: result.execution ? { 
+          transitions: result.execution.transitions,
+          providerMetrics: result.execution.providerMetrics,
+          budget: result.execution.budget,
+          totalDurationMs: result.execution.totalDurationMs
+        } : undefined
       });
     } catch (error) {
       await this.updateJob(running, {

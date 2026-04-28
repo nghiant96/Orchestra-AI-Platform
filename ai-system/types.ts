@@ -520,6 +520,7 @@ export interface OrchestratorResult {
   memory: MemoryStats;
   artifacts: ArtifactSummary | null;
   wroteFiles: boolean;
+  diffSummaries?: DiffSummary[];
   latestToolResults?: ToolExecutionResult[];
   execution?: ExecutionSummary | null;
 }

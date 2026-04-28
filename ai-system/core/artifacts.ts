@@ -48,6 +48,7 @@ export interface PersistedRunState {
   pauseAfterGenerate?: boolean;
   memory?: Partial<MemoryStats>;
   artifacts?: ArtifactSummary | null;
+  diffSummaries?: import("../types.js").DiffSummary[];
   latestToolResults?: ToolExecutionResult[];
   latestVectorMatches?: VectorSearchMatch[];
   latestContextRanking?: ContextSelectionCandidate[];
@@ -77,6 +78,7 @@ export interface RecentRunSummary {
     latestTask?: string | null;
     latestProvider?: string | null;
     latestFiles?: string[];
+    diffSummaries?: import("../types.js").DiffSummary[];
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
@@ -99,9 +101,12 @@ export interface RunListEntry {
   runName: string;
   status: string;
   task: string;
+  dryRun: boolean;
   updatedAt: string | null;
   iterationCount: number;
   latestFiles: string[];
+  diffSummaries?: import("../types.js").DiffSummary[];
+  latestToolResults?: import("../types.js").ToolExecutionResult[];
   execution: ExecutionSummary | null;
   latestApplyEventPath?: string | null;
   lastAppliedAt?: string | null;
@@ -494,6 +499,7 @@ export async function persistRunState(
     memory: MemoryStats;
     artifacts?: ArtifactSummary | null;
     wroteFiles?: boolean;
+    diffSummaries?: import("../types.js").DiffSummary[];
     pauseAfterPlan?: boolean;
     pauseAfterGenerate?: boolean;
     latestReviewSummary?: string;
@@ -565,6 +571,7 @@ export async function persistRunState(
           })
       ),
     wroteFiles: payload.wroteFiles ?? false,
+    diffSummaries: payload.diffSummaries,
     pauseAfterPlan: payload.pauseAfterPlan ?? false,
     pauseAfterGenerate: payload.pauseAfterGenerate ?? false,
     latestReviewSummary: payload.latestReviewSummary ?? "",
@@ -619,6 +626,7 @@ export async function persistRunState(
     latestStatus: serializable.status,
     latestTask: payload.task,
     latestFiles: serializable.artifacts?.latestFiles ?? [],
+    diffSummaries: payload.diffSummaries,
     latestToolResults: serializable.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
@@ -926,6 +934,7 @@ async function writeArtifactIndex(
     latestTask?: string;
     latestProvider?: string;
     latestFiles?: string[];
+    diffSummaries?: import("../types.js").DiffSummary[];
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
@@ -953,6 +962,7 @@ async function writeArtifactIndex(
     latestTask: payload.latestTask ?? null,
     latestProvider: payload.latestProvider ?? null,
     latestFiles: payload.latestFiles ?? [],
+    diffSummaries: payload.diffSummaries ?? existingIndex?.diffSummaries ?? [],
     latestToolResults: payload.latestToolResults ?? [],
     latestVectorMatches: payload.latestVectorMatches ?? existingIndex?.latestVectorMatches ?? [],
     latestContextRanking: payload.latestContextRanking ?? existingIndex?.latestContextRanking ?? [],
@@ -1026,24 +1036,45 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
   const statePath = path.join(runDir, "run-state.json");
   const indexPath = path.join(runDir, "artifact-index.json");
 
-  try {
-    const runState = JSON.parse(await fs.readFile(statePath, "utf8")) as RecentRunSummary["runState"];
-    const artifactIndex = await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath);
-    return {
-      statePath,
-      runPath: runDir,
-      runName: path.basename(runDir),
-      status: runState.status ?? artifactIndex?.latestStatus ?? "unknown",
-      task: runState.task ?? artifactIndex?.latestTask ?? "",
-      updatedAt: artifactIndex?.updatedAt ?? null,
-      iterationCount: artifactIndex?.iterationCount ?? runState.iterations?.length ?? 0,
-      latestFiles: runState.result?.files?.map((file) => file.path) ?? artifactIndex?.latestFiles ?? [],
-      execution: runState.execution ?? artifactIndex?.execution ?? null,
-      latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
-      lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
-      applyEventCount: artifactIndex?.applyEventCount ?? 0
-    };
-  } catch {
+  const runState = await readJsonIfExists<RecentRunSummary["runState"]>(statePath);
+  const artifactIndex = await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath);
+
+  if (!runState && !artifactIndex) {
     return null;
   }
+
+  // Try to load diff summaries from the latest iteration manifest
+  let diffSummaries: import("../types.js").DiffSummary[] | undefined = undefined;
+  const latestIterationPath = artifactIndex?.latestIterationPath || runState?.artifacts?.latestIterationPath;
+  if (latestIterationPath) {
+    try {
+      const manifestPath = path.isAbsolute(latestIterationPath)
+        ? path.join(latestIterationPath, "manifest.json")
+        : path.join(runDir, latestIterationPath, "manifest.json");
+      const manifest = await readJsonIfExists<any>(manifestPath);
+      if (Array.isArray(manifest?.diffSummaries)) {
+        diffSummaries = manifest.diffSummaries;
+      }
+    } catch {
+      // Ignore failures loading diff summaries
+    }
+  }
+
+  return {
+    statePath,
+    runPath: runDir,
+    runName: path.basename(runDir),
+    status: runState?.status ?? artifactIndex?.latestStatus ?? "running",
+    task: runState?.task ?? artifactIndex?.latestTask ?? "",
+    dryRun: runState?.dryRun ?? false,
+    updatedAt: artifactIndex?.updatedAt ?? null,
+    iterationCount: artifactIndex?.iterationCount ?? runState?.iterations?.length ?? 0,
+    latestFiles: runState?.result?.files?.map((file) => file.path) ?? artifactIndex?.latestFiles ?? [],
+    diffSummaries,
+    latestToolResults: runState?.latestToolResults ?? artifactIndex?.latestToolResults ?? [],
+    execution: runState?.execution ?? artifactIndex?.execution ?? null,
+    latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
+    lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
+    applyEventCount: artifactIndex?.applyEventCount ?? 0
+  };
 }

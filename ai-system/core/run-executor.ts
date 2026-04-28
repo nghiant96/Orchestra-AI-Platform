@@ -71,6 +71,7 @@ export interface LoopExecutionState {
   acceptedIssues: ReviewIssue[];
   latestReviewSummary: string;
   iterationResults: IterationResult[];
+  diffSummaries?: import("../types.js").DiffSummary[];
   latestToolResults: import("../types.js").ToolExecutionResult[];
   executionMachine: ExecutionStateMachine;
 }
@@ -283,7 +284,7 @@ export async function executeGenerationLoop({
       path: file.path,
       content: originals.get(file.path)
     }));
-    const diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
+    state.diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
     const validationIssues = validateCandidateFiles(state.currentResult.files);
 
     const toolExecution = await state.executionMachine.runStage(
@@ -324,7 +325,7 @@ export async function executeGenerationLoop({
             originalFiles,
             state.currentResult!.files,
             preReviewIssues,
-            diffSummaries,
+            state.diffSummaries!,
             repoRoot,
             implementationMemoryContext
           )
@@ -349,7 +350,7 @@ export async function executeGenerationLoop({
         resultSummary: state.currentResult.summary ?? "",
         candidateFiles: state.currentResult.files,
         originalFiles,
-        diffSummaries,
+        diffSummaries: state.diffSummaries,
         toolResults: toolExecution.result.results,
         preReviewIssues,
         reviewSummary: review.summary,
@@ -360,7 +361,7 @@ export async function executeGenerationLoop({
     );
     logger.dashboard?.({
       message: `Iteration ${iteration} review complete.`,
-      diffSummaries,
+      diffSummaries: state.diffSummaries,
       artifactPath: artifactInfo?.iterationPath ?? artifactState.latestIterationPath,
       currentFiles: state.currentResult.files.map((file) => file.path),
       providerMetrics: buildExecutionSummary({
@@ -619,6 +620,7 @@ export async function finalizeSuccessfulRun({
     providers: runtime.providerSummary,
     memory: memoryStats,
     artifacts: finalizeArtifactState(artifactState, state.currentResult, true, state.latestToolResults, [], [], execution),
+    diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
     execution,
     wroteFiles: !dryRun
@@ -739,6 +741,7 @@ export async function finalizeFailedRun({
     providers: runtime.providerSummary,
     memory: memoryStats,
     artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, [], [], execution),
+    diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
     execution,
     wroteFiles: false
@@ -824,6 +827,7 @@ export async function finalizeErroredRun({
     providers: runtime.providerSummary,
     memory: memoryStats,
     artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, [], [], execution),
+    diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
     execution,
     wroteFiles: false
