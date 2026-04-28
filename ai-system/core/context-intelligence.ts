@@ -102,7 +102,7 @@ export async function expandContextReadFiles({
   };
 }
 
-function rankContextCandidates({
+export function rankContextCandidates({
   initialReadFiles,
   dependencyFiles,
   writeTargetReads,
@@ -200,7 +200,7 @@ async function collectChangedWorkingTreeFiles(
   }
 }
 
-async function trimRankedCandidatesByBudget({
+export async function trimRankedCandidatesByBudget({
   repoRoot,
   rankedCandidates,
   maxExpandedFiles,

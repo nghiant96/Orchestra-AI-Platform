@@ -625,7 +625,7 @@ export async function finalizeFailedRun({
   artifactState,
   state,
   retryHint,
-  startAtStage,
+  startAtStage: _startAtStage,
   resultStatus,
   persistedStatus,
   budgetConfig,

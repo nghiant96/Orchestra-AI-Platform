@@ -1,4 +1,4 @@
-import { describe, it, mock, beforeEach, afterEach } from "node:test";
+import { describe, it, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { 
   createExecutionStateMachine,
@@ -13,7 +13,6 @@ describe("Run Executor Core", () => {
   });
 
   it("createExecutionStateMachine initializes correctly", () => {
-    let persisted = false;
     const mockArtifactState: any = {
       runDir: "/mock",
       latestIterationPath: null,

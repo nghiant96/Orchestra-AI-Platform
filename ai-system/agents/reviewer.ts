@@ -1,7 +1,6 @@
 import { compilePrompt, loadPromptTemplate } from "../utils/prompt-loader.js";
 import type {
   AgentDependencies,
-  ContextFile,
   DiffSummary,
   GeneratedFile,
   JsonSchema,

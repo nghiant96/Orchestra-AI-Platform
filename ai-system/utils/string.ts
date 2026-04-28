@@ -73,7 +73,7 @@ export function parseJsonResponse(text: string, fallbackLabel = "model response"
     return JSON.parse(candidate);
   } catch (error) {
     const preview = truncate(candidate, 400);
-    throw new Error(`Unable to parse ${fallbackLabel} as JSON. Preview: ${preview}`);
+    throw new Error(`Unable to parse ${fallbackLabel} as JSON. Preview: ${preview}`, { cause: error });
   }
 }
 

@@ -9,9 +9,7 @@ import type {
   InteractiveState,
   CurrentChangeReviewResult,
   ArtifactApplyResult,
-  FailingChecksReviewResult,
-  FixChecksCommandResult,
-  SetupToolName
+  FailingChecksReviewResult
 } from "./types.js";
 
 export function printInteractiveBanner(state: InteractiveState): void {

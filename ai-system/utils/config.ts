@@ -56,7 +56,7 @@ export async function loadJsonIfExists<T = Record<string, unknown>>(filePath: st
       return null;
     }
 
-    throw new Error(`Failed to load config ${filePath}: ${normalized?.message ?? "Unknown error"}`);
+    throw new Error(`Failed to load config ${filePath}: ${normalized?.message ?? "Unknown error"}`, { cause: error });
   }
 }
 

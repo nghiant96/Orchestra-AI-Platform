@@ -4,8 +4,7 @@ import fs from "node:fs/promises";
 import {
   buildRoutingDecision,
   chooseProfile,
-  resolveRoleProviders,
-  getRoutingProfile
+  resolveRoleProviders
 } from "../ai-system/core/provider-router.js";
 import type { RulesConfig } from "../ai-system/types.js";
 

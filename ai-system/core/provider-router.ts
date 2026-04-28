@@ -310,7 +310,7 @@ export function getRoutingProfile(rules: RulesConfig, profileName: RoutingProfil
 
 async function collectSignals({
   repoRoot,
-  rules,
+  rules: _rules,
   routing,
   task,
   stage,

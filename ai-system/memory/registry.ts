@@ -1,6 +1,6 @@
 import { LocalFileMemoryAdapter } from "./local-file.js";
 import { OpenMemoryAdapter } from "./openmemory.js";
-import type { Logger, MemoryAdapter, MemoryConfig, RulesConfig } from "../types.js";
+import type { Logger, MemoryAdapter, RulesConfig } from "../types.js";
 
 export function createMemoryAdapter({
   repoRoot,

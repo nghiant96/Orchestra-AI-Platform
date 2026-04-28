@@ -10,7 +10,7 @@ describe("Agents Core", () => {
 
   it("PlannerAgent constructs proper prompts and calls provider", async () => {
     const mockProvider: any = {
-      runJson: mock.fn(async (args: any) => {
+      runJson: mock.fn(async (_args: any) => {
         return {
           prompt: "fix bug",
           readFiles: ["src/index.ts"],
@@ -43,7 +43,7 @@ describe("Agents Core", () => {
 
   it("GeneratorAgent constructs proper prompts for candidate generation", async () => {
     const mockProvider: any = {
-      runJson: mock.fn(async (args: any) => {
+      runJson: mock.fn(async (_args: any) => {
         return {
           files: [{ path: "src/index.ts", diff: "modified code" }],
           summary: "Did stuff"
@@ -69,7 +69,7 @@ describe("Agents Core", () => {
     assert.equal(mockProvider.runJson.mock.callCount(), 1);
     const callArgs = mockProvider.runJson.mock.calls[0].arguments[0];
     
-    assert.ok(callArgs.systemPrompt.includes("You are the code generation agent for a local coding system"));
+    assert.ok(callArgs.systemPrompt.includes("You are a code generation agent."));
     assert.ok(callArgs.prompt.includes("fix bug"));
     assert.equal(result.files[0].path, "src/index.ts");
   });

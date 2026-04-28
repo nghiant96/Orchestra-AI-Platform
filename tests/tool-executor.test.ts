@@ -282,7 +282,7 @@ test("runToolChecks scopes lint/test to a single changed workspace package", asy
     assert.equal(lintResult?.scope, "package");
     assert.equal(lintResult?.workingDirectory, "packages/web");
     assert.deepEqual(lintResult?.args, ["run", "lint"]);
-    assert.match(lintResult?.stdout ?? "", /packages[\/\\]web/);
+    assert.match(lintResult?.stdout ?? "", /packages[/\\]web/);
 
     assert.equal(testResult?.ok, true);
     assert.equal(testResult?.scope, "package");
@@ -344,7 +344,7 @@ test("runToolChecks scopes typecheck to a single changed workspace package when 
     assert.equal(typecheckResult?.ok, true);
     assert.equal(typecheckResult?.scope, "package");
     assert.equal(typecheckResult?.workingDirectory, "packages/web");
-    assert.match(typecheckResult?.stdout ?? "", /packages[\/\\]web/);
+    assert.match(typecheckResult?.stdout ?? "", /packages[/\\]web/);
     assert.ok(typecheckResult?.args?.includes(path.join(tempDir, "packages/web/tsconfig.json")));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
@@ -434,8 +434,8 @@ test("runToolChecks uses pnpm workspace filters when changes span multiple packa
     assert.match(lintResult?.workingDirectory ?? "", /packages\/web/);
     assert.match(lintResult?.workingDirectory ?? "", /packages\/api/);
     assert.deepEqual(lintResult?.args, ["--filter", "@workspace/web", "--filter", "@workspace/api", "run", "lint"]);
-    assert.match(lintResult?.stdout ?? "", /packages[\/\\]web/);
-    assert.match(lintResult?.stdout ?? "", /packages[\/\\]api/);
+    assert.match(lintResult?.stdout ?? "", /packages[/\\]web/);
+    assert.match(lintResult?.stdout ?? "", /packages[/\\]api/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

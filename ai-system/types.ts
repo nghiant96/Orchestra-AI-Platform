@@ -44,7 +44,7 @@ export interface ProviderConfigMap extends Record<string, ProviderConfig> {
 export type ProviderRole = "planner" | "reviewer" | "generator" | "fixer";
 export type RoutingProfileName = "fast" | "balanced" | "safe";
 
-export interface ProviderRoutingProfile extends Partial<Record<ProviderRole, string>> {}
+export type ProviderRoutingProfile = Partial<Record<ProviderRole, string>>;
 
 export interface RoutingSignal {
   name: string;

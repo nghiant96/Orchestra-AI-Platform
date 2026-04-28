@@ -22,7 +22,7 @@ describe("Context Intelligence Core", () => {
     });
 
     // Expect: initial (100), target (95), changed (85), dep1 (70), semantic (48)
-    const getScore = (path: string) => candidates.find(c => c.path === path)?.score;
+    const getScore = (path: string) => candidates.find((c: ContextSelectionCandidate) => c.path === path)?.score;
     assert.equal(getScore("initial.ts"), 100);
     assert.equal(getScore("target.ts"), 95); // max(95, 70)
     assert.equal(getScore("changed.ts"), 85);

@@ -350,12 +350,7 @@ async function collectBaseRefChanges(repoRoot: string, baseRef: string, requeste
   const candidateFiles = [];
   for (const filePath of changedFiles) {
     const absolutePath = resolveRepoPath(repoRoot, filePath);
-    let content = "";
-    try {
-      content = await fs.readFile(absolutePath, "utf8");
-    } catch {
-      content = "";
-    }
+    const content = await fs.readFile(absolutePath, "utf8").catch(() => "");
     candidateFiles.push({
       path: filePath,
       action: originalMap.get(filePath) === null ? "create" : "update",
@@ -430,12 +425,7 @@ async function buildReviewArtifactsFromHead(repoRoot: string, changedFiles: stri
   const candidateFiles = [];
   for (const filePath of changedFiles) {
     const absolutePath = resolveRepoPath(repoRoot, filePath);
-    let content = "";
-    try {
-      content = await fs.readFile(absolutePath, "utf8");
-    } catch {
-      content = "";
-    }
+    const content = await fs.readFile(absolutePath, "utf8").catch(() => "");
     candidateFiles.push({
       path: filePath,
       action: originalMap.get(filePath) === null ? "create" : "update",

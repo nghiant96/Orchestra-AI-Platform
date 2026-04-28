@@ -18,3 +18,23 @@
 - [x] Establish test configurations for `node:test` + `tsx`.
 
 ## Status: Completed
+
+---
+
+# Review Gemini Fixes Against Review_v4
+
+## Tasks
+
+- [x] Read `Review_v4.md` P0/P1 checklist
+- [x] Map current changed files to review items
+- [x] Inspect implementation and test changes
+- [x] Run relevant quality gates
+- [x] Record review result and remaining risk
+
+## Review Result
+
+- `pnpm run typecheck`: pass.
+- `pnpm run lint`: pass.
+- `pnpm test`: pass, 108/108 tests.
+- `git diff --check`: fail due trailing whitespace in `eslint.config.js`.
+- Review_v4 P0 items are functionally addressed by the Gemini patch, except the whitespace hygiene issue above.

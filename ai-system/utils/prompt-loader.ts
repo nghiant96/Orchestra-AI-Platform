@@ -9,7 +9,7 @@ export async function loadPromptTemplate(name: string): Promise<string> {
   try {
     return await fs.readFile(promptPath, "utf8");
   } catch (error) {
-    throw new Error(`Failed to load prompt template "${name}" from ${promptPath}: ${(error as Error).message}`);
+    throw new Error(`Failed to load prompt template "${name}" from ${promptPath}: ${(error as Error).message}`, { cause: error });
   }
 }
 

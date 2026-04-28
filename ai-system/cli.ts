@@ -1,5 +1,4 @@
 import readline from "node:readline";
-import path from "node:path";
 import { parseArgs } from "./cli/arg-parser.js";
 import { applyProviderPreset, setAllRoleProviders } from "./cli/presets.js";
 import { handleInteractiveCommand, buildPrompt } from "./cli/interactive.js";
@@ -9,8 +8,6 @@ import type { OrchestratorResult } from "./types.js";
 import {
   printHelp,
   printInteractiveBanner,
-  printInteractiveHelp,
-  printSessionStatus,
   printDoctor,
   printConfigShow,
   printConfigUseResult,
@@ -25,8 +22,7 @@ import {
   printFailingChecksReviewResult,
   printFixFromRunPreparation,
   printRoutingExplanation,
-  outputJsonResult,
-  printJson
+  outputJsonResult
 } from "./cli/formatters.js";
 import type { FixChecksCommandResult, TaskRunOptions } from "./cli/types.js";
 import { applyWorkflowModeDefaults } from "./core/workflow-modes.js";
