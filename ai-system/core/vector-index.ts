@@ -224,6 +224,10 @@ async function collectCandidateFiles(
     rules.artifacts?.data_dir ?? ".ai-system-artifacts",
     vectorDataDir || ".ai-system-vector"
   ]);
+
+  // Load ignore patterns from config
+  const ignorePatterns = rules.vector_search?.ignore_patterns || [];
+
   await walk(repoRoot, "");
   return entries.slice(0, maxIndexedFiles);
 
@@ -233,7 +237,12 @@ async function collectCandidateFiles(
 
     for (const item of items) {
       const relativePath = toPosixPath(path.posix.join(relativeDir, item.name));
-      if (shouldSkipPath(relativePath, rules) || isInternalIndexPath(relativePath, internalExcludedDirs)) {
+      
+      if (
+        shouldSkipPath(relativePath, rules) || 
+        isInternalIndexPath(relativePath, internalExcludedDirs) ||
+        isIgnoredByPatterns(relativePath, ignorePatterns)
+      ) {
         continue;
       }
 
@@ -247,6 +256,27 @@ async function collectCandidateFiles(
       }
     }
   }
+}
+
+function isIgnoredByPatterns(relativePath: string, patterns: string[]): boolean {
+  if (!patterns.length) return false;
+  
+  const normalized = toPosixPath(relativePath);
+  
+  for (const pattern of patterns) {
+    // Simple glob-to-regex conversion for basic support
+    const regexSource = pattern
+      .replace(/\./g, "\\.")
+      .replace(/\*\*/g, "(.+)")
+      .replace(/\*/g, "([^/]+)")
+      .replace(/\?/g, "(.)");
+    
+    const regex = new RegExp(`^${regexSource}$`);
+    if (regex.test(normalized) || normalized.startsWith(pattern.replace("/**", ""))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function isInternalIndexPath(relativePath: string, internalExcludedDirs: Set<string>): boolean {
@@ -501,16 +531,20 @@ function scorePathWeight(relativePath: string): number {
   const normalizedPath = toPosixPath(relativePath);
   const extension = path.extname(normalizedPath).toLowerCase();
 
-  if (normalizedPath.startsWith("ai-system/core/") || normalizedPath.startsWith("docker/")) {
-    return 4;
+  if (normalizedPath.startsWith("ai-system/core/") || normalizedPath.startsWith("dashboard/src/")) {
+    return 6;
   }
 
-  if (normalizedPath.startsWith("ai-system/") || normalizedPath.startsWith("src/") || normalizedPath.startsWith("packages/")) {
-    return 2;
+  if (normalizedPath.startsWith("ai-system/") || normalizedPath.startsWith("dashboard/") || normalizedPath.startsWith("src/")) {
+    return 4;
   }
 
   if (normalizedPath.startsWith("tests/")) {
     return 1;
+  }
+
+  if (normalizedPath.startsWith(".ai-system-server/") || normalizedPath.startsWith(".ai-system-artifacts/")) {
+    return -20;
   }
 
   if (normalizedPath === "README.md" || normalizedPath.startsWith("docs/") || normalizedPath.startsWith("tasks/")) {

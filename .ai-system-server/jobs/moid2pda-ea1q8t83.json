@@ -1,0 +1,14 @@
+{
+  "jobId": "moid2pda-ea1q8t83",
+  "status": "failed",
+  "task": "Tôi muốn nâng cấp giao diện Dashboard web. Muốn xem được trạng thái realtime của AI đang làm. Muốn quản lý được. Ví dụ click vào thì có thể xem được planner,...",
+  "cwd": "/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM",
+  "dryRun": true,
+  "createdAt": "2026-04-28T08:25:38.542Z",
+  "updatedAt": "2026-04-28T08:36:15.132Z",
+  "artifactPath": "/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/.ai-system-artifacts/run-2026-04-28T08-25-38-621Z-noez4w",
+  "resultSummary": "Fixed excessive artifact API polling in App.tsx by implementing a tracking ref. Re-scoped the global SSE clients Set into createAiSystemServer and guarded logger wrapper logic in server-app.ts to prevent duplicate events on multiple server instantiations.",
+  "error": "Run exceeded the duration budget (636482ms > 600000ms).",
+  "startedAt": "2026-04-28T08:25:38.596Z",
+  "finishedAt": "2026-04-28T08:36:15.132Z"
+}

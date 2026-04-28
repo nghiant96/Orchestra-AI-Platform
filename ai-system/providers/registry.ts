@@ -74,19 +74,22 @@ export class FailoverJsonProvider implements JsonProvider {
     try {
       return await this.currentProvider.runJson<T>(options);
     } catch (error) {
-      if (this.isQuotaOrCapacityError(error)) {
-        const fallback = this.findFallbackProvider();
-        if (fallback) {
-          this.logger?.warn(`Provider ${this.currentProvider.id} failed with quota/capacity issue. Switching to fallback: ${fallback.id}`);
-          this.failedProviders.add(this.currentProvider.id);
-          // Store usage from the failed provider before switching
-          if ((this.currentProvider as any).getUsage) {
-            this.accumulatedMetrics.push(...(this.currentProvider as any).getUsage());
-          }
-          this.currentProvider = fallback;
-          return await this.runJson<T>(options);
+      const isQuotaError = this.isQuotaOrCapacityError(error);
+      const fallback = this.findFallbackProvider();
+
+      if (fallback && (isQuotaError || this.failedProviders.size === 0)) {
+        this.logger?.warn(`Provider ${this.currentProvider.id} encountered an issue. Switching to fallback: ${fallback.id}`);
+        this.failedProviders.add(this.currentProvider.id);
+        
+        if ((this.currentProvider as any).getUsage) {
+          this.accumulatedMetrics.push(...(this.currentProvider as any).getUsage());
         }
+        
+        this.currentProvider = fallback;
+        // Retry the request with the new provider
+        return await this.runJson<T>(options);
       }
+      
       throw error;
     }
   }

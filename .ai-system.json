@@ -10,7 +10,14 @@
     "max_indexed_files": 200,
     "max_file_bytes": 65536,
     "chunk_size": 1200,
-    "chunk_overlap": 200
+    "chunk_overlap": 200,
+    "ignore_patterns": [
+      ".ai-system-server/**",
+      ".ai-system-artifacts/**",
+      ".ai-system-memory/**",
+      "**/node_modules/**",
+      "**/*.json"
+    ]
   },
   "profile": "hybrid"
 }
