@@ -294,11 +294,13 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (url.pathname === "/jobs" && req.method === "GET") {
         const jobs = await queue.list();
+        options.logger.info(`GET /jobs - Found ${jobs.length} jobs in queue`);
 
         // Also load recent runs from artifacts to show CLI runs
         try {
           const { rules } = await loadRules(defaultCwd);
           const recentRuns = await listRecentRunSummaries(defaultCwd, rules, 20);
+          options.logger.info(`GET /jobs - Found ${recentRuns.length} recent runs`);
 
           const runJobs: QueueJob[] = recentRuns
             .filter(run => !jobs.some(j => j.artifactPath === run.runPath || j.jobId === run.runName))
@@ -442,7 +444,12 @@ function isAuthorized(req: http.IncomingMessage, token: string): boolean {
 }
 
 function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): void {
-  res.writeHead(statusCode, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0"
+  });
   res.end(JSON.stringify(body, null, 2));
 }
 

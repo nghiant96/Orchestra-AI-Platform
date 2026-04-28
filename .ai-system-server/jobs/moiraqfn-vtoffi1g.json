@@ -1,0 +1,164 @@
+{
+  "jobId": "moiraqfn-vtoffi1g",
+  "status": "failed",
+  "task": "Xử lý lần lượt theo plan vừa tạo",
+  "cwd": "/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM",
+  "dryRun": true,
+  "createdAt": "2026-04-28T15:03:47.795Z",
+  "updatedAt": "2026-04-28T15:07:37.847Z",
+  "artifactPath": "/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/.ai-system-artifacts/run-2026-04-28T15-03-47-857Z-gt2zfe",
+  "resultSummary": "Run failed.",
+  "error": "Run failed without a classified tool or review cause.",
+  "startedAt": "2026-04-28T15:03:47.849Z",
+  "finishedAt": "2026-04-28T15:07:37.847Z",
+  "latestToolResults": [],
+  "execution": {
+    "transitions": [
+      {
+        "stage": "routing-planning",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:03:47.857Z",
+        "detail": "Planning routing uses profile balanced."
+      },
+      {
+        "stage": "routing-planning",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:03:47.858Z",
+        "durationMs": 1,
+        "detail": "Planning routing uses profile balanced."
+      },
+      {
+        "stage": "project-tree",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:03:47.858Z"
+      },
+      {
+        "stage": "project-tree",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:03:48.064Z",
+        "durationMs": 206
+      },
+      {
+        "stage": "planning-memory",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:03:48.064Z",
+        "detail": "Loaded planning memories."
+      },
+      {
+        "stage": "planning-memory",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:03:48.070Z",
+        "durationMs": 6,
+        "detail": "Loaded planning memories."
+      },
+      {
+        "stage": "planner",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:03:48.070Z",
+        "detail": "Planner provider: gemini-cli."
+      },
+      {
+        "stage": "planner",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:04:23.671Z",
+        "durationMs": 35601,
+        "detail": "Planner provider: gemini-cli."
+      },
+      {
+        "stage": "context-expansion",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:04:23.671Z",
+        "detail": "Expanded context from 2 planned file(s) to include dependency and semantic matches."
+      },
+      {
+        "stage": "context-expansion",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:04:23.746Z",
+        "durationMs": 74,
+        "detail": "Expanded context from 2 planned file(s) to include dependency and semantic matches."
+      },
+      {
+        "stage": "routing-implementation",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:04:23.748Z",
+        "detail": "Implementation routing evaluated after the plan."
+      },
+      {
+        "stage": "routing-implementation",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:04:23.752Z",
+        "durationMs": 4,
+        "detail": "Implementation routing evaluated after the plan."
+      },
+      {
+        "stage": "implementation-memory",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:04:55.175Z",
+        "detail": "Loaded implementation memories."
+      },
+      {
+        "stage": "implementation-memory",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:04:55.178Z",
+        "durationMs": 3,
+        "detail": "Loaded implementation memories."
+      },
+      {
+        "stage": "context",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:04:55.179Z",
+        "detail": "Read 3 context file(s)."
+      },
+      {
+        "stage": "context",
+        "status": "completed",
+        "timestamp": "2026-04-28T15:04:55.186Z",
+        "durationMs": 6,
+        "detail": "Read 3 context file(s)."
+      },
+      {
+        "stage": "iteration-generate",
+        "status": "entered",
+        "timestamp": "2026-04-28T15:04:57.311Z",
+        "detail": "Generating candidate files.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-generate",
+        "status": "failed",
+        "timestamp": "2026-04-28T15:07:37.845Z",
+        "durationMs": 160533,
+        "detail": "Generator returned files outside the planned scope (dashboard/src/App.tsx, dashboard/src/hooks/useJobs.ts, dashboard/src/components/ConfigView.tsx). Allowed paths: tasks/dashboard-v3-plan.md, tasks/todo.md, ai-system/core/orchestrator.ts.",
+        "iteration": 1
+      }
+    ],
+    "providerMetrics": [
+      {
+        "provider": "gemini-cli",
+        "role": "planner",
+        "stages": [
+          "planner"
+        ],
+        "totalDurationMs": 35601,
+        "estimatedCostUnits": 0.13041
+      },
+      {
+        "provider": "codex-cli",
+        "role": "generator",
+        "stages": [
+          "iteration-generate"
+        ],
+        "totalDurationMs": 160533,
+        "estimatedCostUnits": 0.16793
+      }
+    ],
+    "budget": {
+      "maxDurationMs": 600000,
+      "maxCostUnits": 300,
+      "totalDurationMs": 196434,
+      "totalCostUnits": 0.298,
+      "exceeded": null
+    },
+    "totalDurationMs": 196434
+  }
+}

@@ -1,4 +1,5 @@
-import { useState, useMemo, type FormEvent, type MouseEvent } from 'react';
+import React, { useState, useMemo } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import {
   LayoutDashboard,
   Activity,
@@ -10,7 +11,7 @@ import {
   Settings
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { Job, ViewMode } from './types';
+import type { Job } from './types';
 import { cn } from './utils/cn';
 import { StatCard } from './components/StatCard';
 import { JobDetailModal } from './components/JobDetailModal';
@@ -22,78 +23,47 @@ import { useJobs } from './hooks/useJobs';
 import { useConfig } from './hooks/useConfig';
 
 function App() {
-  const [view, setView] = useState<ViewMode>('activity');
-  const [submitting, setSubmitting] = useState(false);
+  const {
+    loading: jobsLoading,
+    submitting,
+    searchTerm,
+    setSearchTerm,
+    statusFilter,
+    setStatusFilter,
+    stats,
+    filteredJobs,
+    fetchJobs,
+    submitTask,
+    cancelJob,
+    jobs
+  } = useJobs();
+
+  const {
+    config,
+    fetchConfig,
+  } = useConfig();
+
   const [task, setTask] = useState('');
   const [cwd, setCwd] = useState('');
   const [dryRun, setDryRun] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<Job['status'] | 'all'>('all');
-  const { jobs, loading, refresh: fetchJobs } = useJobs(3000);
-  const { config, refresh: fetchConfig } = useConfig();
-
-  const stats = useMemo(() => ({
-    total: jobs.length,
-    running: jobs.filter(j => j.status === 'running').length,
-    completed: jobs.filter(j => j.status === 'completed').length,
-    failed: jobs.filter(j => j.status === 'failed').length
-  }), [jobs]);
-
-  const filteredJobs = useMemo(() =>
-    jobs.filter(j => {
-      const matchesSearch = j.task.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStatus = statusFilter === 'all' || j.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    }),
-    [jobs, searchTerm, statusFilter]
-  );
 
   const selectedJob = useMemo(() =>
     jobs.find(j => j.jobId === selectedJobId),
     [jobs, selectedJobId]
   );
 
-  const handleSubmit = async (e: FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!task) return;
-
-    setSubmitting(true);
-    try {
-      const response = await fetch('/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ task, cwd, dryRun })
-      });
-
-      if (response.ok) {
-        setTask('');
-        fetchJobs();
-      } else {
-        const error = await response.json();
-        alert(`Error: ${error.error}`);
-      }
-    } catch (error) {
-      console.error('Failed to submit job:', error);
-      alert('Failed to connect to the server');
-    } finally {
-      setSubmitting(false);
+    const result = await submitTask(task, cwd, dryRun);
+    if (result.ok) {
+      setTask('');
+    } else {
+      alert(`Error: ${result.error}`);
     }
   };
 
-  const handleCancel = async (e: MouseEvent, jobId: string) => {
-    e.stopPropagation();
-    try {
-      const response = await fetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
-      if (response.ok) {
-        fetchJobs();
-      }
-    } catch (error) {
-      console.error('Failed to cancel job:', error);
-    }
-  };
-
-  const handleRerun = (e: MouseEvent, job: Job) => {
+  const handleRerun = (e: React.MouseEvent, job: Job) => {
     e.stopPropagation();
     setTask(job.task);
     setCwd(job.cwd);
@@ -104,19 +74,16 @@ function App() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 antialiased pb-20">
       <Navbar
-        view={view}
-        setView={setView}
         searchTerm={searchTerm}
         setSearchTerm={setSearchTerm}
         fetchJobs={fetchJobs}
-        loading={loading}
+        loading={jobsLoading}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <AnimatePresence mode="wait">
-          {view === 'activity' ? (
+        <Routes>
+          <Route path="/" element={
             <motion.div
-              key="activity"
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 20 }}
@@ -165,7 +132,7 @@ function App() {
                       </div>
                     </div>
 
-                    <AnimatePresence mode="popLayout">
+                    <div className="space-y-4">
                       {filteredJobs.length === 0 ? (
                         <motion.div
                           initial={{ opacity: 0 }}
@@ -185,20 +152,28 @@ function App() {
                             job={job}
                             index={index}
                             onSelect={setSelectedJobId}
-                            onCancel={handleCancel}
+                            onCancel={(e, id) => { e.stopPropagation(); cancelJob(id); }}
                             onRerun={handleRerun}
                           />
                         ))
                       )}
-                    </AnimatePresence>
+                    </div>
                   </div>
                 </div>
               </div>
             </motion.div>
-          ) : (
+          } />
+          <Route path="/config" element={
             <ConfigView config={config} onUpdate={fetchConfig} />
-          )}
-        </AnimatePresence>
+          } />
+          <Route path="*" element={
+            <div className="p-20 text-center">
+              <h2 className="text-2xl font-bold">404 - Page Not Found</h2>
+              <p className="text-slate-500">The current URL does not match any route.</p>
+              <pre className="mt-4 bg-slate-100 p-4 rounded text-xs">{window.location.hash || window.location.pathname}</pre>
+            </div>
+          } />
+        </Routes>
       </main>
 
       <AnimatePresence>

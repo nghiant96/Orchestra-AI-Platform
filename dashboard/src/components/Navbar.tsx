@@ -1,10 +1,8 @@
+import { NavLink } from 'react-router-dom';
 import { Terminal, Activity, Settings, Search, RefreshCw } from 'lucide-react';
 import { cn } from '../utils/cn';
-import type { ViewMode } from '../types';
 
 interface NavbarProps {
-  view: ViewMode;
-  setView: (view: ViewMode) => void;
   searchTerm: string;
   setSearchTerm: (term: string) => void;
   fetchJobs: () => void;
@@ -12,8 +10,6 @@ interface NavbarProps {
 }
 
 export const Navbar = ({
-  view,
-  setView,
   searchTerm,
   setSearchTerm,
   fetchJobs,
@@ -34,26 +30,26 @@ export const Navbar = ({
           </div>
 
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">
-            <button
-              onClick={() => setView('activity')}
-              className={cn(
+            <NavLink
+              to="/"
+              className={({ isActive }) => cn(
                 "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                view === 'activity' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                isActive ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
               )}
             >
               <Activity size={14} />
               Activity
-            </button>
-            <button
-              onClick={() => setView('config')}
-              className={cn(
+            </NavLink>
+            <NavLink
+              to="/config"
+              className={({ isActive }) => cn(
                 "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
-                view === 'config' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+                isActive ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
               )}
             >
               <Settings size={14} />
               Config
-            </button>
+            </NavLink>
           </div>
         </div>
 

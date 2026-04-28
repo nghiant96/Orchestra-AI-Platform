@@ -22,10 +22,10 @@ export const FileDiffView = ({ jobId, path, onClose }: FileDiffViewProps) => {
           fetch(`/jobs/${jobId}/files/content?path=${encodeURIComponent(path)}&type=generated`)
         ]);
 
-        const origData = await origRes.json();
+        const origData = origRes.ok ? await origRes.json() : { ok: true, content: '' };
         const genData = await genRes.json();
 
-        if (origData.ok) setOriginal(origData.content);
+        if (origData.ok) setOriginal(origData.content || '');
         if (genData.ok) setGenerated(genData.content);
         if (!genData.ok) setError(genData.error || 'Failed to load generated content');
       } catch {
