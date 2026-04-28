@@ -168,3 +168,24 @@
 - Moved token cost estimation to `ai-system/utils/cost-calculator.ts` and added pre-generation budget stop using `execution.budgets.max_cost_units`.
 - Added optional prompt example loading for planner/generator/reviewer/fixer and stricter agent validation for out-of-scope files/issues.
 - Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (118/118), `git diff --check`, `pnpm ai --help`, and `pnpm ai doctor` all pass.
+
+---
+
+# Review_v3 Phase 4/5 Completion Plan
+
+## Tasks
+
+- [x] Inspect current TUI, checkpoint, artifact, and usage flows
+- [x] Add dashboard visibility for state-machine progress, provider usage/cost, and latest diff/artifact context
+- [x] Add manual checkpoint support for editing `plan.json` and `context.json` before generation
+- [x] Preserve resume/retry state-machine artifacts and provider usage reporting
+- [x] Add focused tests for checkpoint/dashboard behavior
+- [x] Run `pnpm run typecheck`, `pnpm run lint`, `pnpm test`, and `git diff --check`
+
+## Review Result
+
+- Upgraded the TUI dashboard to show state-machine stages, provider cost metrics, budget status, artifact path, and latest diff summary.
+- Added editable manual checkpoint loading for `01-plan/plan.json` and `02-context/context.json` plus `02-context/files/*`.
+- Wired dashboard updates through execution transitions, generation/review iterations, and pre-generation cost estimates without breaking resume/retry artifacts.
+- Updated CLI help/result text to explain editable checkpoint artifacts.
+- Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (120/120), `git diff --check`, `pnpm ai --help`, and `pnpm ai doctor` all pass.

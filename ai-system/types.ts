@@ -17,6 +17,7 @@ export interface Logger {
   warn(message: string): void;
   error(message: string): void;
   success(message: string): void;
+  dashboard?(snapshot: DashboardSnapshot): void;
 }
 
 export interface ProviderConfig {
@@ -275,6 +276,16 @@ export interface ExecutionSummary {
   retryHint?: RetryHint | null;
   providerMetrics?: ExecutionProviderMetric[];
   budget?: ExecutionBudgetSummary | null;
+}
+
+export interface DashboardSnapshot {
+  message?: string;
+  transition?: ExecutionTransition;
+  providerMetrics?: ExecutionProviderMetric[];
+  budget?: ExecutionBudgetSummary | null;
+  diffSummaries?: DiffSummary[];
+  artifactPath?: string | null;
+  currentFiles?: string[];
 }
 
 export interface MemoryConfig {

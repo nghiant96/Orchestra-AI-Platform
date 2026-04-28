@@ -77,11 +77,17 @@ export interface LoopExecutionState {
 
 export function createExecutionStateMachine(
   artifactState: ArtifactState,
-  summary?: ExecutionSummary | null
+  summary?: ExecutionSummary | null,
+  logger?: Logger
 ): ExecutionStateMachine {
   return new ExecutionStateMachine({
     summary,
     onTransition: async (transition) => {
+      logger?.dashboard?.({
+        transition,
+        message: transition.detail ? `${transition.stage}: ${transition.detail}` : `${transition.stage}: ${transition.status}`,
+        artifactPath: artifactState.runDir
+      });
       await persistExecutionTransition(artifactState, transition);
     }
   });
@@ -253,6 +259,16 @@ export async function executeGenerationLoop({
         }
       );
       state.currentResult = generation.result;
+      logger.dashboard?.({
+        message: `Generated ${state.currentResult.files.length} candidate file(s).`,
+        currentFiles: state.currentResult.files.map((file) => file.path),
+        providerMetrics: buildExecutionSummary({
+          steps: state.executionMachine.getSteps(),
+          transitions: state.executionMachine.getTransitions(),
+          providers: runtime.providerSummary,
+          usageMetrics: collectProviderUsageMetrics(runtime)
+        }).providerMetrics ?? []
+      });
     } else if (!state.currentResult) {
       throw new Error("Cannot resume tool/review stages without a current generation result.");
     }
@@ -342,6 +358,19 @@ export async function executeGenerationLoop({
       },
       logger
     );
+    logger.dashboard?.({
+      message: `Iteration ${iteration} review complete.`,
+      diffSummaries,
+      artifactPath: artifactInfo?.iterationPath ?? artifactState.latestIterationPath,
+      currentFiles: state.currentResult.files.map((file) => file.path),
+      providerMetrics: buildExecutionSummary({
+        steps: state.executionMachine.getSteps(),
+        transitions: state.executionMachine.getTransitions(),
+        providers: runtime.providerSummary,
+        usageMetrics: collectProviderUsageMetrics(runtime)
+      }).providerMetrics ?? [],
+      budget: getExecutionBudgetSummary(state, runtime, budgetConfig)
+    });
 
     const iterationDurationMs = Date.now() - iterationStartedAt;
     state.iterationResults.push({

@@ -145,6 +145,7 @@ Interactive mode:
   Use --pause-after-plan to stop after the planner checkpoint.
   Use --pause-after-generate to stop after each generated candidate is saved.
   Use --manual-review to enable plan approval plus both pause checkpoints.
+  While a checkpoint prompt is open, you can edit plan.json, context.json, or context files in the artifact directory before continuing.
   Use --resume or --resume-last to continue a paused run from checkpoint artifacts.
 
 Workflow modes:

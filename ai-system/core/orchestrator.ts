@@ -46,6 +46,7 @@ import {
 } from "./run-executor.js";
 import { buildExecutionSummary } from "./execution-summary.js";
 import { expandContextReadFiles } from "./context-intelligence.js";
+import { loadEditableContextCheckpoint, loadEditablePlanCheckpoint } from "./manual-checkpoints.js";
 
 export class Orchestrator {
   repoRoot: string;
@@ -84,7 +85,7 @@ export class Orchestrator {
       stored: false
     };
     const artifactState = createArtifactState(repoRoot, rules);
-    const executionMachine = createExecutionStateMachine(artifactState);
+    const executionMachine = createExecutionStateMachine(artifactState, null, this.logger);
     await executionMachine.runStage("routing-planning", async () => {
       await persistRoutingArtifacts(
         artifactState,
@@ -140,7 +141,7 @@ export class Orchestrator {
     const contextExpansion = contextExpansionStep.result;
     const readFiles = contextExpansion.readFiles;
     const writeTargets = filterSafeWriteTargets(rawPlan.writeTargets ?? [], rules, this.logger);
-    const plan: PlanResult = {
+    let plan: PlanResult = {
       prompt: typeof rawPlan.prompt === "string" ? rawPlan.prompt : task,
       readFiles,
       writeTargets,
@@ -259,6 +260,7 @@ export class Orchestrator {
         );
         return result;
       }
+      plan = await loadEditablePlanCheckpoint(artifactState.stepPaths.plan, plan, repoRoot, rules, this.logger);
     }
 
     if (interactive) {
@@ -323,8 +325,54 @@ export class Orchestrator {
         async () => await readAndPersistContext(repoRoot, plan, rules, artifactState, this.logger),
         { detail: `Read ${plan.readFiles.length} context file(s).` }
       );
-      const { contextFiles } = contextStep.result;
+      let { contextFiles } = contextStep.result;
       skippedFiles = contextStep.result.skippedFiles;
+      if (pauseAfterPlan) {
+        const confirmed = await confirmCheckpoint({
+          message: "Context checkpoint saved. Edit context.json or files/ before generation if needed.",
+          artifactPath: artifactState.stepPaths.context,
+          logger: this.logger
+        });
+        if (!confirmed) {
+          this.logger.warn("Task paused by user after context checkpoint.");
+          await executionMachine.pauseStage("paused", {
+            durationMs: 0,
+            detail: "Paused after context checkpoint."
+          });
+          const result = buildStoppedResult({
+            status: "paused_after_plan",
+            dryRun,
+            repoRoot,
+            configPath,
+            plan,
+            providers: runRuntime.providerSummary,
+            memoryStats,
+            artifactState,
+            skippedContextFiles: skippedFiles,
+            latestContextRanking: contextExpansion.rankedCandidates,
+            executionSteps: executionMachine.getSteps(),
+            executionTransitions: executionMachine.getTransitions(),
+            budgetConfig: rules.execution?.budgets,
+            usageMetrics: collectProviderUsageMetrics(runRuntime)
+          });
+          await persistRunState(
+            artifactState,
+            {
+              ...result,
+              task,
+              pauseAfterPlan,
+              pauseAfterGenerate,
+              latestReviewSummary: "",
+              latestContextRanking: contextExpansion.rankedCandidates,
+              execution: result.execution,
+              executionTransitions: executionMachine.getTransitions()
+            },
+            this.logger
+          );
+          return result;
+        }
+        contextFiles = await loadEditableContextCheckpoint(artifactState.stepPaths.context, contextFiles, this.logger);
+      }
 
       const costEstimate = estimateRunCostFromPlan({
         task,
@@ -332,6 +380,17 @@ export class Orchestrator {
         contextFiles,
         providerSummary: runRuntime.providerSummary,
         rules
+      });
+      this.logger.dashboard?.({
+        message: "Pre-generation cost estimate ready.",
+        budget: costEstimate.budget,
+        providerMetrics: buildExecutionSummary({
+          steps: executionMachine.getSteps(),
+          transitions: executionMachine.getTransitions(),
+          providers: runRuntime.providerSummary,
+          usageMetrics: [...collectProviderUsageMetrics(runRuntime), ...costEstimate.usageMetrics]
+        }).providerMetrics ?? [],
+        artifactPath: artifactState.stepPaths.context
       });
       if (costEstimate.budget?.exceeded === "cost") {
         const message = `Estimated run cost ${costEstimate.budget.totalCostUnits.toFixed(3)} exceeds max_cost_units ${costEstimate.budget.maxCostUnits?.toFixed(3)}.`;
@@ -461,7 +520,7 @@ export class Orchestrator {
       task
     });
     const dryRun = saved.dryRun ?? false;
-    const plan = saved.plan;
+    let plan = saved.plan;
     let skippedFiles: string[] = saved.skippedContextFiles ?? [];
     let iterationResults: IterationResult[] = Array.isArray(saved.iterations) ? [...saved.iterations] : [];
     let currentResult: FileGenerationResult | null = saved.result ?? null;
@@ -469,7 +528,10 @@ export class Orchestrator {
     let latestReviewSummary = typeof saved.latestReviewSummary === "string" ? saved.latestReviewSummary : "";
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
-    const executionMachine = createExecutionStateMachine(artifactState, saved.execution ?? null);
+    const executionMachine = createExecutionStateMachine(artifactState, saved.execution ?? null, this.logger);
+    if (saved.status === "paused_after_plan") {
+      plan = await loadEditablePlanCheckpoint(artifactState.stepPaths.plan, plan, repoRoot, rules, this.logger);
+    }
     const resumeStrategy = resolveResumeStrategy(saved, currentResult, acceptedIssues, iterationResults, options.stage ?? null);
     await executionMachine.runStage(
       "routing-planning",

@@ -94,7 +94,7 @@ export function printResult(result: OrchestratorResult): void {
   }
 
   if (!result.ok && result.status?.startsWith("paused_")) {
-    console.log("- next action: inspect the checkpoint artifacts, then rerun when ready.");
+    console.log("- next action: inspect or edit checkpoint artifacts, then rerun with --resume/--resume-last when ready.");
   } else if (!result.ok) {
     const blockingIssues = (result.finalIssues ?? []).filter(
       (issue) => issue.severity === "high" || issue.severity === "medium"
