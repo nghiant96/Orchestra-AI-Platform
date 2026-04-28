@@ -7,30 +7,33 @@ export interface LoggerHandle {
   dispose(): void;
 }
 
-function log(prefix: string, message: string, writer: (message: string) => void = console.log) {
-  writer(`${prefix} ${maskSecrets(message)}`);
+function log(logger: Logger, level: string, message: string, writer: (message: string) => void = console.log) {
+  const masked = maskSecrets(message);
+  writer(`[${level}] ${masked}`);
+  logger.onLog?.(level, masked);
 }
 
 export function createLogger({ verbose = true }: { verbose?: boolean } = {}): Logger {
-  return {
+  const logger: Logger = {
     step(message: string) {
-      log("[step]", message);
+      log(logger, "step", message);
     },
     info(message: string) {
       if (verbose) {
-        log("[info]", message);
+        log(logger, "info", message);
       }
     },
     warn(message: string) {
-      log("[warn]", message, console.warn);
+      log(logger, "warn", message, console.warn);
     },
     error(message: string) {
-      log("[error]", message, console.error);
+      log(logger, "error", message, console.error);
     },
     success(message: string) {
-      log("[ok]", message);
+      log(logger, "ok", message);
     }
   };
+  return logger;
 }
 
 export function shouldUseDashboard({
@@ -159,8 +162,10 @@ export function createCliLogger({
     screen.render();
   };
 
-  const append = (prefix: string, message: string) => {
-    logs.log(`${prefix} ${maskSecrets(message)}`);
+  const append = (level: string, message: string) => {
+    const masked = maskSecrets(message);
+    logs.log(`[${level}] ${masked}`);
+    logger.onLog?.(level, masked);
     render();
   };
 
@@ -168,29 +173,29 @@ export function createCliLogger({
     step(message: string) {
       counts.step += 1;
       currentStatus = message;
-      append("[step]", message);
+      append("step", message);
     },
     info(message: string) {
       if (!verbose) {
         return;
       }
       counts.info += 1;
-      append("[info]", message);
+      append("info", message);
     },
     warn(message: string) {
       counts.warn += 1;
       currentStatus = `Warning: ${message}`;
-      append("[warn]", message);
+      append("warn", message);
     },
     error(message: string) {
       counts.error += 1;
       currentStatus = `Error: ${message}`;
-      append("[error]", message);
+      append("error", message);
     },
     success(message: string) {
       counts.success += 1;
       currentStatus = message;
-      append("[ok]", message);
+      append("ok", message);
     },
     dashboard(snapshot: DashboardSnapshot) {
       if (snapshot.message) {

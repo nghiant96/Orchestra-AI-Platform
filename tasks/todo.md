@@ -226,3 +226,44 @@
 
 - README now documents current capabilities, requirements, pnpm usage, vector parser behavior, non-Node adapters, Docker sandbox profiles, queue API, prompt overrides, and server environment variables.
 - Verification: `git diff --check README.md tasks/todo.md` passes, README code fences are balanced, and stale `npm run ai` / `Phase B` wording is removed.
+
+---
+
+# Dashboard V3 Remaining Issues
+
+## Tasks
+
+- [x] Read `tasks/dashboard-v3-plan.md` and current workspace guidance
+- [x] Run current quality gates to identify remaining dashboard issues
+- [x] Fix dashboard TypeScript and lint failures
+- [x] Run `pnpm run typecheck`, `pnpm run lint`, `pnpm test`, `pnpm run dashboard:build`, and `git diff --check`
+- [x] Record final result
+
+## Review Result
+
+- Fixed remaining dashboard TypeScript issues in config form state, provider map typing, optional config values, and NodeNext type imports.
+- Removed unused React/cn imports from dashboard components.
+- Removed trailing whitespace from changed files flagged by `git diff --check`.
+- Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (133/133), `pnpm run dashboard:build`, and `git diff --check` pass.
+- `pnpm run dashboard:build` still reports the Vite large chunk warning for the 742.75 kB JS bundle; this is a warning, not a build failure.
+
+---
+
+# Dashboard App.tsx Refactor Follow-up
+
+## Tasks
+
+- [x] Inspect current `dashboard/src/App.tsx` split and extracted dashboard components
+- [x] Run typecheck, lint, and dashboard build to identify remaining refactor issues
+- [x] Finish import/type cleanup across extracted components
+- [x] Move `App.tsx` job/config fetching onto extracted hooks
+- [x] Remove `ConfigView` synchronous setState-in-effect pattern
+- [x] Run full verification and record result
+
+## Review Result
+
+- `App.tsx` now delegates job/config loading to `useJobs(3000)` and `useConfig`, leaving it focused on view state, filters, submission, and layout.
+- Extracted dashboard components now use type-only imports where required by Vite/TypeScript `verbatimModuleSyntax`.
+- `ConfigView` now initializes editable form state when entering edit mode, avoiding synchronous setState inside an effect.
+- Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm run dashboard:build`, `pnpm test` (133/133), and `git diff --check` pass.
+- `pnpm run dashboard:build` still reports the existing large chunk warning for the dashboard JS bundle; it does not fail the build.

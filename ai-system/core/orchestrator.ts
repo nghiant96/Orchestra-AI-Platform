@@ -52,11 +52,23 @@ export class Orchestrator {
   repoRoot: string;
   logger: Logger;
   configPath: string | null;
+  confirmationHandler?: import("../types.js").ConfirmationHandler;
 
-  constructor({ repoRoot, logger, configPath = null }: { repoRoot: string; logger: Logger; configPath?: string | null }) {
+  constructor({
+    repoRoot,
+    logger,
+    configPath = null,
+    confirmationHandler
+  }: {
+    repoRoot: string;
+    logger: Logger;
+    configPath?: string | null;
+    confirmationHandler?: import("../types.js").ConfirmationHandler;
+  }) {
     this.repoRoot = repoRoot;
     this.logger = logger;
     this.configPath = configPath;
+    this.confirmationHandler = confirmationHandler;
   }
 
   async run(
@@ -217,12 +229,16 @@ export class Orchestrator {
       }
     };
 
+    const localConfirmCheckpoint = (message: string, artifactPath?: string | null) =>
+      this.confirmationHandler
+        ? this.confirmationHandler.confirmCheckpoint(message, artifactPath)
+        : confirmCheckpoint({ message, artifactPath, logger: this.logger });
+
     if (pauseAfterPlan) {
-      const confirmed = await confirmCheckpoint({
-        message: "Plan checkpoint saved. Review the plan artifact before continuing?",
-        artifactPath: artifactState.stepPaths.plan,
-        logger: this.logger
-      });
+      const confirmed = await localConfirmCheckpoint(
+        "Plan checkpoint saved. Review the plan artifact before continuing?",
+        artifactState.stepPaths.plan
+      );
       if (!confirmed) {
         this.logger.warn("Task paused by user after planner checkpoint.");
         await executionMachine.pauseStage("paused", {
@@ -263,8 +279,11 @@ export class Orchestrator {
       plan = await loadEditablePlanCheckpoint(artifactState.stepPaths.plan, plan, repoRoot, rules, this.logger);
     }
 
+    const localConfirmPlan = (p: PlanResult) =>
+      this.confirmationHandler ? this.confirmationHandler.confirmPlan(p) : confirmPlan(p);
+
     if (interactive) {
-      const confirmed = await confirmPlan(plan);
+      const confirmed = await localConfirmPlan(plan);
       if (!confirmed) {
         this.logger.warn("Task cancelled by user.");
         await executionMachine.cancelStage("cancelled", {
@@ -328,11 +347,10 @@ export class Orchestrator {
       let { contextFiles } = contextStep.result;
       skippedFiles = contextStep.result.skippedFiles;
       if (pauseAfterPlan) {
-        const confirmed = await confirmCheckpoint({
-          message: "Context checkpoint saved. Edit context.json or files/ before generation if needed.",
-          artifactPath: artifactState.stepPaths.context,
-          logger: this.logger
-        });
+        const confirmed = await localConfirmCheckpoint(
+          "Context checkpoint saved. Edit context.json or files/ before generation if needed.",
+          artifactState.stepPaths.context
+        );
         if (!confirmed) {
           this.logger.warn("Task paused by user after context checkpoint.");
           await executionMachine.pauseStage("paused", {
@@ -395,11 +413,7 @@ export class Orchestrator {
       if (costEstimate.budget?.exceeded === "cost") {
         const message = `Estimated run cost ${costEstimate.budget.totalCostUnits.toFixed(3)} exceeds max_cost_units ${costEstimate.budget.maxCostUnits?.toFixed(3)}.`;
         const confirmed = interactive
-          ? await confirmCheckpoint({
-              message,
-              artifactPath: artifactState.stepPaths.context,
-              logger: this.logger
-            })
+          ? await localConfirmCheckpoint(message, artifactState.stepPaths.context)
           : false;
         if (!confirmed) {
           this.logger.warn(`${message} Stopping before generation.`);
@@ -447,7 +461,7 @@ export class Orchestrator {
         contextFiles,
         rules,
         logger: this.logger,
-        confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
+        confirmCheckpoint: localConfirmCheckpoint,
         successResultStatus: undefined,
         successPersistedStatus: "completed",
         budgetConfig: rules.execution?.budgets
@@ -572,6 +586,11 @@ export class Orchestrator {
       this.logger
     );
     const runtime = implementationRouting.runtime;
+
+    const localConfirmCheckpoint = (message: string, artifactPath?: string | null) =>
+      this.confirmationHandler
+        ? this.confirmationHandler.confirmCheckpoint(message, artifactPath)
+        : confirmCheckpoint({ message, artifactPath, logger: this.logger });
 
     const memoryStats: MemoryStats = {
       backend: runtime.memory.id,
@@ -702,7 +721,7 @@ export class Orchestrator {
       contextFiles,
       rules,
       logger: this.logger,
-      confirmCheckpoint: (message, artifactPath) => confirmCheckpoint({ message, artifactPath, logger: this.logger }),
+      confirmCheckpoint: localConfirmCheckpoint,
       resumeFromStage: resumeStrategy.resumeFromStage,
       successResultStatus: "resumed_completed",
       successPersistedStatus: "resumed_completed",

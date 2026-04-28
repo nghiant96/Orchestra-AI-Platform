@@ -5,6 +5,7 @@ import type { Logger, OrchestratorResult } from "../types.js";
 export type QueueJobStatus =
   | "queued"
   | "running"
+  | "waiting_for_approval"
   | "completed"
   | "failed"
   | "cancel_requested"
@@ -34,6 +35,7 @@ export interface QueueJob {
 }
 
 export interface JobQueueRunInput {
+  jobId: string;
   task: string;
   cwd: string;
   dryRun: boolean;
@@ -163,6 +165,7 @@ export class FileBackedJobQueue {
 
     try {
       const result = await this.runner({
+        jobId: running.jobId,
         task: running.task,
         cwd: running.cwd,
         dryRun: running.dryRun
@@ -195,7 +198,7 @@ export class FileBackedJobQueue {
     }
   }
 
-  private async updateJob(job: QueueJob, patch: Partial<QueueJob>): Promise<QueueJob> {
+  async updateJob(job: QueueJob, patch: Partial<QueueJob>): Promise<QueueJob> {
     const updated: QueueJob = {
       ...job,
       ...patch,

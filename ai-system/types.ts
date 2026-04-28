@@ -11,6 +11,11 @@ export type JsonSchema =
 
 export type JsonObject = Record<string, unknown>;
 
+export interface ConfirmationHandler {
+  confirmPlan(plan: PlanResult): Promise<boolean>;
+  confirmCheckpoint(message: string, artifactPath?: string | null): Promise<boolean>;
+}
+
 export interface Logger {
   step(message: string): void;
   info(message: string): void;
@@ -18,6 +23,7 @@ export interface Logger {
   error(message: string): void;
   success(message: string): void;
   dashboard?(snapshot: DashboardSnapshot): void;
+  onLog?(level: string, message: string): void;
 }
 
 export interface ProviderConfig {

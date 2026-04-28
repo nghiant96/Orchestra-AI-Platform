@@ -1,9 +1,16 @@
 import http from "node:http";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { Orchestrator } from "./core/orchestrator.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
+import {
+  loadJsonIfExists,
+  writeJsonFile,
+  resolveProjectConfigPath,
+  mergeConfig
+} from "./utils/config.js";
 import type { Logger } from "./types.js";
 
 export interface ServerAppOptions {
@@ -18,15 +25,76 @@ export interface ServerAppOptions {
 export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const defaultCwd = path.resolve(options.defaultCwd);
   const allowedRoots = normalizeAllowedWorkdirs(options.allowedWorkdirs, defaultCwd);
+  const logClients = new Set<http.ServerResponse>();
+  const originalOnLog = options.logger.onLog;
+
+  const broadcastLog = (level: string, message: string, jobId?: string) => {
+    const data = JSON.stringify({ level, message, jobId, timestamp: new Date().toISOString() });
+    for (const client of logClients) {
+      client.write(`data: ${data}\n\n`);
+    }
+  };
+
+  options.logger.onLog = (level, message) => {
+    originalOnLog?.(level, message);
+    broadcastLog(level, message);
+  };
+
+  const pendingApprovals = new Map<string, {
+    resolve: (value: boolean) => void,
+    type: 'plan' | 'checkpoint',
+    data?: any
+  }>();
+
   const runner: JobRunner =
     options.runner ??
-    (async ({ task, cwd, dryRun }) => {
+    (async ({ jobId, task, cwd, dryRun }) => {
+      const confirmationHandler: import("./types.js").ConfirmationHandler = {
+        confirmPlan: async (plan) => {
+          return new Promise((resolve) => {
+            pendingApprovals.set(jobId, { resolve, type: 'plan', data: plan });
+            void queue.get(jobId).then(j => {
+              if (j) queue.updateJob(j, { status: 'waiting_for_approval' });
+            });
+            broadcastLog('info', 'Waiting for user approval of the plan...', jobId);
+          });
+        },
+        confirmCheckpoint: async (message, artifactPath) => {
+          return new Promise((resolve) => {
+            pendingApprovals.set(jobId, { resolve, type: 'checkpoint', data: { message, artifactPath } });
+            void queue.get(jobId).then(j => {
+              if (j) queue.updateJob(j, { status: 'waiting_for_approval' });
+            });
+            broadcastLog('info', `Checkpoint: ${message}. Waiting for approval...`, jobId);
+          });
+        }
+      };
+
+      const scopedLogger: Logger = {
+        ...options.logger,
+        step: (m) => options.logger.step(m),
+        info: (m) => options.logger.info(m),
+        warn: (m) => options.logger.warn(m),
+        error: (m) => options.logger.error(m),
+        success: (m) => options.logger.success(m),
+        onLog: (level, message) => {
+          originalOnLog?.(level, message);
+          broadcastLog(level, message, jobId);
+        }
+      };
+
       const orchestrator = new Orchestrator({
         repoRoot: cwd,
-        logger: options.logger
+        logger: scopedLogger,
+        confirmationHandler
       });
-      return orchestrator.run(task, { dryRun });
+      return orchestrator.run(task, {
+        dryRun,
+        interactive: true,
+        pauseAfterPlan: true
+      });
     });
+
   const queue = new FileBackedJobQueue(resolveJobQueueDirectory(defaultCwd), runner, {
     concurrency: options.queueConcurrency,
     logger: options.logger
@@ -47,6 +115,21 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
     try {
       const url = new URL(req.url || "/", "http://localhost");
+
+      if (url.pathname === "/logs" && req.method === "GET") {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive"
+        });
+        res.write(": ok\n\n");
+        logClients.add(res);
+        req.on("close", () => {
+          logClients.delete(res);
+        });
+        return;
+      }
+
       if (url.pathname === "/health" && req.method === "GET") {
         return respondJson(res, 200, {
           ok: true,
@@ -84,6 +167,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
 
         const result = await runner({
+          jobId: `run-${Date.now().toString(36)}`,
           task: payload.task,
           cwd,
           dryRun: payload.dryRun !== false
@@ -108,11 +192,82 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           });
         }
         const job = await queue.enqueue({
+          jobId: `job-${Date.now().toString(36)}`,
           task: payload.task,
           cwd,
           dryRun: payload.dryRun !== false
         });
         return respondJson(res, 202, job);
+      }
+
+      const contentMatch = /^\/jobs\/([^/]+)\/files\/content$/.exec(url.pathname);
+      if (contentMatch && req.method === "GET") {
+        const jobId = contentMatch[1] ?? "";
+        const filePath = url.searchParams.get("path");
+        const type = url.searchParams.get("type") || "generated"; // "original" or "generated"
+
+        if (!filePath) {
+          return respondJson(res, 400, { ok: false, error: "Missing path parameter" });
+        }
+
+        const job = await queue.get(jobId);
+        let artifactPath = job?.artifactPath;
+
+        if (!artifactPath && jobId.startsWith("run-")) {
+          const { rules } = await loadRules(defaultCwd);
+          const artifactsDir = path.resolve(defaultCwd, rules.artifacts?.data_dir || ".ai-system-artifacts");
+          artifactPath = path.join(artifactsDir, jobId);
+        }
+
+        if (!artifactPath) {
+          return respondJson(res, 404, { ok: false, error: "Job not found or no artifacts" });
+        }
+
+        try {
+          const indexPath = path.join(artifactPath, "artifact-index.json");
+          const index = await loadJsonIfExists<any>(indexPath);
+          const latestIterationPath = index?.latestIterationPath;
+
+          if (!latestIterationPath) {
+            return respondJson(res, 404, { ok: false, error: "No iteration data found" });
+          }
+
+          const iterationDir = path.isAbsolute(latestIterationPath)
+            ? latestIterationPath
+            : path.join(artifactPath, latestIterationPath);
+
+          const subDir = type === "original" ? "files-original" : "files";
+          const fullPath = path.join(iterationDir, subDir, filePath);
+
+          try {
+            const content = await fs.readFile(fullPath, "utf8");
+            return respondJson(res, 200, { ok: true, content });
+          } catch {
+            return respondJson(res, 404, { ok: false, error: "File not found in artifacts" });
+          }
+        } catch (err) {
+          return respondJson(res, 500, { ok: false, error: (err as Error).message });
+        }
+      }
+
+      if (url.pathname === "/config" && req.method === "POST") {
+        try {
+          const payload = await readJsonBody(req);
+          const configPath = await resolveProjectConfigPath(defaultCwd);
+
+          if (!configPath) {
+            return respondJson(res, 404, { ok: false, error: "Project config file not found. Create .ai-system.json first." });
+          }
+
+          const existing = await loadJsonIfExists<any>(configPath) || {};
+          const updated = mergeConfig(existing, payload);
+          await writeJsonFile(configPath, updated);
+
+          options.logger.info(`System configuration updated via Dashboard.`);
+          return respondJson(res, 200, { ok: true, config: updated });
+        } catch (err) {
+          return respondJson(res, 500, { ok: false, error: (err as Error).message });
+        }
       }
 
       if (url.pathname === "/config" && req.method === "GET") {
@@ -139,12 +294,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (url.pathname === "/jobs" && req.method === "GET") {
         const jobs = await queue.list();
-        
+
         // Also load recent runs from artifacts to show CLI runs
         try {
           const { rules } = await loadRules(defaultCwd);
           const recentRuns = await listRecentRunSummaries(defaultCwd, rules, 20);
-          
+
           const runJobs: QueueJob[] = recentRuns
             .filter(run => !jobs.some(j => j.artifactPath === run.runPath || j.jobId === run.runName))
             .map(run => ({
@@ -159,32 +314,55 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
               resultSummary: run.execution?.failure?.reason || run.status,
               diffSummaries: run.diffSummaries,
               latestToolResults: run.latestToolResults,
-              execution: run.execution ? { 
+              execution: run.execution ? {
                 transitions: run.execution.transitions,
                 providerMetrics: run.execution.providerMetrics,
                 budget: run.execution.budget,
                 totalDurationMs: run.execution.totalDurationMs
               } : undefined
             }));
-            
-          const merged = [...jobs, ...runJobs].sort((a, b) => 
+
+          const merged = [...jobs, ...runJobs].sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
 
           return respondJson(res, 200, {
             jobs: merged.slice(0, 50)
           });
-        } catch (err) {
+        } catch {
           // If artifacts can't be loaded, just return queue jobs
           return respondJson(res, 200, { jobs });
         }
+      }
+
+      const approvalMatch = /^\/jobs\/([^/]+)\/(approve|reject)$/.exec(url.pathname);
+      if (approvalMatch && req.method === "POST") {
+        const jobId = approvalMatch[1] ?? "";
+        const action = approvalMatch[2];
+        const pending = pendingApprovals.get(jobId);
+
+        if (!pending) {
+          return respondJson(res, 404, { ok: false, error: "No pending approval for this job" });
+        }
+
+        const approved = action === "approve";
+        pending.resolve(approved);
+        pendingApprovals.delete(jobId);
+
+        const job = await queue.get(jobId);
+        if (job) {
+          await queue.updateJob(job, { status: "running" });
+        }
+
+        options.logger.info(`Job ${jobId} ${approved ? 'approved' : 'rejected'} via Dashboard.`);
+        return respondJson(res, 200, { ok: true, action });
       }
 
       const jobMatch = /^\/jobs\/([^/]+)(?:\/(cancel))?$/.exec(url.pathname);
       if (jobMatch && req.method === "GET" && !jobMatch[2]) {
         const jobId = jobMatch[1] ?? "";
         let job = await queue.get(jobId);
-        
+
         if (!job && jobId.startsWith("run-")) {
           try {
             const { rules } = await loadRules(defaultCwd);
@@ -206,11 +384,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
                 execution: summary.runState.execution ? { transitions: summary.runState.execution.transitions } : undefined
               };
             }
-          } catch (err) {
+          } catch {
             // Not found in artifacts either
           }
         }
-        
+
         return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
       }
 

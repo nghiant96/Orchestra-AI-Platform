@@ -415,12 +415,22 @@ export async function persistIterationArtifacts(
 
   const iterationPath = path.join(state.runDir, `iteration-${payload.iteration}`);
   const filesRoot = path.join(iterationPath, "files");
+  const originalFilesRoot = path.join(iterationPath, "files-original");
   await fs.mkdir(filesRoot, { recursive: true });
+  await fs.mkdir(originalFilesRoot, { recursive: true });
 
   for (const file of payload.candidateFiles) {
     const targetPath = path.join(filesRoot, file.path);
     await fs.mkdir(path.dirname(targetPath), { recursive: true });
     await fs.writeFile(targetPath, file.content, "utf8");
+  }
+
+  for (const file of payload.originalFiles) {
+    if (file.content !== null && file.content !== undefined) {
+      const targetPath = path.join(originalFilesRoot, file.path);
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, file.content, "utf8");
+    }
   }
 
   const manifest = {
