@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Play, 
   RefreshCw, 
@@ -10,8 +10,24 @@ import {
   Terminal,
   ExternalLink,
   ChevronRight,
-  FolderOpen
+  FolderOpen,
+  LayoutDashboard,
+  Activity,
+  History,
+  Search,
+  Settings,
+  MoreVertical,
+  Cpu,
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { clsx, type ClassValue } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
 
 interface Job {
   jobId: string;
@@ -30,30 +46,49 @@ interface Job {
 
 const StatusBadge = ({ status }: { status: Job['status'] }) => {
   const styles = {
-    queued: 'bg-gray-100 text-gray-600 border-gray-200',
-    running: 'bg-blue-100 text-blue-600 border-blue-200 animate-pulse',
-    completed: 'bg-green-100 text-green-600 border-green-200',
-    failed: 'bg-red-100 text-red-600 border-red-200',
-    cancel_requested: 'bg-yellow-100 text-yellow-600 border-yellow-200',
-    cancelled: 'bg-gray-200 text-gray-500 border-gray-300'
+    queued: 'bg-slate-100 text-slate-600 border-slate-200',
+    running: 'bg-indigo-50 text-indigo-600 border-indigo-200 shadow-[0_0_10px_rgba(79,70,229,0.1)]',
+    completed: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+    failed: 'bg-rose-50 text-rose-600 border-rose-200',
+    cancel_requested: 'bg-amber-50 text-amber-600 border-amber-200',
+    cancelled: 'bg-slate-100 text-slate-500 border-slate-200'
   };
 
   const icons = {
-    queued: <Clock size={14} />,
-    running: <RefreshCw size={14} className="animate-spin" />,
-    completed: <CheckCircle size={14} />,
-    failed: <AlertCircle size={14} />,
-    cancel_requested: <AlertCircle size={14} />,
-    cancelled: <XCircle size={14} />
+    queued: <Clock size={12} />,
+    running: <Zap size={12} className="animate-pulse" />,
+    completed: <CheckCircle size={12} />,
+    failed: <AlertCircle size={12} />,
+    cancel_requested: <AlertCircle size={12} />,
+    cancelled: <XCircle size={12} />
   };
 
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[status]}`}>
+    <div className={cn(
+      "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider border uppercase transition-all duration-300",
+      styles[status]
+    )}>
       {icons[status]}
-      {status.replace('_', ' ').toUpperCase()}
-    </span>
+      {status.replace('_', ' ')}
+    </div>
   );
 };
+
+const StatCard = ({ title, value, icon: Icon, color }: { title: string, value: number, icon: any, color: string }) => (
+  <motion.div 
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-4 hover:shadow-md transition-all group"
+  >
+    <div className={cn("p-3 rounded-xl transition-colors", color)}>
+      <Icon size={24} className="group-hover:scale-110 transition-transform" />
+    </div>
+    <div>
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</p>
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
+    </div>
+  </motion.div>
+);
 
 function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -62,6 +97,7 @@ function App() {
   const [task, setTask] = useState('');
   const [cwd, setCwd] = useState('');
   const [dryRun, setDryRun] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -80,6 +116,18 @@ function App() {
     const interval = setInterval(fetchJobs, 3000);
     return () => clearInterval(interval);
   }, [fetchJobs]);
+
+  const stats = useMemo(() => ({
+    total: jobs.length,
+    running: jobs.filter(j => j.status === 'running').length,
+    completed: jobs.filter(j => j.status === 'completed').length,
+    failed: jobs.filter(j => j.status === 'failed').length
+  }), [jobs]);
+
+  const filteredJobs = useMemo(() => 
+    jobs.filter(j => j.task.toLowerCase().includes(searchTerm.toLowerCase())),
+    [jobs, searchTerm]
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,163 +168,267 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <div className="bg-indigo-600 p-1.5 rounded-lg">
-              <Terminal className="text-white" size={24} />
+    <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 antialiased">
+      {/* Dynamic Header */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <div className="bg-gradient-to-br from-indigo-600 to-violet-700 p-2 rounded-xl shadow-lg shadow-indigo-200">
+              <Terminal className="text-white" size={22} />
             </div>
-            <h1 className="text-xl font-bold tracking-tight">AI Coding System <span className="text-gray-400 font-normal">Dashboard</span></h1>
+            <div>
+              <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent leading-none">AI Coding System</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Advanced Orchestrator</p>
+            </div>
           </div>
-          <button 
-            onClick={() => fetchJobs()}
-            className="p-2 text-gray-500 hover:text-indigo-600 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
-          </button>
+          
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center bg-slate-100 rounded-lg px-3 py-1.5 border border-slate-200 gap-2">
+              <Search size={14} className="text-slate-400" />
+              <input 
+                type="text" 
+                placeholder="Search jobs..." 
+                className="bg-transparent text-xs outline-none w-40 text-slate-600"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <button 
+              onClick={() => fetchJobs()}
+              className="p-2 text-slate-400 hover:text-indigo-600 transition-colors bg-slate-50 rounded-lg border border-slate-200"
+            >
+              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
+            <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 border-2 border-white shadow-sm" />
+          </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Stats Grid */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <StatCard title="Total Jobs" value={stats.total} icon={LayoutDashboard} color="bg-blue-50 text-blue-600" />
+          <StatCard title="Active" value={stats.running} icon={Activity} color="bg-indigo-50 text-indigo-600" />
+          <StatCard title="Success" value={stats.completed} icon={ShieldCheck} color="bg-emerald-50 text-emerald-600" />
+          <StatCard title="Failed" value={stats.failed} icon={AlertCircle} color="bg-rose-50 text-rose-600" />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* Sidebar: New Job Form */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Plus size={20} className="text-indigo-600" />
-                Submit New Task
+          {/* Action Sidebar */}
+          <div className="lg:col-span-4">
+            <motion.div 
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-white rounded-3xl border border-slate-200 shadow-sm p-7 sticky top-24"
+            >
+              <h2 className="text-xl font-bold mb-6 flex items-center gap-3">
+                <div className="p-1.5 bg-indigo-50 rounded-lg text-indigo-600">
+                  <Plus size={20} />
+                </div>
+                New Task
               </h2>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Task Description</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Instructions</label>
                   <textarea 
                     value={task}
                     onChange={(e) => setTask(e.target.value)}
-                    placeholder="e.g. Refactor the auth flow to use JWT"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all h-32 text-sm"
+                    placeholder="Describe what you want to implement or fix..."
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all h-40 text-sm resize-none"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Working Directory (Optional)</label>
-                  <div className="relative">
-                    <FolderOpen className="absolute left-3 top-2.5 text-gray-400" size={16} />
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Workspace</label>
+                  <div className="relative group">
+                    <FolderOpen className="absolute left-4 top-3 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
                     <input 
                       type="text"
                       value={cwd}
                       onChange={(e) => setCwd(e.target.value)}
-                      placeholder="Default to server root"
-                      className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all text-sm"
+                      placeholder="Root directory"
+                      className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all text-sm"
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2 py-2">
-                  <input 
-                    type="checkbox"
-                    id="dryRun"
-                    checked={dryRun}
-                    onChange={(e) => setDryRun(e.target.checked)}
-                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
-                  />
-                  <label htmlFor="dryRun" className="text-sm text-gray-600 cursor-pointer">Dry Run (don't write files)</label>
+                <div className="flex items-center justify-between px-2 py-1">
+                  <span className="text-sm font-semibold text-slate-600">Dry Run Mode</span>
+                  <button 
+                    type="button"
+                    onClick={() => setDryRun(!dryRun)}
+                    className={cn(
+                      "w-11 h-6 rounded-full transition-colors relative",
+                      dryRun ? "bg-indigo-600" : "bg-slate-200"
+                    )}
+                  >
+                    <motion.div 
+                      animate={{ x: dryRun ? 22 : 2 }}
+                      className="absolute top-1 left-0 w-4 h-4 bg-white rounded-full shadow-sm"
+                    />
+                  </button>
                 </div>
                 <button 
                   type="submit"
                   disabled={submitting || !task}
-                  className="w-full bg-indigo-600 text-white font-semibold py-2.5 px-4 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                  className="w-full bg-slate-900 text-white font-bold py-4 px-6 rounded-2xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-slate-200 flex items-center justify-center gap-3 group"
                 >
-                  {submitting ? <RefreshCw size={18} className="animate-spin" /> : <Play size={18} />}
-                  Enqueu Job
+                  {submitting ? (
+                    <RefreshCw size={20} className="animate-spin" />
+                  ) : (
+                    <>
+                      Execute Pipeline
+                      <Zap size={20} className="text-amber-400 group-hover:scale-125 transition-transform" />
+                    </>
+                  )}
                 </button>
               </form>
-            </div>
+            </motion.div>
           </div>
 
-          {/* Main Content: Job History */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                <h2 className="font-semibold text-gray-700">Recent Jobs</h2>
-                <span className="text-xs text-gray-500 bg-white px-2 py-1 rounded border border-gray-100 shadow-sm">
-                  {jobs.length} total
-                </span>
+          {/* Job Timeline */}
+          <div className="lg:col-span-8">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between px-2 mb-2">
+                <h2 className="text-xl font-bold flex items-center gap-3 text-slate-800">
+                  <History size={22} className="text-slate-400" />
+                  Activity Timeline
+                </h2>
+                <div className="flex gap-2">
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mt-0.5">Live Feed</span>
+                </div>
               </div>
               
-              <div className="divide-y divide-gray-100">
-                {jobs.length === 0 ? (
-                  <div className="p-12 text-center text-gray-400">
-                    <Clock size={48} className="mx-auto mb-4 opacity-20" />
-                    <p>No jobs found. Submit your first task!</p>
-                  </div>
-                ) : (
-                  jobs.map((job) => (
-                    <div key={job.jobId} className="p-6 hover:bg-gray-50/80 transition-colors">
-                      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                        <div className="space-y-1 flex-1">
-                          <div className="flex items-center gap-3 mb-1">
-                            <span className="font-mono text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded uppercase">{job.jobId}</span>
-                            <StatusBadge status={job.status} />
-                          </div>
-                          <h3 className="font-medium text-gray-900 leading-tight">{job.task}</h3>
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-2">
-                            <span className="flex items-center gap-1">
-                              <FolderOpen size={12} />
-                              {job.cwd || 'Root'}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Clock size={12} />
-                              {new Date(job.createdAt).toLocaleString()}
-                            </span>
-                          </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          {(job.status === 'queued' || job.status === 'running') && (
-                            <button 
-                              onClick={() => handleCancel(job.jobId)}
-                              className="text-xs font-semibold text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-md border border-red-200 transition-all flex items-center gap-1"
-                            >
-                              <XCircle size={14} />
-                              Cancel
-                            </button>
-                          )}
-                          {job.artifactPath && (
-                            <div className="text-xs font-semibold text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded-md border border-indigo-200 transition-all flex items-center gap-1 cursor-default">
-                              <ExternalLink size={14} />
-                              Artifacts Ready
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Result / Error Details */}
-                      {(job.resultSummary || job.error) && (
-                        <div className="mt-4 bg-gray-50 rounded-lg p-3 border border-gray-100">
-                          <div className="flex items-start gap-2">
-                            <ChevronRight size={16} className="text-gray-400 mt-0.5" />
-                            <div className="text-sm">
-                              {job.error ? (
-                                <span className="text-red-600 font-medium">Error: {job.error}</span>
-                              ) : (
-                                <span className="text-gray-700 whitespace-pre-wrap">{job.resultSummary}</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
+              <AnimatePresence mode="popLayout">
+                {filteredJobs.length === 0 ? (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="bg-white rounded-3xl border border-dashed border-slate-300 p-20 text-center"
+                  >
+                    <div className="bg-slate-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <Cpu size={40} className="text-slate-300" />
                     </div>
+                    <h3 className="text-slate-900 font-bold text-lg">No active threads</h3>
+                    <p className="text-slate-400 text-sm mt-1">Submit a task to start the orchestration engine.</p>
+                  </motion.div>
+                ) : (
+                  filteredJobs.map((job, index) => (
+                    <motion.div 
+                      key={job.jobId}
+                      layout
+                      initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.95 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="group bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl hover:shadow-indigo-500/5 transition-all duration-300 overflow-hidden"
+                    >
+                      <div className="p-6">
+                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+                          <div className="flex-1 space-y-3">
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-100 uppercase tracking-tighter">ID: {job.jobId}</span>
+                              <StatusBadge status={job.status} />
+                            </div>
+                            <h3 className="text-lg font-bold text-slate-900 group-hover:text-indigo-600 transition-colors leading-snug">{job.task}</h3>
+                            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-slate-400">
+                              <div className="flex items-center gap-1.5 bg-slate-50 px-2.5 py-1 rounded-lg">
+                                <FolderOpen size={14} className="text-slate-400" />
+                                {job.cwd || 'System Root'}
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Clock size={14} />
+                                {new Date(job.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                <span className="mx-1 opacity-50">•</span>
+                                {new Date(job.createdAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 shrink-0">
+                            {(job.status === 'queued' || job.status === 'running') && (
+                              <button 
+                                onClick={() => handleCancel(job.jobId)}
+                                className="group/btn text-xs font-bold text-rose-600 bg-white hover:bg-rose-600 hover:text-white px-4 py-2.5 rounded-xl border border-rose-200 hover:border-rose-600 transition-all flex items-center gap-2"
+                              >
+                                <XCircle size={16} />
+                                Terminate
+                              </button>
+                            )}
+                            {job.artifactPath && (
+                              <div className="text-xs font-bold text-indigo-600 bg-indigo-50 px-4 py-2.5 rounded-xl border border-indigo-200 transition-all flex items-center gap-2">
+                                <ShieldCheck size={16} />
+                                Verified Artifacts
+                              </div>
+                            )}
+                            <button className="p-2.5 text-slate-300 hover:text-slate-600 transition-colors">
+                              <MoreVertical size={20} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Expandable Result/Error Panel */}
+                        <AnimatePresence>
+                          {(job.resultSummary || job.error) && (
+                            <motion.div 
+                              initial={{ height: 0, opacity: 0 }}
+                              animate={{ height: 'auto', opacity: 1 }}
+                              className="mt-6 pt-6 border-t border-slate-100"
+                            >
+                              <div className={cn(
+                                "rounded-2xl p-4 flex gap-4 transition-colors",
+                                job.error ? "bg-rose-50/50" : "bg-slate-50/50"
+                              )}>
+                                <div className={cn(
+                                  "p-2 rounded-xl h-fit",
+                                  job.error ? "bg-rose-100 text-rose-600" : "bg-slate-100 text-slate-500"
+                                )}>
+                                  {job.error ? <AlertCircle size={18} /> : <ChevronRight size={18} />}
+                                </div>
+                                <div className="flex-1 space-y-1">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Execution Summary</p>
+                                  <div className="text-sm">
+                                    {job.error ? (
+                                      <span className="text-rose-600 font-bold italic leading-relaxed">{job.error}</span>
+                                    ) : (
+                                      <span className="text-slate-600 whitespace-pre-wrap font-medium leading-relaxed">{job.resultSummary}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </motion.div>
                   ))
                 )}
-              </div>
+              </AnimatePresence>
             </div>
           </div>
 
         </div>
       </main>
+      
+      {/* Bottom Status Bar */}
+      <footer className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t border-slate-200 py-2 px-6 z-50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-6 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              Engine Online
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
+              Worker ID: {Math.random().toString(36).substring(7)}
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+             <Settings size={14} className="text-slate-400 hover:text-slate-600 cursor-pointer transition-colors" />
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
