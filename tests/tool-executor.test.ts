@@ -779,6 +779,122 @@ test("runToolChecks builds a safe docker invocation for workspace-scoped checks"
   }
 });
 
+test("runToolChecks skips docker sandbox when docker is unavailable", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-docker-missing-"));
+  const previousPath = process.env.PATH;
+
+  try {
+    await fs.mkdir(path.join(tempDir, "empty-bin"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "docker-missing", scripts: { lint: "echo lint" } }, null, 2),
+      "utf8"
+    );
+    process.env.PATH = path.join(tempDir, "empty-bin");
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles: [{ path: "src/app.ts", content: "export const value = 1;\n" }],
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: false,
+          sandbox: { mode: "docker" },
+          commands: {
+            lint: { enabled: true },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: { enabled: false }
+          }
+        }
+      })
+    });
+
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    assert.equal(lintResult?.skipped, true);
+    assert.match(lintResult?.summary ?? "", /Docker is unavailable/);
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks auto-builds missing docker image when enabled", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-docker-autobuild-"));
+  const previousPath = process.env.PATH;
+  const dockerLog = path.join(tempDir, "docker.log");
+
+  try {
+    await fs.mkdir(path.join(tempDir, "bin"), { recursive: true });
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify({ name: "docker-autobuild", scripts: { lint: "echo lint" } }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(path.join(tempDir, "pyproject.toml"), "[project]\nname = \"docker-autobuild\"\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "Dockerfile.tools"), "FROM scratch\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "bin/docker"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        `fs.appendFileSync(${JSON.stringify(dockerLog)}, process.argv.slice(2).join('|') + '\\n');`,
+        "const args = process.argv.slice(2);",
+        "if (args[0] === '--version') process.exit(0);",
+        "if (args[0] === 'image' && args[1] === 'inspect') process.exit(1);",
+        "if (args[0] === 'build') process.exit(0);",
+        "console.log('docker run ok');",
+        "process.exit(0);"
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.chmod(path.join(tempDir, "bin/docker"), 0o755);
+    process.env.PATH = `${path.join(tempDir, "bin")}:${previousPath ?? ""}`;
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles: [{ path: "src/app.py", content: "print('ok')\n" }],
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: false,
+          project_type: "python",
+          sandbox: {
+            mode: "docker",
+            image_profile: "auto",
+            auto_build: true,
+            dockerfile: "Dockerfile.tools"
+          },
+          commands: {
+            lint: { enabled: false },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: { enabled: true }
+          }
+        }
+      })
+    });
+
+    const testResult = summary.results.find((entry) => entry.name === "test");
+    const log = await fs.readFile(dockerLog, "utf8");
+    assert.equal(testResult?.ok, true);
+    assert.equal(testResult?.sandboxImage, "ai-coding-system:python");
+    assert.match(log, /build\|-t\|ai-coding-system:python\|-f\|.*Dockerfile\.tools/);
+    assert.match(log, /run\|--rm\|.*ai-coding-system:python\|pytest/);
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("createDryRunToolExecutionSummary skips command-based checks explicitly", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-dryrun-summary-"));
 

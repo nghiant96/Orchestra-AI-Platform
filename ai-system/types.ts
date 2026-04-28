@@ -97,10 +97,14 @@ export type ToolExecutionName = "json-validation" | "lint" | "typecheck" | "buil
 export type ToolExecutionKind = "validation" | "command";
 export type ToolExecutionScope = "full" | "changed-files" | "package" | "workspace";
 export type ToolSandboxMode = "inherit" | "clean-env" | "docker";
+export type ToolSandboxImageProfile = "auto" | "node" | "python" | "go" | "rust" | (string & {});
 
 export interface ToolSandboxConfig {
   mode?: ToolSandboxMode;
   image?: string;
+  image_profile?: ToolSandboxImageProfile;
+  auto_build?: boolean;
+  dockerfile?: string;
   include_env?: string[];
   extra_env?: Record<string, string>;
   [key: string]: unknown;
@@ -151,6 +155,8 @@ export interface ToolExecutionResult {
   args?: string[];
   scope?: ToolExecutionScope;
   sandboxMode?: ToolSandboxMode;
+  sandboxImage?: string;
+  sandboxImageProfile?: string;
   workingDirectory?: string;
   exitCode?: number | null;
   stdout?: string;
@@ -171,6 +177,8 @@ export interface ToolConfigurationSummary {
   scopedToChangedFiles?: boolean;
   scope?: ToolExecutionScope;
   sandboxMode?: ToolSandboxMode;
+  sandboxImage?: string;
+  sandboxImageProfile?: string;
   workingDirectory?: string;
   summary: string;
 }
@@ -332,6 +340,7 @@ export interface RulesConfig {
   providers: ProviderConfigMap;
   routing?: RoutingConfig;
   tools?: ToolExecutionConfig;
+  prompts?: PromptOverrideConfig;
   excluded_directories?: string[];
   sensitive_file_names?: string[];
   [key: string]: unknown;
@@ -448,6 +457,26 @@ export interface VectorSearchConfig {
   max_file_bytes?: number;
   chunk_size?: number;
   chunk_overlap?: number;
+  parsers?: VectorParserConfig;
+  [key: string]: unknown;
+}
+
+export type VectorParserMode = "auto" | "typescript-only" | "line-based" | "tree-sitter";
+
+export interface VectorParserConfig {
+  mode?: VectorParserMode;
+  tree_sitter_languages?: string[];
+  [key: string]: unknown;
+}
+
+export type PromptTemplateName = "planner" | "generator" | "reviewer" | "fixer";
+
+export interface PromptOverrideConfig {
+  directory?: string;
+  templates?: Partial<Record<PromptTemplateName, string>>;
+  examples_directory?: string;
+  allowed_roots?: string[];
+  base_dir?: string;
   [key: string]: unknown;
 }
 

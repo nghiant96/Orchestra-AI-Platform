@@ -20,13 +20,14 @@ export class FixerAgent {
     cwd: string,
     memoryContext = ""
   ): Promise<FileGenerationResult> {
-    const template = await loadPromptTemplate("fixer");
+    const promptOptions = { repoRoot: cwd, rules: this.rules };
+    const template = await loadPromptTemplate("fixer", promptOptions);
     const examples = await loadPromptExamplesForTask(task, [
       ...plan.readFiles,
       ...plan.writeTargets,
       ...currentFiles.map((file) => file.path),
       ...issues.map((issue) => issue.path)
-    ]);
+    ], promptOptions);
     const systemPrompt = compilePrompt(template, { examples });
 
     const prompt = JSON.stringify(

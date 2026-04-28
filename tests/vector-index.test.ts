@@ -222,14 +222,14 @@ test("VectorIndex uses symbol-aware chunks for non-TypeScript code", async () =>
   }
 });
 
-test("symbol parser registry selects extensible parsers and plain-text fallback", () => {
+test("symbol parser registry selects extensible parsers and plain-text fallback", async () => {
   assert.equal(getSymbolParserForPath("src/service.ts").id, "typescript");
   assert.equal(getSymbolParserForPath("services/payments.py").id, "python-line");
   assert.equal(getSymbolParserForPath("cmd/server.go").id, "go-line");
   assert.equal(getSymbolParserForPath("src/lib.rs").id, "rust-line");
   assert.equal(getSymbolParserForPath("README.txt").id, "plain-text");
 
-  const rustRanges = detectSymbolRanges(
+  const rustRanges = await detectSymbolRanges(
     "src/lib.rs",
     ["pub fn validate_token(token: &str) -> bool {", "  !token.is_empty()", "}", "", "pub struct Session {}"].join("\n")
   );
@@ -237,7 +237,44 @@ test("symbol parser registry selects extensible parsers and plain-text fallback"
   assert.equal(rustRanges[0]?.startLine, 1);
   assert.equal(rustRanges[1]?.symbolName, "Session");
 
-  assert.deepEqual(detectSymbolRanges("notes.txt", "def not_code(): pass"), []);
+  assert.deepEqual(await detectSymbolRanges("notes.txt", "def not_code(): pass"), []);
+});
+
+test("tree-sitter parser mode uses optional parser results when available", async () => {
+  const ranges = await detectSymbolRanges("services/payments.py", "def fallback():\n  return True\n", {
+    parserConfig: {
+      mode: "tree-sitter",
+      tree_sitter_languages: ["python"]
+    },
+    treeSitterParseOverride: async (_relativePath, content, language) => {
+      assert.equal(language, "python");
+      return [
+        {
+          startLine: 1,
+          endLine: 2,
+          text: content,
+          symbolName: "tree_sitter_payment",
+          kind: "function"
+        }
+      ];
+    }
+  });
+
+  assert.equal(ranges[0]?.symbolName, "tree_sitter_payment");
+});
+
+test("tree-sitter parser failure falls back to line parser", async () => {
+  const ranges = await detectSymbolRanges("services/payments.py", "def fallback_payment():\n  return True\n", {
+    parserConfig: {
+      mode: "tree-sitter",
+      tree_sitter_languages: ["python"]
+    },
+    treeSitterParseOverride: async () => {
+      throw new Error("malformed tree");
+    }
+  });
+
+  assert.equal(ranges[0]?.symbolName, "fallback_payment");
 });
 
 test("expandContextReadFiles adds vector-matched files even when planner misses them", async () => {

@@ -11,8 +11,9 @@ export class PlannerAgent {
   }
 
   async planTask(task: string, treeString: string, cwd: string, memoryContext = ""): Promise<PlanResult> {
-    const template = await loadPromptTemplate("planner");
-    const examples = await loadPromptExamplesForTask(task);
+    const promptOptions = { repoRoot: cwd, rules: this.rules };
+    const template = await loadPromptTemplate("planner", promptOptions);
+    const examples = await loadPromptExamplesForTask(task, [], promptOptions);
     const systemPrompt = compilePrompt(template, {
       max_files: this.rules.max_files,
       examples

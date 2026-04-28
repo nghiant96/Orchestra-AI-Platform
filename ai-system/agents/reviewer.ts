@@ -26,11 +26,12 @@ export class ReviewerAgent {
     cwd: string,
     memoryContext = ""
   ): Promise<ReviewResult> {
-    const template = await loadPromptTemplate("reviewer");
+    const promptOptions = { repoRoot: cwd, rules: this.rules };
+    const template = await loadPromptTemplate("reviewer", promptOptions);
     const examples = await loadPromptExamplesForTask(task, [
       ...originalFiles.map((file) => file.path),
       ...candidateFiles.map((file) => file.path)
-    ]);
+    ], promptOptions);
     const systemPrompt = compilePrompt(template, { examples });
 
     const prompt = JSON.stringify(

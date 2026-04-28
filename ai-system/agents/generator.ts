@@ -18,12 +18,13 @@ export class GeneratorAgent {
     cwd: string,
     memoryContext = ""
   ): Promise<FileGenerationResult> {
-    const template = await loadPromptTemplate("generator");
+    const promptOptions = { repoRoot: cwd, rules: this.rules };
+    const template = await loadPromptTemplate("generator", promptOptions);
     const examples = await loadPromptExamplesForTask(task, [
       ...plan.readFiles,
       ...plan.writeTargets,
       ...contextFiles.map((file) => file.path)
-    ]);
+    ], promptOptions);
     const systemPrompt = compilePrompt(template, {
       rules_summary: summarizeRules(this.rules),
       examples

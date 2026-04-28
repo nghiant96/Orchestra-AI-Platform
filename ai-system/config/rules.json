@@ -40,7 +40,15 @@
     "max_indexed_files": 200,
     "max_file_bytes": 65536,
     "chunk_size": 1200,
-    "chunk_overlap": 200
+    "chunk_overlap": 200,
+    "parsers": {
+      "mode": "auto",
+      "tree_sitter_languages": [
+        "python",
+        "go",
+        "rust"
+      ]
+    }
   },
   "routing": {
     "enabled": true,
@@ -118,6 +126,11 @@
   "tools": {
     "enabled": true,
     "json_validation": true,
+    "sandbox": {
+      "mode": "inherit",
+      "image_profile": "auto",
+      "auto_build": false
+    },
     "commands": {
       "lint": {
         "enabled": true,
@@ -136,6 +149,10 @@
         "timeout_ms": 180000
       }
     }
+  },
+  "prompts": {
+    "directory": "",
+    "examples_directory": ""
   },
   "providers": {
     "planner": {

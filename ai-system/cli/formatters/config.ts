@@ -19,10 +19,13 @@ export function printConfigShow(inspection: ConfigInspection): void {
     `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
   );
   console.log(
-    `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}`
+    `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}, parser_mode=${inspection.effectiveRules.vector_search?.parsers?.mode ?? "auto"}`
   );
   console.log(
     `- tools: enabled=${inspection.effectiveRules.tools?.enabled !== false}, json_validation=${inspection.effectiveRules.tools?.json_validation !== false}`
+  );
+  console.log(
+    `- prompts: directory=${inspection.effectiveRules.prompts?.directory || "(built-in)"}, examples_directory=${inspection.effectiveRules.prompts?.examples_directory || "(built-in)"}`
   );
   console.log(`- env overrides: ${inspection.activeEnvOverrides.length}`);
   if (inspection.projectConfig) {
@@ -33,7 +36,7 @@ export function printConfigShow(inspection: ConfigInspection): void {
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
       console.log(
-        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scope=${tool.scope ?? "full"}, sandbox=${tool.sandboxMode ?? "inherit"}, scoped_changed_files=${tool.scopedToChangedFiles === true}, cwd=${tool.workingDirectory ?? "."}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
+        `  - ${tool.name}: enabled=${tool.enabled}, source=${tool.source}, scope=${tool.scope ?? "full"}, sandbox=${tool.sandboxMode ?? "inherit"}, image=${tool.sandboxImage ?? "(default)"}, scoped_changed_files=${tool.scopedToChangedFiles === true}, cwd=${tool.workingDirectory ?? "."}, command=${tool.command ?? "(none)"}${tool.args && tool.args.length > 0 ? ` ${tool.args.join(" ")}` : ""}`
       );
     }
   }
@@ -76,16 +79,19 @@ export function printDoctor(
     `- memory: enabled=${inspection.effectiveRules.memory?.enabled !== false}, backend=${inspection.effectiveRules.memory?.backend ?? "(unset)"}`
   );
   console.log(
-    `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}`
+    `- vector search: enabled=${inspection.effectiveRules.vector_search?.enabled === true}, data_dir=${inspection.effectiveRules.vector_search?.data_dir ?? "(unset)"}, max_results=${inspection.effectiveRules.vector_search?.max_results ?? "(unset)"}, parser_mode=${inspection.effectiveRules.vector_search?.parsers?.mode ?? "auto"}`
   );
   console.log(
     `- run budgets: duration=${inspection.effectiveRules.execution?.budgets?.max_duration_ms ?? "(disabled)"}ms, cost=${inspection.effectiveRules.execution?.budgets?.max_cost_units ?? "(disabled)"}`
+  );
+  console.log(
+    `- prompts: directory=${inspection.effectiveRules.prompts?.directory || "(built-in)"}, examples_directory=${inspection.effectiveRules.prompts?.examples_directory || "(built-in)"}`
   );
   if (inspection.toolSummaries.length > 0) {
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
       console.log(
-        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scope=${tool.scope ?? "full"}, sandbox=${tool.sandboxMode ?? "inherit"}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
+        `  - ${tool.name}: ${tool.summary} [source=${tool.source}, scope=${tool.scope ?? "full"}, sandbox=${tool.sandboxMode ?? "inherit"}, image=${tool.sandboxImage ?? "(default)"}, scoped_changed_files=${tool.scopedToChangedFiles === true}]`
       );
     }
   }

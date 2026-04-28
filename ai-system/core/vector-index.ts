@@ -134,7 +134,9 @@ export class VectorIndex {
         relativePath,
         content,
         chunkSize: this.config.chunk_size,
-        chunkOverlap: this.config.chunk_overlap
+        chunkOverlap: this.config.chunk_overlap,
+        parserConfig: this.rules.vector_search?.parsers,
+        logger: this.logger
       });
       files.push({
         path: relativePath,
@@ -265,14 +267,18 @@ async function buildChunkRecords({
   relativePath,
   content,
   chunkSize,
-  chunkOverlap
+  chunkOverlap,
+  parserConfig,
+  logger
 }: {
   relativePath: string;
   content: string;
   chunkSize: number;
   chunkOverlap: number;
+  parserConfig?: VectorSearchConfig["parsers"];
+  logger?: Logger;
 }): Promise<VectorChunkRecord[]> {
-  const chunks = chunkText(relativePath, content, chunkSize, chunkOverlap);
+  const chunks = await chunkText(relativePath, content, chunkSize, chunkOverlap, parserConfig, logger);
   const records: VectorChunkRecord[] = [];
   let index = 0;
   for (const chunk of chunks) {
@@ -294,18 +300,20 @@ async function buildChunkRecords({
   return records;
 }
 
-function chunkText(
+async function chunkText(
   relativePath: string,
   content: string,
   chunkSize: number,
-  chunkOverlap: number
-): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
+  chunkOverlap: number,
+  parserConfig?: VectorSearchConfig["parsers"],
+  logger?: Logger
+): Promise<Array<{ text: string; startLine: number; endLine: number; symbolName?: string }>> {
   const text = String(content || "");
   if (!text.trim()) {
     return [];
   }
 
-  const symbolChunks = chunkTextBySymbols(relativePath, text, chunkSize);
+  const symbolChunks = await chunkTextBySymbols(relativePath, text, chunkSize, parserConfig, logger);
   if (symbolChunks.length > 0) {
     return symbolChunks;
   }
@@ -313,17 +321,19 @@ function chunkText(
   return chunkTextFixed(text, chunkSize, chunkOverlap);
 }
 
-function chunkTextBySymbols(
+async function chunkTextBySymbols(
   relativePath: string,
   content: string,
-  chunkSize: number
-): Array<{ text: string; startLine: number; endLine: number; symbolName?: string }> {
+  chunkSize: number,
+  parserConfig?: VectorSearchConfig["parsers"],
+  logger?: Logger
+): Promise<Array<{ text: string; startLine: number; endLine: number; symbolName?: string }>> {
   const text = String(content || "");
   if (!text.trim()) {
     return [];
   }
 
-  const symbolRanges = detectSymbolRanges(relativePath, text);
+  const symbolRanges = await detectSymbolRanges(relativePath, text, { parserConfig, logger });
   if (symbolRanges.length === 0) {
     return [];
   }

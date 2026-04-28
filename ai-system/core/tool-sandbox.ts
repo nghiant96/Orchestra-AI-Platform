@@ -1,4 +1,5 @@
-import type { ToolSandboxConfig, ToolSandboxMode } from "../types.js";
+import path from "node:path";
+import type { ToolSandboxConfig, ToolSandboxImageProfile, ToolSandboxMode } from "../types.js";
 
 const DEFAULT_PRESERVED_ENV_KEYS = [
   "PATH",
@@ -35,7 +36,26 @@ export interface ResolvedToolSandbox {
   mode: ToolSandboxMode;
   env: NodeJS.ProcessEnv;
   image?: string;
+  imageProfile: ToolSandboxImageProfile;
+  autoBuild: boolean;
+  dockerfile?: string;
 }
+
+export interface ResolvedSandboxImage {
+  image: string;
+  imageProfile: string;
+  dockerfile: string;
+  explicitImage: boolean;
+  buildHint: string;
+}
+
+const DEFAULT_SANDBOX_IMAGE = "ai-coding-system:local";
+const PROFILE_IMAGES: Record<string, string> = {
+  node: "ai-coding-system:node",
+  python: "ai-coding-system:python",
+  go: "ai-coding-system:go",
+  rust: "ai-coding-system:rust"
+};
 
 export function resolveToolSandbox(config?: ToolSandboxConfig): ResolvedToolSandbox {
   const mode = normalizeSandboxMode(config?.mode);
@@ -44,7 +64,10 @@ export function resolveToolSandbox(config?: ToolSandboxConfig): ResolvedToolSand
     return {
       mode,
       env: { ...process.env },
-      image
+      image,
+      imageProfile: normalizeImageProfile(config?.image_profile),
+      autoBuild: config?.auto_build === true,
+      dockerfile: normalizeDockerfile(config?.dockerfile)
     };
   }
 
@@ -64,11 +87,49 @@ export function resolveToolSandbox(config?: ToolSandboxConfig): ResolvedToolSand
   return {
     mode,
     env,
-    image
+    image,
+    imageProfile: normalizeImageProfile(config?.image_profile),
+    autoBuild: config?.auto_build === true,
+    dockerfile: normalizeDockerfile(config?.dockerfile)
+  };
+}
+
+export function resolveSandboxImage(
+  sandbox: ResolvedToolSandbox,
+  options: {
+    repoRoot: string;
+    projectType?: string;
+  }
+): ResolvedSandboxImage {
+  const effectiveProfile =
+    sandbox.imageProfile === "auto" ? normalizeImageProfile(options.projectType || "node") : sandbox.imageProfile;
+  const image = sandbox.image || PROFILE_IMAGES[effectiveProfile] || DEFAULT_SANDBOX_IMAGE;
+  const dockerfile = path.resolve(options.repoRoot, sandbox.dockerfile || "Dockerfile");
+  return {
+    image,
+    imageProfile: effectiveProfile,
+    dockerfile,
+    explicitImage: Boolean(sandbox.image),
+    buildHint: `docker build -t ${image} -f ${dockerfile} ${path.resolve(options.repoRoot)}`
   };
 }
 
 function normalizeSandboxMode(mode: unknown): ToolSandboxMode {
   if (mode === "docker") return "docker";
   return mode === "clean-env" ? "clean-env" : "inherit";
+}
+
+function normalizeImageProfile(value: unknown): ToolSandboxImageProfile {
+  const normalized = String(value || "auto").trim().toLowerCase();
+  if (normalized === "node" || normalized === "python" || normalized === "go" || normalized === "rust") {
+    return normalized;
+  }
+  return "auto";
+}
+
+function normalizeDockerfile(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) {
+    return undefined;
+  }
+  return value.trim();
 }

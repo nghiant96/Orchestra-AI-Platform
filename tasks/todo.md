@@ -189,3 +189,40 @@
 - Wired dashboard updates through execution transitions, generation/review iterations, and pre-generation cost estimates without breaking resume/retry artifacts.
 - Updated CLI help/result text to explain editable checkpoint artifacts.
 - Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (120/120), `git diff --check`, `pnpm ai --help`, and `pnpm ai doctor` all pass.
+
+---
+
+# Roadmap Parser Sandbox Queue Prompt Implementation
+
+## Tasks
+
+- [x] Add optional Tree-sitter parser mode with safe fallback
+- [x] Improve Docker sandbox image resolution and preflight UX
+- [x] Add file-backed server job queue and HTTP job APIs
+- [x] Add project/global custom prompt override support
+- [x] Document custom prompts, sandbox profiles, and queue APIs
+- [x] Add focused parser, sandbox, queue, and prompt tests
+- [x] Run `pnpm run typecheck`, `pnpm run lint`, `pnpm test`, `git diff --check`, `pnpm ai doctor`, and server health smoke
+
+## Review Result
+
+- Optional Tree-sitter parsing is now configurable and falls back safely to TypeScript AST, line-based parsers, or fixed chunks.
+- Docker sandboxing now resolves profile images, reports effective image details, skips missing Docker/images with actionable messages, and supports opt-in auto-build.
+- The server now keeps synchronous `POST /run` and adds file-backed queue endpoints for create/list/get/cancel job flows.
+- Prompt templates and examples can be overridden from project/global-safe paths with built-in fallback and path traversal rejection.
+- Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (133/133), `git diff --check`, `pnpm ai doctor`, and server `/health` smoke all pass.
+
+---
+
+# README Refresh
+
+## Tasks
+
+- [x] Review README against current CLI, sandbox, queue, prompt, and parser behavior
+- [x] Patch stale wording and missing environment/config details
+- [x] Run README-focused hygiene checks
+
+## Review Result
+
+- README now documents current capabilities, requirements, pnpm usage, vector parser behavior, non-Node adapters, Docker sandbox profiles, queue API, prompt overrides, and server environment variables.
+- Verification: `git diff --check README.md tasks/todo.md` passes, README code fences are balanced, and stale `npm run ai` / `Phase B` wording is removed.

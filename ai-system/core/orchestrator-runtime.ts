@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import {
   getProjectConfigPreset,
   loadJsonIfExists,
@@ -117,6 +118,11 @@ export async function loadRules(
     ...(mergedRules.routing ?? {}),
     locked_roles: Object.keys(projectConfig?.providers ?? {})
   };
+  mergedRules.prompts = {
+    ...(mergedRules.prompts ?? {}),
+    allowed_roots: buildPromptAllowedRoots(repoRoot, configPath, globalConfigPath),
+    base_dir: resolvePromptBaseDir(repoRoot, projectRules, configPath, globalRules, globalConfigPath)
+  };
   normalizeAllProviderConfigs(mergedRules);
 
   return {
@@ -128,6 +134,28 @@ export async function loadRules(
     globalConfig,
     globalProfile: globalPreset?.name ?? null
   };
+}
+
+function buildPromptAllowedRoots(repoRoot: string, configPath: string | null, globalConfigPath: string | null): string[] {
+  return [...new Set([repoRoot, configPath ? path.dirname(configPath) : null, globalConfigPath ? path.dirname(globalConfigPath) : null]
+    .filter((entry): entry is string => Boolean(entry))
+    .map((entry) => path.resolve(entry)))];
+}
+
+function resolvePromptBaseDir(
+  repoRoot: string,
+  projectRules: Omit<ProjectConfig, "profile"> | null,
+  configPath: string | null,
+  globalRules: Omit<ProjectConfig, "profile"> | null,
+  globalConfigPath: string | null
+): string {
+  if (projectRules?.prompts && configPath) {
+    return path.dirname(configPath);
+  }
+  if (globalRules?.prompts && globalConfigPath) {
+    return path.dirname(globalConfigPath);
+  }
+  return repoRoot;
 }
 
 export async function prepareRuntimeRules({

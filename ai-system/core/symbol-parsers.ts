@@ -1,5 +1,6 @@
 import path from "node:path";
 import ts from "typescript";
+import type { Logger, VectorParserConfig, VectorParserMode } from "../types.js";
 
 export interface CodeSymbolRange {
   startLine: number;
@@ -12,8 +13,22 @@ export interface CodeSymbolRange {
 export interface CodeSymbolParser {
   id: string;
   extensions: string[];
-  parse(relativePath: string, content: string): CodeSymbolRange[];
+  parse(relativePath: string, content: string): CodeSymbolRange[] | Promise<CodeSymbolRange[]>;
 }
+
+export interface SymbolParserOptions {
+  parserConfig?: VectorParserConfig;
+  logger?: Logger;
+  treeSitterParseOverride?: TreeSitterParseOverride;
+}
+
+export type TreeSitterParseOverride = (
+  relativePath: string,
+  content: string,
+  language: TreeSitterLanguageName
+) => CodeSymbolRange[] | null | Promise<CodeSymbolRange[] | null>;
+
+type TreeSitterLanguageName = "python" | "go" | "rust";
 
 const TYPESCRIPT_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"];
 
@@ -179,14 +194,186 @@ const SYMBOL_PARSERS: CodeSymbolParser[] = [
 ];
 
 const PLAIN_TEXT_PARSER = new PlainTextSymbolParser();
+const TREE_SITTER_LANGUAGE_BY_EXTENSION: Partial<Record<string, TreeSitterLanguageName>> = {
+  ".py": "python",
+  ".go": "go",
+  ".rs": "rust"
+};
+
+class TreeSitterSymbolParser implements CodeSymbolParser {
+  id = "tree-sitter";
+  extensions = [".py", ".go", ".rs"];
+
+  async parse(relativePath: string, content: string, options: SymbolParserOptions = {}): Promise<CodeSymbolRange[]> {
+    const language = TREE_SITTER_LANGUAGE_BY_EXTENSION[path.extname(relativePath).toLowerCase()];
+    if (!language) {
+      return [];
+    }
+
+    try {
+      const overridden = await options.treeSitterParseOverride?.(relativePath, content, language);
+      if (overridden) {
+        return dedupeAndSortSymbolRanges(overridden);
+      }
+
+      const parserModule = await importOptionalModule("tree-sitter");
+      const grammarModule = await importOptionalModule(resolveTreeSitterGrammarPackage(language));
+      if (!parserModule || !grammarModule) {
+        options.logger?.info(`Tree-sitter parser unavailable for ${language}; falling back to line-based symbol parsing.`);
+        return [];
+      }
+
+      const ParserCtor = getDefaultExport(parserModule);
+      const grammar = getTreeSitterGrammarExport(grammarModule, language);
+      const parser = new ParserCtor();
+      parser.setLanguage(grammar);
+      const tree = parser.parse(content);
+      const ranges = extractTreeSitterRanges(tree.rootNode, content, language);
+      return dedupeAndSortSymbolRanges(ranges);
+    } catch (error) {
+      options.logger?.warn(`Tree-sitter parser failed for ${relativePath}; falling back to line-based parsing: ${(error as Error).message}`);
+      return [];
+    }
+  }
+}
+
+const TREE_SITTER_PARSER = new TreeSitterSymbolParser();
 
 export function getSymbolParserForPath(relativePath: string): CodeSymbolParser {
   const extension = path.extname(relativePath).toLowerCase();
   return SYMBOL_PARSERS.find((parser) => parser.extensions.includes(extension)) ?? PLAIN_TEXT_PARSER;
 }
 
-export function detectSymbolRanges(relativePath: string, content: string): CodeSymbolRange[] {
-  return getSymbolParserForPath(relativePath).parse(relativePath, content);
+export async function detectSymbolRanges(
+  relativePath: string,
+  content: string,
+  options: SymbolParserOptions = {}
+): Promise<CodeSymbolRange[]> {
+  const extension = path.extname(relativePath).toLowerCase();
+  const mode = normalizeParserMode(options.parserConfig?.mode);
+  const baseParser = getSymbolParserForPath(relativePath);
+  const isTypeScriptFamily = TYPESCRIPT_EXTENSIONS.includes(extension);
+
+  try {
+    if (mode === "typescript-only") {
+      return isTypeScriptFamily ? await baseParser.parse(relativePath, content) : [];
+    }
+
+    if (shouldTryTreeSitter(relativePath, mode, options.parserConfig)) {
+      const treeSitterRanges = await TREE_SITTER_PARSER.parse(relativePath, content, options);
+      if (treeSitterRanges.length > 0) {
+        return treeSitterRanges;
+      }
+    }
+
+    return await baseParser.parse(relativePath, content);
+  } catch (error) {
+    options.logger?.warn(`Symbol parser failed for ${relativePath}; falling back to fixed chunking: ${(error as Error).message}`);
+    return [];
+  }
+}
+
+function shouldTryTreeSitter(relativePath: string, mode: VectorParserMode, config: VectorParserConfig | undefined): boolean {
+  const extension = path.extname(relativePath).toLowerCase();
+  const language = TREE_SITTER_LANGUAGE_BY_EXTENSION[extension];
+  if (!language) {
+    return false;
+  }
+  if (mode !== "auto" && mode !== "tree-sitter") {
+    return false;
+  }
+  const configuredLanguages = config?.tree_sitter_languages;
+  if (configuredLanguages && configuredLanguages.length > 0) {
+    return configuredLanguages.map((entry) => entry.toLowerCase()).includes(language);
+  }
+  return mode === "tree-sitter";
+}
+
+function normalizeParserMode(value: unknown): VectorParserMode {
+  return value === "typescript-only" || value === "line-based" || value === "tree-sitter" ? value : "auto";
+}
+
+async function importOptionalModule(moduleName: string): Promise<Record<string, unknown> | null> {
+  try {
+    return (await import(moduleName)) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function resolveTreeSitterGrammarPackage(language: TreeSitterLanguageName): string {
+  return `tree-sitter-${language}`;
+}
+
+function getDefaultExport(moduleValue: Record<string, unknown>): any {
+  return moduleValue.default ?? moduleValue;
+}
+
+function getTreeSitterGrammarExport(moduleValue: Record<string, unknown>, language: TreeSitterLanguageName): any {
+  return moduleValue.default ?? moduleValue[language] ?? moduleValue;
+}
+
+function extractTreeSitterRanges(rootNode: any, content: string, language: TreeSitterLanguageName): CodeSymbolRange[] {
+  const ranges: CodeSymbolRange[] = [];
+  visitTreeSitterNode(rootNode, (node) => {
+    const kind = classifyTreeSitterNode(node.type, language);
+    if (!kind) {
+      return;
+    }
+    const symbolName = extractTreeSitterSymbolName(node);
+    const startLine = Number(node.startPosition?.row ?? 0) + 1;
+    const endLine = Number(node.endPosition?.row ?? node.startPosition?.row ?? 0) + 1;
+    const text = String(content).split(/\r?\n/).slice(startLine - 1, endLine).join("\n").trim();
+    if (text) {
+      ranges.push({ startLine, endLine, text, symbolName, kind });
+    }
+  });
+  return ranges;
+}
+
+function visitTreeSitterNode(node: any, visitor: (node: any) => void): void {
+  if (!node) {
+    return;
+  }
+  visitor(node);
+  const childCount = Number(node.namedChildCount ?? node.childCount ?? 0);
+  for (let index = 0; index < childCount; index += 1) {
+    visitTreeSitterNode(node.namedChild?.(index) ?? node.child?.(index), visitor);
+  }
+}
+
+function classifyTreeSitterNode(type: unknown, language: TreeSitterLanguageName): string | null {
+  const nodeType = String(type || "");
+  if (language === "python") {
+    if (nodeType === "function_definition") return "function";
+    if (nodeType === "class_definition") return "class";
+  }
+  if (language === "go") {
+    if (nodeType === "function_declaration" || nodeType === "method_declaration") return "function";
+    if (nodeType === "type_declaration") return "type";
+  }
+  if (language === "rust") {
+    if (nodeType === "function_item") return "function";
+    if (nodeType === "struct_item" || nodeType === "enum_item" || nodeType === "trait_item" || nodeType === "impl_item") {
+      return "type";
+    }
+  }
+  return null;
+}
+
+function extractTreeSitterSymbolName(node: any): string | undefined {
+  const namedNode = node.childForFieldName?.("name");
+  if (typeof namedNode?.text === "string" && namedNode.text.trim()) {
+    return namedNode.text.trim();
+  }
+  const childCount = Number(node.namedChildCount ?? node.childCount ?? 0);
+  for (let index = 0; index < childCount; index += 1) {
+    const child = node.namedChild?.(index) ?? node.child?.(index);
+    if (child?.type === "identifier" && typeof child.text === "string") {
+      return child.text.trim();
+    }
+  }
+  return undefined;
 }
 
 function extractTopLevelSymbolRanges(sourceFile: ts.SourceFile, content: string): CodeSymbolRange[] {

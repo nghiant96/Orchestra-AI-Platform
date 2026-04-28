@@ -10,15 +10,21 @@ A local CLI-first coding system that uses installed AI CLIs instead of direct AP
 - Runs configurable repo checks (`lint`, `typecheck`, optional `build` / `test`) before review
 - Runs a review and fix loop up to a configured maximum
 - Retrieves relevant project memory before planning and implementation
+- Expands context with dependency and vector-search signals when enabled
+- Supports dry-run, checkpoints, resume/retry, artifact apply, and review-only workflows
+- Can run as a local HTTP service with synchronous and queued job APIs
 - Writes accepted files atomically
 
 ## Requirements
 
 - Node.js 20+ recommended, tested on Node.js 24
+- `pnpm` for this repository's scripts
 - Installed and authenticated AI CLIs for the providers you want to use
 - Defaults assume:
   - `gemini` is installed for planner/reviewer
   - `codex` is installed for generator/fixer
+- Optional: Docker for containerized tool checks or server deployment
+- Optional: `tree-sitter`, `tree-sitter-python`, `tree-sitter-go`, and `tree-sitter-rust` for more precise Python/Go/Rust symbol parsing; without them, indexing falls back safely
 
 Optional alternate provider:
 
@@ -37,7 +43,7 @@ claude
 
 ## Quick Start
 
-There are now two recommended local setup modes:
+There are two recommended local setup modes:
 
 ### Option 1: Local CLI mode
 
@@ -83,19 +89,19 @@ pnpm run ai:chat
 Run a one-shot task in the current directory:
 
 ```bash
-npm run ai -- "Add retry handling to the API client"
+pnpm ai "Add retry handling to the API client"
 ```
 
 Run against another repository:
 
 ```bash
-npm run ai -- --cwd /absolute/path/to/repo "Refactor the auth hook to handle refresh tokens"
+pnpm ai --cwd /absolute/path/to/repo "Refactor the auth hook to handle refresh tokens"
 ```
 
 Preview without writing files:
 
 ```bash
-npm run ai -- --dry-run "Add a reusable loading state component"
+pnpm ai --dry-run "Add a reusable loading state component"
 ```
 
 Use project-level config:
@@ -190,7 +196,7 @@ Recommended config workflow:
 - `ai runs latest/show` also surface run budget usage and budget-exceeded failures when those limits are configured
 - Use `ai runs list` to browse recent artifact-backed runs
 - Use `ai runs show <target>` to inspect a specific run directory or `run-state.json`
-- `ai runs latest/show` will also surface persisted semantic vector matches when Phase B context expansion is active for that run
+- `ai runs latest/show` will also surface persisted semantic vector matches when vector context expansion is active for that run
 - Add `--json` to `ai runs ...`, `ai review`, or `ai apply --from-artifact` when you want machine-readable output
 - Add `--save /path/to/file.json` together with `--json` when you want the CLI to write the payload directly to disk for automation/reporting
 - Example reporting flow:
@@ -225,10 +231,15 @@ Tool execution workflow:
 - Tool execution sandboxing now supports:
   - `inherit` to run with the normal host environment
   - `clean-env` to run with a minimal allowlisted environment plus explicit passthrough keys
+  - `docker` with explicit or auto-selected images for Node, Python, Go, and Rust projects
+- Non-Node project adapters now support:
+  - Python projects detected by `pyproject.toml`, `pytest.ini`, or `requirements.txt`, defaulting to `pytest`
+  - Go projects detected by `go.mod`, defaulting to `go test ./...`
+  - Rust projects detected by `Cargo.toml`, defaulting to `cargo test`
 - Context intelligence now supports:
   - dependency-aware file expansion from planner-selected files
   - semantic vector search over embedded local chunks when `vector_search.enabled=true`
-  - AST-backed symbol-aware chunking for TS/JS-family files before fixed-size fallback, so semantic matches stay closer to real function/class/module boundaries
+  - parser-backed symbol-aware chunking for TS/JS-family files, optional Tree-sitter parsing for Python/Go/Rust, and line-based fallback for other supported languages
   - ranked context selection so planner files, write targets, dependency neighbors, and semantic matches are ordered before byte-budget trimming
   - budget-aware context trimming so pinned files stay in and oversized low-value candidates are dropped before prompt assembly
   - operator visibility for top ranked context contributors in `ai runs latest/show`
@@ -236,7 +247,7 @@ Tool execution workflow:
   - recent run outcome tracking from `.ai-system-artifacts`
   - category-aware routing history (`docs`, `risky`, `general`)
   - profile scoring and role overrides based on recent provider performance in the same category
-- Use `ai doctor` to see the effective tool commands, execution scope, and working directory
+- Use `ai doctor` to see effective providers, budgets, parser mode, prompt overrides, tool commands, sandbox image, execution scope, and working directory
 
 Example project tool config in `.ai-system.json`:
 
@@ -246,7 +257,9 @@ Example project tool config in `.ai-system.json`:
     "enabled": true,
     "json_validation": true,
     "sandbox": {
-      "mode": "clean-env",
+      "mode": "docker",
+      "image_profile": "auto",
+      "auto_build": false,
       "include_env": ["CI"]
     },
     "commands": {
@@ -271,6 +284,8 @@ Example project tool config in `.ai-system.json`:
   }
 }
 ```
+
+When `tools.sandbox.mode` is `docker`, `tools.sandbox.image` wins over all profile settings. Without an explicit image, `image_profile: "auto"` maps detected adapters to `ai-coding-system:python`, `ai-coding-system:go`, or `ai-coding-system:rust`; otherwise the fallback remains `ai-coding-system:local`. If the image is missing and `auto_build` is false, the tool check is skipped with the exact `docker build` command to run. Set `auto_build: true` and optionally `dockerfile` to let the tool preflight build the image. Docker sandboxing remains opt-in; `inherit` stays the default.
 
 Example safety-oriented tool sandbox config:
 
@@ -300,13 +315,37 @@ Example embedded vector-search config:
     "max_indexed_files": 200,
     "max_file_bytes": 65536,
     "chunk_size": 1200,
-    "chunk_overlap": 200
+    "chunk_overlap": 200,
+    "parsers": {
+      "mode": "auto",
+      "tree_sitter_languages": ["python", "go", "rust"]
+    }
   }
 }
 ```
 
 - When enabled, the orchestrator indexes safe workspace files into local semantic chunks and merges the top matches into `plan.readFiles`
 - The current implementation is local-first and embedded; it reuses the existing `@xenova/transformers` embedder and degrades gracefully to lexical ranking when embeddings are unavailable
+- Tree-sitter is optional. If `tree-sitter` or a grammar package is unavailable or fails, indexing falls back to the TypeScript AST parser, line-based parsers, or fixed chunks depending on file type. Use `mode: "tree-sitter"` only when you want to require a Tree-sitter attempt before fallback.
+
+Example custom prompt config:
+
+```json
+{
+  "prompts": {
+    "directory": ".ai-system-prompts",
+    "templates": {
+      "reviewer": ".ai-system-prompts/strict-reviewer.md"
+    },
+    "examples_directory": ".ai-system-prompts/examples"
+  }
+}
+```
+
+- Copy the built-in prompts from `ai-system/prompts/*.md` into your prompt directory and edit only the templates you need.
+- Supported template variables are `{{examples}}`, planner-only `{{max_files}}`, and generator-only `{{rules_summary}}`.
+- Missing custom templates fall back to built-ins; missing custom examples fall back to built-in examples or an empty examples block.
+- Prompt paths must be repo-relative or absolute under the project/global config roots. Unsafe traversal is rejected. Use `ai doctor` to inspect effective config and tool behavior when troubleshooting.
 
 Supported changed-file placeholders in tool args:
 
@@ -334,16 +373,16 @@ Inside interactive mode:
 Useful local overrides:
 
 ```bash
-AI_SYSTEM_REVIEWER_PROVIDER=claude-cli npm run ai -- --dry-run "Review the generated hook changes"
-AI_SYSTEM_MEMORY=off npm run ai -- --dry-run "Refactor the auth flow"
+AI_SYSTEM_REVIEWER_PROVIDER=claude-cli pnpm ai --dry-run "Review the generated hook changes"
+AI_SYSTEM_MEMORY=off pnpm ai --dry-run "Refactor the auth flow"
 AI_SYSTEM_MEMORY=openmemory \
 AI_SYSTEM_OPENMEMORY_BASE_URL=http://127.0.0.1:8080 \
-npm run ai -- --dry-run "Refactor the auth flow"
-AI_SYSTEM_GENERATOR_TIMEOUT_MS=480000 AI_SYSTEM_FIXER_TIMEOUT_MS=300000 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
-AI_SYSTEM_GENERATOR_TIMEOUT_MS=0 AI_SYSTEM_FIXER_TIMEOUT_MS=0 pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+pnpm ai --dry-run "Refactor the auth flow"
+AI_SYSTEM_GENERATOR_TIMEOUT_MS=480000 AI_SYSTEM_FIXER_TIMEOUT_MS=300000 pnpm ai "Tách project hiện tại thành dự án mới với tên Edura+"
+AI_SYSTEM_GENERATOR_TIMEOUT_MS=0 AI_SYSTEM_FIXER_TIMEOUT_MS=0 pnpm ai "Tách project hiện tại thành dự án mới với tên Edura+"
 AI_SYSTEM_GENERATOR_MONITOR_INTERVAL_MS=60000 \
 AI_SYSTEM_FIXER_MONITOR_INTERVAL_MS=60000 \
-pnpm run ai -- "Tách project hiện tại thành dự án mới với tên Edura+"
+pnpm ai "Tách project hiện tại thành dự án mới với tên Edura+"
 ```
 
 Review the AI plan before it generates code:
@@ -398,6 +437,7 @@ Run as a long-lived HTTP service:
 docker run --rm -it \
   -e AI_SYSTEM_SERVER_MODE=true \
   -e AI_SYSTEM_SERVER_TOKEN=change-me \
+  -e AI_SYSTEM_WORKDIR=/workspace \
   -e PORT=3927 \
   -p 3927:3927 \
   -v "$PWD:/workspace" \
@@ -470,6 +510,8 @@ If your platform starts the container with no command, set:
 - `AI_SYSTEM_SERVER_MODE=true`
 - `PORT=3927` or the platform's assigned port
 - `AI_SYSTEM_SERVER_TOKEN=<shared-secret>`
+- `AI_SYSTEM_WORKDIR=/workspace`
+- `AI_SYSTEM_ALLOWED_WORKDIRS=/workspace` or a comma-separated allowlist for multiple mounted repositories
 
 Then call the service:
 
@@ -479,6 +521,29 @@ curl -X POST http://127.0.0.1:3927/run \
   -H "Content-Type: application/json" \
   -d '{"task":"Implement retry handling for the API client","dryRun":true}'
 ```
+
+Queue API:
+
+```bash
+curl -X POST http://127.0.0.1:3927/jobs \
+  -H "Authorization: Bearer change-me" \
+  -H "Content-Type: application/json" \
+  -d '{"task":"Implement retry handling for the API client","cwd":"/workspace","dryRun":true}'
+
+curl http://127.0.0.1:3927/jobs \
+  -H "Authorization: Bearer change-me"
+
+curl http://127.0.0.1:3927/jobs/<jobId> \
+  -H "Authorization: Bearer change-me"
+
+curl -X POST http://127.0.0.1:3927/jobs/<jobId>/cancel \
+  -H "Authorization: Bearer change-me"
+```
+
+- Jobs are stored under `.ai-system-server/jobs` in `AI_SYSTEM_WORKDIR`.
+- Set `AI_SYSTEM_QUEUE_CONCURRENCY` to run more than one job at a time in the same process.
+- Set `AI_SYSTEM_ALLOWED_WORKDIRS` to a comma-separated allowlist when enqueueing jobs for multiple mounted projects.
+- Queue states are `queued`, `running`, `completed`, `failed`, `cancel_requested`, and `cancelled`.
 
 ## Configuration Reference
 
@@ -529,6 +594,15 @@ Optional environment variables:
 - `AI_SYSTEM_9ROUTER_BASE_URL`
 - `AI_SYSTEM_9ROUTER_API_KEY`
 - `AI_SYSTEM_9ROUTER_MODEL`
+- `AI_SYSTEM_DISABLE_TUI`
+- `AI_SYSTEM_GLOBAL_CONFIG`
+- `AI_SYSTEM_GLOBAL_CONFIG_PATH`
+- `AI_SYSTEM_SERVER_MODE`
+- `AI_SYSTEM_SERVER_TOKEN`
+- `AI_SYSTEM_PORT`
+- `AI_SYSTEM_WORKDIR`
+- `AI_SYSTEM_ALLOWED_WORKDIRS`
+- `AI_SYSTEM_QUEUE_CONCURRENCY`
 - `.env` is auto-loaded from the target repository root when present
 
 ## Container Notes
@@ -536,7 +610,7 @@ Optional environment variables:
 - The image bundles `gemini`, `codex`, and `claude` CLIs via their npm packages.
 - Authentication is expected to come from mounted CLI config directories.
 - With no command, the container now starts an HTTP server automatically when `PORT` is set or `AI_SYSTEM_SERVER_MODE=true`.
-- The server exposes `GET /health` and `POST /run`.
+- The server exposes `GET /health`, synchronous `POST /run`, and queued `POST /jobs`, `GET /jobs`, `GET /jobs/:id`, `POST /jobs/:id/cancel`.
 - `pnpm docker:up` and `make ai-up` are shortcuts for this repository only. They use this repo's `docker-compose.yml` and mount this repo into `/workspace`.
 - If you want the same workflow inside another project, that project also needs a matching `docker-compose.yml` or a wrapper script that mounts that project's directory.
 - The default memory backend `local-file` works out of the box because it stores data inside the mounted workspace.

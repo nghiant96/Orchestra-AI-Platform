@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { runCommandWithRetry } from "../utils/api.js";
 import { truncate } from "../utils/string.js";
-import { resolveToolSandbox } from "./tool-sandbox.js";
+import { resolveSandboxImage, resolveToolSandbox } from "./tool-sandbox.js";
 import type {
   CliCommandError,
   GeneratedFile,
@@ -49,6 +49,10 @@ interface ResolvedToolCommand {
   scope: ToolExecutionScope;
   sandboxMode: ToolSandboxMode;
   image?: string;
+  imageProfile?: string;
+  autoBuild?: boolean;
+  dockerfile?: string;
+  buildHint?: string;
   env: NodeJS.ProcessEnv;
   workingDirectory?: string;
 }
@@ -114,11 +118,12 @@ export async function runToolChecks({
   const packageManager = await detectPackageManager(repoRoot);
   const changedPaths = changedFiles.map((file) => file.path).filter(Boolean);
   const sandbox = resolveToolSandbox(tools.sandbox);
+  const projectType = String(tools.project_type ?? "auto");
   const adapterContexts = await detectToolAdapterContexts(repoRoot, changedPaths, tools);
 
   const toolNames: ToolExecutionName[] = ["lint", "typecheck", "build", "test"];
   for (const toolName of toolNames) {
-    const resolved = await resolveToolCommand({
+    let resolved = await resolveToolCommand({
       repoRoot,
       toolName,
       toolConfig: tools.commands?.[toolName],
@@ -126,7 +131,8 @@ export async function runToolChecks({
       packageManager,
       changedPaths,
       adapterContexts,
-      sandbox
+      sandbox,
+      projectType
     });
 
     if (!resolved) {
@@ -141,11 +147,34 @@ export async function runToolChecks({
       });
       continue;
     }
+    resolved = applyResolvedSandboxImage(resolved, sandbox, repoRoot, resolved.imageProfile ?? projectType);
 
     logger?.step(`Running tool check: ${resolved.display}${resolved.sandboxMode === "docker" ? " [sandbox=docker]" : ""}`);
     const startedAt = Date.now();
 
     try {
+      const preflight = await preflightDockerSandbox(resolved, repoRoot);
+      if (!preflight.ok) {
+        logger?.warn(preflight.summary);
+        results.push({
+          name: toolName,
+          kind: "command",
+          ok: false,
+          skipped: true,
+          issueCount: 0,
+          durationMs: Date.now() - startedAt,
+          summary: preflight.summary,
+          command: resolved.command,
+          args: resolved.args,
+          scope: resolved.scope,
+          sandboxMode: resolved.sandboxMode,
+          sandboxImage: resolved.image,
+          sandboxImageProfile: resolved.imageProfile,
+          workingDirectory: resolved.workingDirectory
+        });
+        continue;
+      }
+
       const invocation = buildToolInvocation(resolved, repoRoot);
 
       const commandResult = await runCommandWithRetry({
@@ -170,6 +199,8 @@ export async function runToolChecks({
         args: resolved.args,
         scope: resolved.scope,
         sandboxMode: resolved.sandboxMode,
+        sandboxImage: resolved.image,
+        sandboxImageProfile: resolved.imageProfile,
         workingDirectory: resolved.workingDirectory,
         exitCode: commandResult.code,
         stdout: truncate(commandResult.stdout.trim(), 1200),
@@ -191,6 +222,8 @@ export async function runToolChecks({
           args: resolved.args,
           scope: resolved.scope,
           sandboxMode: resolved.sandboxMode,
+          sandboxImage: resolved.image,
+          sandboxImageProfile: resolved.imageProfile,
           workingDirectory: resolved.workingDirectory
         });
         continue;
@@ -211,6 +244,8 @@ export async function runToolChecks({
         args: resolved.args,
         scope: resolved.scope,
         sandboxMode: resolved.sandboxMode,
+        sandboxImage: resolved.image,
+        sandboxImageProfile: resolved.imageProfile,
         workingDirectory: resolved.workingDirectory,
         exitCode: typeof normalized?.code === "number" ? normalized.code : null,
         stdout: truncate(`${normalized?.stdout ?? ""}`.trim(), 1200),
@@ -235,12 +270,13 @@ export async function summarizeConfiguredTools({
   const packageScripts = normalizeScripts(packageJson);
   const packageManager = await detectPackageManager(repoRoot);
   const sandbox = resolveToolSandbox(tools.sandbox);
+  const projectType = String(tools.project_type ?? "auto");
   const adapterContexts = await detectToolAdapterContexts(repoRoot, ["{changed-file-example}"], tools);
 
   const summaries: ToolConfigurationSummary[] = [];
   for (const toolName of ["lint", "typecheck", "build", "test"] as ToolExecutionName[]) {
     const toolConfig = tools.commands?.[toolName];
-    const resolved = await resolveToolCommand({
+    let resolved = await resolveToolCommand({
       repoRoot,
       toolName,
       toolConfig,
@@ -248,7 +284,8 @@ export async function summarizeConfiguredTools({
       packageManager,
       changedPaths: ["{changed-file-example}"],
       adapterContexts,
-      sandbox
+      sandbox,
+      projectType
     });
 
     if (tools.enabled === false || toolConfig?.enabled === false) {
@@ -270,6 +307,7 @@ export async function summarizeConfiguredTools({
       });
       continue;
     }
+    resolved = applyResolvedSandboxImage(resolved, sandbox, repoRoot, resolved.imageProfile ?? projectType);
 
     summaries.push({
       name: toolName,
@@ -280,8 +318,10 @@ export async function summarizeConfiguredTools({
         scopedToChangedFiles: resolved.scopedToChangedFiles,
         scope: resolved.scope,
         sandboxMode: resolved.sandboxMode,
+        sandboxImage: resolved.image,
+        sandboxImageProfile: resolved.imageProfile,
         workingDirectory: resolved.workingDirectory,
-        summary: `${toolName} -> ${resolved.display}${resolved.workingDirectory ? ` (cwd=${resolved.workingDirectory})` : ""}${resolved.scope !== "full" ? ` [scope=${resolved.scope}]` : ""}${resolved.sandboxMode !== "inherit" ? ` [sandbox=${resolved.sandboxMode}]` : ""}`
+        summary: `${toolName} -> ${resolved.display}${resolved.workingDirectory ? ` (cwd=${resolved.workingDirectory})` : ""}${resolved.scope !== "full" ? ` [scope=${resolved.scope}]` : ""}${resolved.sandboxMode !== "inherit" ? ` [sandbox=${resolved.sandboxMode}${resolved.image ? ` image=${resolved.image}` : ""}]` : ""}`
       });
   }
 
@@ -316,6 +356,8 @@ export async function createDryRunToolExecutionSummary({
       args: tool.args,
       scope: tool.scope,
       sandboxMode: tool.sandboxMode,
+      sandboxImage: tool.sandboxImage,
+      sandboxImageProfile: tool.sandboxImageProfile,
       workingDirectory: tool.workingDirectory
     })),
     issues: []
@@ -414,7 +456,8 @@ async function resolveToolCommand({
   packageManager,
   changedPaths,
   adapterContexts,
-  sandbox
+  sandbox,
+  projectType
 }: {
   repoRoot: string;
   toolName: ToolExecutionName;
@@ -424,6 +467,7 @@ async function resolveToolCommand({
   changedPaths: string[];
   adapterContexts: ToolAdapterContext[];
   sandbox: ReturnType<typeof resolveToolSandbox>;
+  projectType: string;
 }): Promise<ResolvedToolCommand | null> {
   const packageScope =
     toolName === "lint" || toolName === "test" || toolName === "typecheck"
@@ -455,6 +499,7 @@ async function resolveToolCommand({
         usesChangedFilePlaceholder(toolConfig.args ?? []) || toolConfig.append_changed_files === true ? "changed-files" : "full",
       sandboxMode: sandbox.mode,
       image: sandbox.image,
+      imageProfile: projectType,
       env: sandbox.env
     };
   }
@@ -593,12 +638,98 @@ function resolveAdapterToolCommand(
       scope: adapter.workingDirectory === "." ? "full" : "package",
       sandboxMode: sandbox.mode,
       image: sandbox.image,
+      imageProfile: adapter.name,
       env: sandbox.env,
       workingDirectory: adapter.workingDirectory
     };
   }
 
   return null;
+}
+
+function applyResolvedSandboxImage(
+  resolved: ResolvedToolCommand,
+  sandbox: ReturnType<typeof resolveToolSandbox>,
+  repoRoot: string,
+  projectType: string
+): ResolvedToolCommand {
+  if (resolved.sandboxMode !== "docker") {
+    return resolved;
+  }
+
+  const sandboxImage = resolveSandboxImage(sandbox, {
+    repoRoot,
+    projectType
+  });
+  return {
+    ...resolved,
+    image: resolved.image || sandboxImage.image,
+    imageProfile: sandboxImage.imageProfile,
+    autoBuild: sandbox.autoBuild,
+    dockerfile: sandboxImage.dockerfile,
+    buildHint: sandboxImage.buildHint
+  };
+}
+
+async function preflightDockerSandbox(
+  resolved: ResolvedToolCommand,
+  repoRoot: string
+): Promise<{ ok: boolean; summary: string }> {
+  if (resolved.sandboxMode !== "docker") {
+    return { ok: true, summary: "" };
+  }
+
+  const image = resolved.image || "ai-coding-system:local";
+  const dockerfile = resolved.dockerfile || path.join(repoRoot, "Dockerfile");
+  const buildHint = resolved.buildHint || `docker build -t ${image} -f ${dockerfile} ${path.resolve(repoRoot)}`;
+
+  try {
+    await runCommandWithRetry({
+      command: "docker",
+      args: ["--version"],
+      cwd: repoRoot,
+      timeoutMs: 10000,
+      retries: 0,
+      baseDelayMs: 0,
+      label: "docker --version"
+    });
+  } catch {
+    return {
+      ok: false,
+      summary: `Skipped ${resolved.name}: Docker is unavailable. Install Docker or switch tools.sandbox.mode to inherit/clean-env.`
+    };
+  }
+
+  try {
+    await runCommandWithRetry({
+      command: "docker",
+      args: ["image", "inspect", image],
+      cwd: repoRoot,
+      timeoutMs: 10000,
+      retries: 0,
+      baseDelayMs: 0,
+      label: `docker image inspect ${image}`
+    });
+    return { ok: true, summary: "" };
+  } catch {
+    if (!resolved.autoBuild) {
+      return {
+        ok: false,
+        summary: `Skipped ${resolved.name}: Docker image ${image} is missing. Build it with: ${buildHint}`
+      };
+    }
+  }
+
+  await runCommandWithRetry({
+    command: "docker",
+    args: ["build", "-t", image, "-f", dockerfile, path.resolve(repoRoot)],
+    cwd: repoRoot,
+    timeoutMs: DEFAULT_TOOL_TIMEOUT_MS.build,
+    retries: 0,
+    baseDelayMs: 0,
+    label: `docker build ${image}`
+  });
+  return { ok: true, summary: "" };
 }
 
 function resolveToolScriptName(
