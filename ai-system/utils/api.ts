@@ -265,7 +265,7 @@ function sleep(ms: number): Promise<void> {
 function isRetryableCliError(error: unknown) {
   const normalized = error as CliCommandError | undefined;
   const message = `${normalized?.message ?? ""} ${normalized?.stderr ?? ""}`.toLowerCase();
-  return ["timeout", "temporarily unavailable", "rate limit", "try again", "overloaded", "503", "429"].some((needle) =>
+  return ["timeout", "temporarily unavailable", "rate limit", "try again", "overloaded", "503", "429", "quota exceeded", "capacity"].some((needle) =>
     message.includes(needle)
   );
 }

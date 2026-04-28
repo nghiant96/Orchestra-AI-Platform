@@ -12,21 +12,5 @@
     "chunk_size": 1200,
     "chunk_overlap": 200
   },
-  "routing": {
-    "enabled": false
-  },
-  "providers": {
-    "planner": {
-      "type": "codex-cli"
-    },
-    "reviewer": {
-      "type": "codex-cli"
-    },
-    "generator": {
-      "type": "codex-cli"
-    },
-    "fixer": {
-      "type": "codex-cli"
-    }
-  }
+  "profile": "hybrid"
 }
