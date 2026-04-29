@@ -1,169 +1,159 @@
-# Product Roadmap
+# AI Coding System Roadmap
 
-This roadmap tracks the next phases needed to turn AI-CODING-SYSTEM from a solid local orchestrator into a more practical day-to-day coding tool.
+Last updated: 2026-04-29
 
-## Status Legend
+## Current Business Assessment
 
-- `done`: implemented and verified
-- `next`: highest-priority work to do next
-- `later`: important, but not on the immediate critical path
+The system has moved beyond a simple prototype. It is now an internal automation platform with a real execution lifecycle: planning, context gathering, generation, tool checks, review, fix iterations, artifact storage, resume/retry, queue processing, approval checkpoints, and dashboard visibility.
 
-## Phase 1: Verified Execution Runtime
+The strongest business value is that the system can preserve execution state and explain prior runs through artifacts. This makes it suitable for repeatable engineering automation rather than one-off AI code generation.
 
-Status: `done`
+The main business gaps are:
 
-Goal:
-- Make code generation flow execute real repository checks instead of relying only on AI review.
+- Approval behavior needs to become policy-driven instead of manually toggled per workflow.
+- Dashboard views need to guide decisions, not only display job data.
+- Task requirements need to become explicit contracts, so the system can verify user intent deterministically.
+- Quality gates need to vary by risk and affected area.
+- Provider routing, memory, vector context, and costs need clearer product-facing explanations.
+- Multi-project and team controls are still early.
 
-Delivered:
-- Generic tool execution layer for structured repo checks
-- JSON validation in the tool pipeline
-- Auto-detected `lint` / `typecheck`
-- Optional `build` / `test` hooks in config
-- Tool results persisted into iteration artifacts
-- Tool failures fed back into the review/fix loop
+## v0.2 - Green Operations Baseline
 
-Key files:
-- `/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/tool-executor.ts`
-- `/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/run-executor.ts`
-- `/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/artifacts.ts`
+Goal: make the system predictable and safe for daily internal use.
 
-## Phase 2: Operator Visibility
+Key outcomes:
 
-Status: `done`
+- Queue behavior is stable: enqueue, cancel, retry, resume, clear, approval, and skip approval all work consistently.
+- Dashboard job detail clearly shows plan, files, checks, review issues, retry hints, and artifacts.
+- Quality gates are selected by affected area:
+  - `ai-system/**`: typecheck and focused tests.
+  - `dashboard/**`: dashboard lint/build.
+  - config/dependency changes: audit and schema validation.
+- Failed jobs show an actionable next step.
 
-Goal:
-- Make each run easier to understand, debug, and trust.
+Acceptance:
 
-Scope:
-- Add tool execution summaries to CLI output
-- Add a compact run summary command
-- Show routing decision reasons more clearly
-- Surface per-step duration and failure class
-- Improve artifact index so the latest run is easier to inspect quickly
+- Full baseline gates are green.
+- A simple queue task can run without approval when `skip_approval=true`.
+- A failed queue task shows a clear failure class and retry recommendation.
 
-Suggested deliverables:
-- `ai runs latest`
-- `ai explain-routing`
-- richer `artifact-index.json`
-- execution summary in final CLI result
+## v0.3 - Task Contracts
 
-Delivered so far:
-- final CLI result now includes latest tool execution summaries
-- `ai doctor` shows effective tool commands and scoping
-- `ai runs latest` reads artifact-backed run summaries directly from the CLI
-- `ai explain-routing` explains routing from either the current task/config or the latest artifact-backed run
-- run-state and artifact index now persist execution timing and failure classification
-- `ai runs latest` now shows execution total, failure class, and per-step durations
-- `ai runs list` and `ai runs show <target>` let operators browse specific runs without opening artifact folders manually
-- run inspection commands now support `--json` for machine-readable output
-- saved artifact candidates can now be applied directly via `ai apply --from-artifact`
-- JSON-producing commands can now write payloads directly to disk via `--save`
-- apply audit events are now surfaced in both run detail and run list overviews
+Goal: make user requirements explicit, checkable, and visible.
 
-Why this is next:
-- The runtime now executes real checks, but operators still have to inspect raw artifacts too often.
-- Better visibility will make the system much easier to use repeatedly.
+Key outcomes:
 
-## Phase 3: Project Tool Configuration
+- A Task Contract layer extracts concrete requirements from the user task.
+- Contracts are stored in plan artifacts.
+- Generator, reviewer, and fixer all receive the same contract.
+- Deterministic checks reject candidates that miss contract items.
+- Dashboard shows contract pass/fail status.
 
-Status: `done`
+Example contract items:
 
-Goal:
-- Let each project control exactly how `lint`, `typecheck`, `build`, and `test` should run.
+- UI must not horizontally scroll.
+- Filter labels must include per-status counts.
+- API output must preserve an existing schema.
+- Security-sensitive changes require tests and strict review.
 
-Scope:
-- Extend `.ai-system.json` schema for tool definitions
-- Support custom commands and script names cleanly
-- Support per-tool timeouts/retries
-- Add setup/config UX for tools
-- Document common patterns
+Acceptance:
 
-Suggested deliverables:
-- per-tool config examples
-- `ai setup` support for enabling/disabling checks
-- `ai config show` displaying tool settings
+- Common UI, config, API, and dependency tasks produce useful contract items.
+- Missing requirements fail before final write.
+- Contract failures are visible in job detail.
 
-Why this matters:
-- Auto-detection is good for the default path, but practical usage requires project-specific control.
+## v0.4 - Policy-Based Automation
 
-## Phase 4: Scoped Execution
+Goal: let the system choose the right safety level for each job.
 
-Status: `next`
+Key outcomes:
 
-Goal:
-- Reduce cost and latency by running checks only where needed.
+- Risk policy classifies tasks as low, medium, high, or blocked.
+- Low-risk jobs auto-run.
+- Medium-risk jobs pause after plan.
+- High-risk jobs require generation review or strict reviewer.
+- Blocked jobs require explicit manual approval before write.
+- Policy decisions explain why a job required approval.
 
-Scope:
-- Run lint/test/typecheck against changed files or impacted targets when possible
-- Add repo heuristics for monorepos and package boundaries
-- Avoid running heavy checks unnecessarily
+Signals:
 
-Suggested deliverables:
-- changed-file aware linting
-- affected-package test/build selection
-- repo heuristics for pnpm workspaces
+- Changed paths.
+- Diff size.
+- Dependency/security files.
+- Auth/payment/migration areas.
+- Historical failure rate.
+- Provider reliability and cost.
 
-Delivered so far:
-- scoped lint/test heuristics now auto-detect `lint:changed` / `test:related`-style scripts
-- lint/test can now auto-scope to a single changed workspace package when only one package is affected
-- typecheck can now auto-scope to a single changed workspace package when that package has its own `typecheck` script or `tsconfig`
-- pnpm workspaces can now collapse multi-package lint/test/typecheck runs into `pnpm --filter ... run <script>` when the affected packages share the same script name
-- tool summaries and tool execution results now expose `scope` and `workingDirectory`
+Acceptance:
 
-Why this is next:
-- The runtime and operator visibility are now strong enough that the highest practical payoff comes from reducing how much work each run executes.
+- Users no longer need to manually decide approval mode for every job.
+- Dashboard explains the selected policy and risk signals.
 
-## Phase 5: Workflow Modes
+## v0.5 - Productized Dashboard
 
-Status: `later`
+Goal: make the dashboard the primary operations surface.
 
-Goal:
-- Turn the runtime into a clearer day-to-day tool with explicit operator workflows.
+Key outcomes:
 
-Scope:
-- `ai implement`
-- `ai review`
-- `ai fix`
-- `ai apply --from-artifact`
-- better resume/run selection UX
+- Activity Feed for recent jobs and runs.
+- Job Detail for plan, context, checks, review, diff, artifacts, and retry.
+- Project Health for baseline gate status.
+- Provider Performance for cost, duration, success rate, and failure rate.
+- Cost & Budget for usage trends and limits.
+- Config Policy editor for safe operational settings.
 
-Delivered so far:
-- `ai implement` for the standard write-enabled flow
-- `ai review` for either current working tree review or a dry-run review-first flow
-- `ai fix` for an interactive fix-oriented flow
-- `ai apply --from-artifact` for applying saved candidate files without rerunning generation
+Actions:
 
-Why this matters:
-- The engine already supports much of the behavior, but explicit workflows will reduce operator overhead.
+- Approve/reject.
+- Retry from stage.
+- Apply artifact.
+- Compare generated diff.
+- Toggle policies safely.
 
-## Phase 6: Adaptive Routing
+Acceptance:
 
-Status: `later`
+- A user can operate the system without reading terminal output.
+- Dashboard explains what happened, why it happened, and what to do next.
 
-Goal:
-- Improve provider selection using historical outcomes instead of only heuristics.
+## v0.6 - Multi-Project And Team Readiness
 
-Scope:
-- Record provider success/failure patterns
-- Learn which providers work better by task/risk type
-- Use artifact/run history to influence routing
+Goal: support multiple repositories and multiple operators safely.
 
-Why this is later:
-- Adaptive routing only becomes useful once execution quality and observability are already strong.
+Key outcomes:
 
-## Phase 7: Platform Orchestration
+- Project registry with per-project config, queue, budget, and artifacts.
+- Roles: viewer, operator, admin.
+- Approval permissions.
+- Config edit permissions.
+- Audit log for job creation, approval, file writes, provider usage, and check results.
 
-Status: `later`
+Acceptance:
 
-Goal:
-- Support queues, scheduling, multi-project automation, and service-style operation.
+- Multiple projects can run without mixing jobs, artifacts, or configuration.
+- Admins can trace who approved or changed each run.
 
-Scope:
-- multi-project coordination
-- scheduling / queueing
-- external orchestration integrations
-- service workflows beyond single local operator usage
+## v0.7 - Learning System
 
-Why this is last:
-- It expands the product surface significantly and should come after the core runtime is mature.
+Goal: improve system behavior from real execution history.
+
+Key outcomes:
+
+- Repeated failure patterns become new checks or contract rules.
+- User corrections become project lessons.
+- Planner reads relevant lessons before building plans.
+- Provider routing learns from quality, cost, and latency.
+- Dashboard exposes memory and lessons for review.
+
+Acceptance:
+
+- The same class of requirement miss does not repeat frequently.
+- Routing and contract quality improve per project over time.
+
+## Priority Order
+
+1. Finish v0.2 operational baseline.
+2. Build v0.3 Task Contracts.
+3. Add v0.4 policy-based automation.
+4. Productize dashboard workflows in v0.5.
+5. Expand to team/project readiness in v0.6.
+6. Add learning feedback loops in v0.7.
