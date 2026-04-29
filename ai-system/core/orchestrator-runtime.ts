@@ -107,7 +107,9 @@ export async function loadRules(
   const raw = await fs.readFile(rulesPath, "utf8");
   const baseRules = JSON.parse(raw) as RulesConfig;
   const globalConfigPath = await resolveGlobalConfigPath(explicitGlobalConfigPath);
-  const globalConfig = globalConfigPath ? await loadJsonIfExists<ProjectConfig>(globalConfigPath) : null;
+  const globalConfig = globalConfigPath
+    ? await loadOptionalGlobalConfig(globalConfigPath, explicitGlobalConfigPath, logger)
+    : null;
   const globalPreset = getProjectConfigPreset(globalConfig?.profile);
   const globalRules = stripProjectConfigProfile(globalConfig);
   const configPath = ignoreProjectConfig ? null : await resolveProjectConfigPath(repoRoot, explicitConfigPath);
@@ -145,6 +147,22 @@ export async function loadRules(
     globalProfile: globalPreset?.name ?? null,
     plugins
   };
+}
+
+async function loadOptionalGlobalConfig(
+  globalConfigPath: string,
+  explicitGlobalConfigPath?: string | null,
+  logger?: Logger
+): Promise<ProjectConfig | null> {
+  try {
+    return await loadJsonIfExists<ProjectConfig>(globalConfigPath);
+  } catch (error) {
+    if (explicitGlobalConfigPath || process.env.AI_SYSTEM_GLOBAL_CONFIG) {
+      throw error;
+    }
+    logger?.warn(`Ignoring unreadable default global config at ${globalConfigPath}: ${(error as Error).message}`);
+    return null;
+  }
 }
 
 function buildPromptAllowedRoots(repoRoot: string, configPath: string | null, globalConfigPath: string | null): string[] {
