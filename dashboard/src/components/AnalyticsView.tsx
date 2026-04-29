@@ -66,7 +66,7 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `orchestra-analytics-${new Date().toISOString().split('T')[0]}.json`;
+      a.download = `orchestra-ai-analytics-${new Date().toISOString().split('T')[0]}.json`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Intelligence data exported to JSON");

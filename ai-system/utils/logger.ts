@@ -83,7 +83,7 @@ export function createCliLogger({
     smartCSR: true,
     fullUnicode: true,
     dockBorders: true,
-    title: "AI Coding System"
+    title: "Orchestra-AI-Platform"
   });
   const header = blessed.box({
     parent: screen,

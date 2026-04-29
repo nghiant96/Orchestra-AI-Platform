@@ -1,9 +1,9 @@
 services:
-  ai-coding-system:
+  orchestra-ai-platform:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ai-coding-system:local
+    image: orchestra-ai-platform:local
     working_dir: /workspace
     environment:
       AI_SYSTEM_WORKDIR: /workspace

@@ -1,4 +1,4 @@
-# AI Coding System
+# Orchestra-AI-Platform
 
 A local CLI-first coding system that uses installed AI CLIs instead of direct API key integrations.
 

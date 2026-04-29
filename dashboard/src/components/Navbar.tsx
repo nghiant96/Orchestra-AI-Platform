@@ -30,8 +30,8 @@ export const Navbar = ({
               <Terminal className="text-white" size={22} />
             </div>
             <div className="hidden lg:block">
-              <h1 className="text-lg font-black tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent leading-none">ORCHESTRA</h1>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">AI Coding System</p>
+              <h1 className="text-lg font-black tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent leading-none">ORCHESTRA-AI</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Platform</p>
             </div>
           </div>
 

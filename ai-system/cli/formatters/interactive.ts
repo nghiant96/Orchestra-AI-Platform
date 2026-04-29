@@ -1,7 +1,7 @@
 import type { InteractiveState } from "../types.js";
 
 export function printInteractiveBanner(state: InteractiveState): void {
-  console.log("AI Coding System");
+  console.log("Orchestra-AI-Platform");
   console.log(`- cwd: ${state.cwd}`);
   console.log(`- dry-run: ${state.dryRun}`);
   console.log(`- plan approval: ${state.interactive}`);

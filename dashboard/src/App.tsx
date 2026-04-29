@@ -39,7 +39,7 @@ function App() {
   const { health } = useHealth();
   
   const [selectedProject, setSelectedProject] = useState<string>(() => {
-    return localStorage.getItem('orchestra_project') || '';
+    return localStorage.getItem('orchestra_ai_project') || '';
   });
 
   // Decide current project based on selection or health fallback
@@ -81,7 +81,7 @@ function App() {
   const handleProjectChange = (path: string) => {
     setSelectedProject(path);
     setFormCwd(path); // Update form to match
-    localStorage.setItem('orchestra_project', path);
+    localStorage.setItem('orchestra_ai_project', path);
     toast.success(`Switched to project: ${path.split('/').pop()}`);
   };
 

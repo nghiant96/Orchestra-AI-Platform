@@ -3,4 +3,6 @@
 .ai-system-memory/
 .ai-system-artifacts/
 .ai-system-vector/
+.ai-system-server/
+*.log
 *.yaml
