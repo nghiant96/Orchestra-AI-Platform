@@ -72,6 +72,25 @@ export interface RoutingDecision {
   signals: RoutingSignal[];
 }
 
+export type RiskClass = "low" | "medium" | "high" | "blocked";
+
+export interface RiskSignal {
+  name: string;
+  severity: RiskClass;
+  reason: string;
+}
+
+export interface ApprovalPolicyDecision {
+  riskClass: RiskClass;
+  riskScore: number;
+  signals: RiskSignal[];
+  approvalMode: "auto" | "manual";
+  interactive: boolean;
+  pauseAfterPlan: boolean;
+  pauseAfterGenerate: boolean;
+  reason: string;
+}
+
 export interface RoutingConfig {
   enabled?: boolean;
   default_profile?: RoutingProfileName | string;
@@ -584,6 +603,7 @@ export interface OrchestratorResult {
   diffSummaries?: DiffSummary[];
   latestToolResults?: ToolExecutionResult[];
   execution?: ExecutionSummary | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
 }
 
 export interface MemoryMatch {

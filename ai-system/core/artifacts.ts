@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   ArtifactSummary,
+  ApprovalPolicyDecision,
   ContextFile,
   ExecutionBudgetConfig,
   ExecutionStepSummary,
@@ -53,6 +54,7 @@ export interface PersistedRunState {
   latestVectorMatches?: VectorSearchMatch[];
   latestContextRanking?: ContextSelectionCandidate[];
   execution?: ExecutionSummary | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
   executionTransitions?: ExecutionTransition[];
 }
 
@@ -67,6 +69,7 @@ export interface RecentRunSummary {
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
+    approvalPolicy?: ApprovalPolicyDecision | null;
     executionTransitions?: ExecutionTransition[];
   };
   artifactIndex: {
@@ -85,6 +88,7 @@ export interface RecentRunSummary {
     iterationCount?: number;
     stepPaths?: Record<string, string>;
     execution?: ExecutionSummary | null;
+    approvalPolicy?: ApprovalPolicyDecision | null;
     latestApplyEventPath?: string | null;
     lastAppliedAt?: string | null;
     applyEventCount?: number;
@@ -108,6 +112,7 @@ export interface RunListEntry {
   diffSummaries?: import("../types.js").DiffSummary[];
   latestToolResults?: import("../types.js").ToolExecutionResult[];
   execution: ExecutionSummary | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
   latestApplyEventPath?: string | null;
   lastAppliedAt?: string | null;
   applyEventCount?: number;
@@ -146,7 +151,8 @@ export function buildStoppedResult({
   executionSteps = [],
   executionTransitions = [],
   budgetConfig = null,
-  usageMetrics = []
+  usageMetrics = [],
+  approvalPolicy = null
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
   dryRun: boolean;
@@ -167,6 +173,7 @@ export function buildStoppedResult({
   executionTransitions?: ExecutionTransition[];
   budgetConfig?: ExecutionBudgetConfig | null;
   usageMetrics?: ProviderUsageMetric[];
+  approvalPolicy?: ApprovalPolicyDecision | null;
 }): OrchestratorResult {
   const execution = buildExecutionSummary({
     status,
@@ -204,6 +211,7 @@ export function buildStoppedResult({
     ),
     latestToolResults,
     execution,
+    approvalPolicy,
     wroteFiles: false
   };
 }
@@ -518,6 +526,7 @@ export async function persistRunState(
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
+    approvalPolicy?: ApprovalPolicyDecision | null;
     executionSteps?: ExecutionStepSummary[];
     executionTransitions?: ExecutionTransition[];
   },
@@ -589,6 +598,7 @@ export async function persistRunState(
     latestToolResults: payload.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
+    approvalPolicy: payload.approvalPolicy ?? null,
     execution:
       payload.execution ??
       buildExecutionSummary({
@@ -641,7 +651,8 @@ export async function persistRunState(
     latestToolResults: serializable.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
-    execution: serializable.execution ?? null
+    execution: serializable.execution ?? null,
+    approvalPolicy: serializable.approvalPolicy
   });
   logger?.info(`Saved resumable run state at ${statePath}`);
   return statePath;
@@ -950,6 +961,7 @@ async function writeArtifactIndex(
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
+    approvalPolicy?: ApprovalPolicyDecision | null;
   }
 ): Promise<void> {
   if (!state.enabled || !state.runDir) {
@@ -978,6 +990,7 @@ async function writeArtifactIndex(
     latestVectorMatches: payload.latestVectorMatches ?? existingIndex?.latestVectorMatches ?? [],
     latestContextRanking: payload.latestContextRanking ?? existingIndex?.latestContextRanking ?? [],
     execution: payload.execution ?? null,
+    approvalPolicy: payload.approvalPolicy ?? existingIndex?.approvalPolicy ?? null,
     iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
     stepPaths: state.stepPaths
   };
@@ -1089,6 +1102,7 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
     diffSummaries,
     latestToolResults: runState?.latestToolResults ?? artifactIndex?.latestToolResults ?? [],
     execution: runState?.execution ?? artifactIndex?.execution ?? null,
+    approvalPolicy: runState?.approvalPolicy ?? artifactIndex?.approvalPolicy ?? null,
     latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
     lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
     applyEventCount: artifactIndex?.applyEventCount ?? 0

@@ -172,7 +172,17 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       artifacts,
       wroteFiles: false,
       pauseAfterGenerate: true,
-      latestReviewSummary: "Looks resumable"
+      latestReviewSummary: "Looks resumable",
+      approvalPolicy: {
+        riskClass: "high",
+        riskScore: 5,
+        signals: [{ name: "critical-path", severity: "high", reason: "test" }],
+        approvalMode: "manual",
+        interactive: true,
+        pauseAfterPlan: true,
+        pauseAfterGenerate: true,
+        reason: "test policy"
+      }
     });
 
     assert.equal(typeof statePath, "string");
@@ -181,9 +191,11 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     const saved = JSON.parse(await fs.readFile(statePath as string, "utf8")) as {
       artifacts: typeof artifacts;
       status: string;
+      approvalPolicy?: { riskClass?: string; reason?: string };
       execution?: { failure?: { class?: string } | null };
     };
     assert.equal(saved.status, "paused_after_generate");
+    assert.equal(saved.approvalPolicy?.riskClass, "high");
     assert.equal(saved.execution?.failure?.class, "paused");
 
     const restored = restoreArtifactState(tempDir, rules, saved.artifacts, statePath as string);
@@ -203,6 +215,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       latestContextRanking?: ContextSelectionCandidate[];
       stepPaths: Record<string, string>;
       execution?: { failure?: { class?: string } | null };
+      approvalPolicy?: { riskClass?: string; reason?: string };
     };
     const iterationManifest = JSON.parse(
       await fs.readFile(path.join(state.latestIterationPath as string, "manifest.json"), "utf8")
@@ -222,6 +235,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
       ["01-plan", "02-context", "iteration-1", "run-state"]
     );
     assert.equal(index.latestStatus, "paused_after_generate");
+    assert.equal(index.approvalPolicy?.reason, "test policy");
     assert.equal(index.latestStep, "run-state");
     assert.equal(index.iterationCount, 1);
     assert.ok(index.stepPaths.timeline);

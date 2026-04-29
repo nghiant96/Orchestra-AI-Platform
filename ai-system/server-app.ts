@@ -4,6 +4,9 @@ import fs from "node:fs/promises";
 import { Orchestrator } from "./core/orchestrator.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
+import { FileAuditLog, parseAuditActor, resolveAuditLogPath, roleCan } from "./core/audit-log.js";
+import { buildProjectRegistry } from "./core/project-registry.js";
+import { appendProjectLesson, proposeLessonsFromRuns, readProjectLessons } from "./core/lessons.js";
 import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import {
@@ -46,6 +49,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     type: 'plan' | 'checkpoint',
     data?: any
   }>();
+  const auditLog = new FileAuditLog(resolveAuditLogPath(defaultCwd));
 
   const runner: JobRunner =
     options.runner ??
@@ -110,6 +114,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         interactive: approvalMode.interactive,
         pauseAfterPlan: approvalMode.pauseAfterPlan,
         pauseAfterGenerate: approvalMode.pauseAfterGenerate,
+        approvalPolicy: approvalMode,
         signal
       });
     });
@@ -186,6 +191,43 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         });
       }
 
+      const actor = parseAuditActor(req.headers);
+
+      if (url.pathname === "/projects" && req.method === "GET") {
+        const projects = await buildProjectRegistry(options.allowedWorkdirs || [defaultCwd], async (cwd) => await loadRules(cwd));
+        return respondJson(res, 200, { ok: true, projects });
+      }
+
+      if (url.pathname === "/audit" && req.method === "GET") {
+        const limit = Number(url.searchParams.get("limit") || 100);
+        return respondJson(res, 200, { ok: true, events: await auditLog.list(limit) });
+      }
+
+      if (url.pathname === "/lessons" && req.method === "GET") {
+        const cwd = resolveRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots) ?? defaultCwd;
+        const { rules } = await loadRules(cwd);
+        const runs = await Promise.all((await listRecentRunSummaries(cwd, rules, 50)).map(async (entry) => await loadRunSummary(cwd, rules, entry.runName)));
+        return respondJson(res, 200, {
+          ok: true,
+          lessons: await readProjectLessons(cwd),
+          proposals: proposeLessonsFromRuns(runs)
+        });
+      }
+
+      if (url.pathname === "/lessons" && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
+        const payload = await readJsonBody(req);
+        const cwd = resolveRequestedCwd(typeof payload.cwd === "string" ? payload.cwd : null, defaultCwd, allowedRoots) ?? defaultCwd;
+        if (typeof payload.title !== "string" || typeof payload.body !== "string") {
+          return respondJson(res, 400, { ok: false, error: "Missing lesson title or body" });
+        }
+        await appendProjectLesson(cwd, { title: payload.title, body: payload.body });
+        await auditLog.append({ actor, action: "lesson.create", cwd, details: { title: payload.title } });
+        return respondJson(res, 201, { ok: true });
+      }
+
       if (url.pathname === "/run" && req.method === "POST") {
         const payload = await readJsonBody(req);
         if (!payload?.task || typeof payload.task !== "string") {
@@ -214,6 +256,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/jobs" && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
         const payload = await readJsonBody(req);
         if (!payload?.task || typeof payload.task !== "string") {
           return respondJson(res, 400, {
@@ -258,6 +303,17 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           dryRun: payload.dryRun !== false,
           approvalMode: approvalMode?.approvalMode ?? "manual",
           approvalPolicy: approvalMode ?? undefined
+        });
+        await auditLog.append({
+          actor,
+          action: "job.create",
+          cwd,
+          jobId: job.jobId,
+          details: {
+            dryRun: job.dryRun,
+            approvalMode: job.approvalMode,
+            riskClass: job.approvalPolicy?.riskClass ?? null
+          }
         });
         return respondJson(res, 202, job);
       }
@@ -313,6 +369,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/config" && req.method === "POST") {
+        if (!roleCan(actor, "admin")) {
+          return respondJson(res, 403, { ok: false, error: "Admin role required" });
+        }
         try {
           const payload = await readJsonBody(req);
           const configPath = await resolveProjectConfigPath(defaultCwd);
@@ -324,6 +383,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           const existing = await loadJsonIfExists<any>(configPath) || {};
           const updated = mergeConfig(existing, payload);
           await writeJsonFile(configPath, updated);
+          await auditLog.append({
+            actor,
+            action: "config.update",
+            cwd: defaultCwd,
+            details: { configPath }
+          });
 
           options.logger.info(`System configuration updated via Dashboard.`);
           return respondJson(res, 200, { ok: true, config: updated });
@@ -333,18 +398,29 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/queue/pause" && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
         queue.setPaused(true);
+        await auditLog.append({ actor, action: "queue.pause", cwd: defaultCwd });
         options.logger.info("System queue PAUSED via Dashboard.");
         return respondJson(res, 200, { ok: true, paused: true });
       }
 
       if (url.pathname === "/queue/resume" && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
         queue.setPaused(false);
+        await auditLog.append({ actor, action: "queue.resume", cwd: defaultCwd });
         options.logger.info("System queue RESUMED via Dashboard.");
         return respondJson(res, 200, { ok: true, paused: false });
       }
 
       if (url.pathname === "/queue/clear-finished" && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
         const jobs = await queue.list(500);
         const finished = jobs.filter(j => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled');
         let deletedCount = 0;
@@ -354,6 +430,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             deletedCount++;
           } catch { /* ignore */ }
         }
+        await auditLog.append({
+          actor,
+          action: "queue.clear_finished",
+          cwd: defaultCwd,
+          details: { deletedCount }
+        });
         options.logger.info(`Cleared ${deletedCount} finished jobs from queue.`);
         return respondJson(res, 200, { ok: true, deletedCount });
       }
@@ -429,6 +511,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       const approvalMatch = /^\/jobs\/([^/]+)\/(approve|reject)$/.exec(url.pathname);
       if (approvalMatch && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
         const jobId = approvalMatch[1] ?? "";
         const action = approvalMatch[2];
         const pending = pendingApprovals.get(jobId);
@@ -445,6 +530,13 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         if (job) {
           await queue.updateJob(job, { status: "running" });
         }
+        await auditLog.append({
+          actor,
+          action: approved ? "job.approve" : "job.reject",
+          cwd: job?.cwd,
+          jobId,
+          details: { pendingType: pending.type }
+        });
 
         options.logger.info(`Job ${jobId} ${approved ? 'approved' : 'rejected'} via Dashboard.`);
         return respondJson(res, 200, { ok: true, action });
@@ -466,7 +558,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
                 task: summary.runState.task || "",
                 cwd: defaultCwd,
                 dryRun: summary.runState.dryRun || false,
-                approvalMode: summary.runState.status?.startsWith("paused_") ? "manual" : undefined,
+                approvalMode: summary.runState.approvalPolicy?.approvalMode ?? (summary.runState.status?.startsWith("paused_") ? "manual" : undefined),
+                approvalPolicy: summary.runState.approvalPolicy ?? summary.artifactIndex?.approvalPolicy ?? undefined,
                 createdAt: summary.runState.execution?.transitions?.[0]?.timestamp || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 artifactPath: path.dirname(summary.statePath),
@@ -496,21 +589,34 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         const action = jobMatch[2];
 
         if (action === "cancel") {
+          if (!roleCan(actor, "operator")) {
+            return respondJson(res, 403, { ok: false, error: "Operator role required" });
+          }
           const job = await queue.cancel(jobId);
+          if (job) {
+            await auditLog.append({ actor, action: "job.cancel", cwd: job.cwd, jobId });
+          }
           return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
         }
 
         if (action === "resume") {
+          if (!roleCan(actor, "operator")) {
+            return respondJson(res, 403, { ok: false, error: "Operator role required" });
+          }
           const job = await queue.get(jobId);
           if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
           if (job.status !== "failed" && job.status !== "cancelled") {
             return respondJson(res, 400, { ok: false, error: "Only failed or cancelled jobs can be resumed" });
           }
           const updated = await queue.updateJob(job, { status: "queued", resume: true });
+          await auditLog.append({ actor, action: "job.resume", cwd: updated.cwd, jobId });
           return respondJson(res, 200, updated);
         }
 
         if (action === "retry") {
+          if (!roleCan(actor, "operator")) {
+            return respondJson(res, 403, { ok: false, error: "Operator role required" });
+          }
           const job = await queue.get(jobId);
           if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
           const newJob = await queue.enqueue({ 
@@ -518,6 +624,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             cwd: job.cwd, 
             dryRun: job.dryRun 
           });
+          await auditLog.append({ actor, action: "job.retry", cwd: job.cwd, jobId: newJob.jobId, details: { sourceJobId: jobId } });
           return respondJson(res, 201, newJob);
         }
       }
@@ -598,7 +705,8 @@ export function mapRunSummaryToQueueJob(
     task: run.task,
     cwd: defaultCwd,
     dryRun: run.dryRun,
-    approvalMode: run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined,
+    approvalMode: run.approvalPolicy?.approvalMode ?? (run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined),
+    approvalPolicy: run.approvalPolicy ?? undefined,
     createdAt: run.updatedAt || new Date().toISOString(),
     updatedAt: run.updatedAt || new Date().toISOString(),
     artifactPath: run.runPath,

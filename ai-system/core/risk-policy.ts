@@ -1,31 +1,23 @@
-import type { RulesConfig } from "../types.js";
+import type { ApprovalPolicyDecision, RiskClass, RiskSignal, RulesConfig } from "../types.js";
 
-export type RiskClass = "low" | "medium" | "high" | "blocked";
-
-export interface RiskSignal {
-  name: string;
-  severity: RiskClass;
-  reason: string;
+export interface RiskPolicyContext {
+  changedPathCount?: number;
+  generatedFileCount?: number;
+  diffLineEstimate?: number;
 }
 
-export interface ApprovalPolicyDecision {
-  riskClass: RiskClass;
-  riskScore: number;
-  signals: RiskSignal[];
-  approvalMode: "auto" | "manual";
-  interactive: boolean;
-  pauseAfterPlan: boolean;
-  pauseAfterGenerate: boolean;
-  reason: string;
-}
-
-export function resolveApprovalPolicy(task: string, rules: RulesConfig, targetPaths: string[] = []): ApprovalPolicyDecision {
-  const signals = collectRiskSignals(task, targetPaths);
+export function resolveApprovalPolicy(
+  task: string,
+  rules: RulesConfig,
+  targetPaths: string[] = [],
+  context: RiskPolicyContext = {}
+): ApprovalPolicyDecision {
+  const signals = collectRiskSignals(task, targetPaths, context);
   const riskScore = signals.reduce((score, signal) => score + signalScore(signal.severity), 0);
   const riskClass = classifyRisk(signals, riskScore);
   const skipApproval = (rules as RulesConfig & { skip_approval?: boolean }).skip_approval === true;
   const blocked = riskClass === "blocked";
-  const auto = skipApproval && !blocked;
+  const auto = (skipApproval || riskClass === "low") && !blocked;
 
   return {
     riskClass,
@@ -39,7 +31,7 @@ export function resolveApprovalPolicy(task: string, rules: RulesConfig, targetPa
   };
 }
 
-function collectRiskSignals(task: string, targetPaths: string[]): RiskSignal[] {
+function collectRiskSignals(task: string, targetPaths: string[], context: RiskPolicyContext): RiskSignal[] {
   const normalizedTask = normalize(task);
   const paths = targetPaths.map(normalize);
   const signals: RiskSignal[] = [];
@@ -59,6 +51,22 @@ function collectRiskSignals(task: string, targetPaths: string[]): RiskSignal[] {
       name: "critical-path",
       severity: "high",
       reason: "Task affects authentication, payments, migrations, queue, approval, or orchestration lifecycle."
+    });
+  }
+
+  if ((context.diffLineEstimate ?? 0) >= 250) {
+    signals.push({
+      name: "large-diff",
+      severity: "high",
+      reason: "Estimated changed line count is large enough to require stricter review."
+    });
+  }
+
+  if ((context.generatedFileCount ?? 0) >= 8 || (context.changedPathCount ?? targetPaths.length) >= 8) {
+    signals.push({
+      name: "broad-file-scope",
+      severity: "medium",
+      reason: "The task touches many files, increasing review and regression risk."
     });
   }
 
@@ -112,6 +120,9 @@ function buildPolicyReason(riskClass: RiskClass, skipApproval: boolean, signals:
   }
   if (skipApproval) {
     return `skip_approval=true permits auto-run for ${riskClass} risk. Matched signals: ${signalNames}.`;
+  }
+  if (riskClass === "low") {
+    return `Low-risk policy permits auto-run with standard checks. Matched signals: ${signalNames}.`;
   }
   return `Manual approval is the default for ${riskClass} risk. Matched signals: ${signalNames}.`;
 }

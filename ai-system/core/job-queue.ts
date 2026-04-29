@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
-import type { ApprovalPolicyDecision } from "./risk-policy.js";
+import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 
 export type QueueJobStatus =
   | "queued"
@@ -283,6 +282,8 @@ export class FileBackedJobQueue {
         artifactPath: result.artifacts?.runPath ?? null,
         resultSummary: summarizeOrchestratorResult(result),
         error: result.ok ? null : result.execution?.failure?.reason ?? "Run failed.",
+        approvalPolicy: result.approvalPolicy ?? current.approvalPolicy,
+        approvalMode: result.approvalPolicy?.approvalMode ?? current.approvalMode,
         diffSummaries: result.diffSummaries,
         latestToolResults: result.latestToolResults,
         execution: result.execution ? { 

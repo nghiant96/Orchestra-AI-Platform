@@ -10,6 +10,7 @@ import type {
   ExecutionBudgetConfig,
   ExecutionBudgetSummary,
   ExecutionSummary,
+  ApprovalPolicyDecision,
   FileGenerationResult,
   GeneratedFile,
   IterationResult,
@@ -175,6 +176,7 @@ export async function executeGenerationLoop({
   successResultStatus,
   successPersistedStatus,
   budgetConfig,
+  approvalPolicy = null,
   signal
 }: {
   startIteration: number;
@@ -199,6 +201,7 @@ export async function executeGenerationLoop({
   successResultStatus?: RunStatus;
   successPersistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
   signal?: AbortSignal;
 }): Promise<{ result: OrchestratorResult | null; state: LoopExecutionState }> {
   if (signal?.aborted) throw new Error('AbortError');
@@ -232,6 +235,7 @@ export async function executeGenerationLoop({
         resultStatus: "failed",
         persistedStatus: "failed",
         budgetConfig,
+        approvalPolicy,
         logger
       });
       return { result, state };
@@ -411,6 +415,7 @@ export async function executeGenerationLoop({
         resultStatus: "failed",
         persistedStatus: "failed",
         budgetConfig,
+        approvalPolicy,
         logger
       });
       return { result, state };
@@ -445,7 +450,8 @@ export async function executeGenerationLoop({
           executionSteps: state.executionMachine.getSteps(),
           executionTransitions: state.executionMachine.getTransitions(),
           budgetConfig,
-          usageMetrics: collectProviderUsageMetrics(runtime)
+          usageMetrics: collectProviderUsageMetrics(runtime),
+          approvalPolicy
         });
         await persistRunState(
           artifactState,
@@ -457,6 +463,7 @@ export async function executeGenerationLoop({
             latestReviewSummary: state.latestReviewSummary,
             latestToolResults: state.latestToolResults,
             execution: result.execution,
+            approvalPolicy,
             executionTransitions: state.executionMachine.getTransitions()
           },
           logger
@@ -485,6 +492,7 @@ export async function executeGenerationLoop({
           resultStatus: "failed",
           persistedStatus: "failed",
           budgetConfig,
+          approvalPolicy,
           logger
         });
         return { result, state };
@@ -505,6 +513,7 @@ export async function executeGenerationLoop({
         resultStatus: successResultStatus,
         persistedStatus: successPersistedStatus,
         budgetConfig,
+        approvalPolicy,
         logger
       });
       return { result, state };
@@ -533,6 +542,7 @@ export async function finalizeSuccessfulRun({
   resultStatus,
   persistedStatus,
   budgetConfig,
+  approvalPolicy = null,
   logger
 }: {
   task: string;
@@ -551,6 +561,7 @@ export async function finalizeSuccessfulRun({
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
   logger: Logger;
 }): Promise<OrchestratorResult> {
   if (!state.currentResult) {
@@ -632,6 +643,7 @@ export async function finalizeSuccessfulRun({
     diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
     execution,
+    approvalPolicy,
     wroteFiles: !dryRun
   };
 
@@ -646,6 +658,7 @@ export async function finalizeSuccessfulRun({
       latestReviewSummary: state.latestReviewSummary,
       latestToolResults: state.latestToolResults,
       execution,
+      approvalPolicy,
       executionTransitions: state.executionMachine.getTransitions()
     },
     logger
@@ -672,6 +685,7 @@ export async function finalizeFailedRun({
   resultStatus,
   persistedStatus,
   budgetConfig,
+  approvalPolicy = null,
   additionalUsageMetrics = [],
   logger
 }: {
@@ -692,6 +706,7 @@ export async function finalizeFailedRun({
   resultStatus?: RunStatus;
   persistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
   additionalUsageMetrics?: ProviderUsageMetric[];
   logger: Logger;
 }): Promise<OrchestratorResult> {
@@ -753,6 +768,7 @@ export async function finalizeFailedRun({
     diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
     execution,
+    approvalPolicy,
     wroteFiles: false
   };
 
@@ -767,6 +783,7 @@ export async function finalizeFailedRun({
       latestReviewSummary: state.latestReviewSummary,
       latestToolResults: state.latestToolResults,
       execution,
+      approvalPolicy,
       executionTransitions: state.executionMachine.getTransitions()
     },
     logger
@@ -790,6 +807,7 @@ export async function finalizeErroredRun({
   state,
   retryHint,
   budgetConfig,
+  approvalPolicy = null,
   logger
 }: {
   task: string;
@@ -806,6 +824,7 @@ export async function finalizeErroredRun({
   state: LoopExecutionState;
   retryHint: RetryHint;
   budgetConfig?: ExecutionBudgetConfig | null;
+  approvalPolicy?: ApprovalPolicyDecision | null;
   logger: Logger;
 }): Promise<OrchestratorResult> {
   const execution = buildExecutionSummary({
@@ -839,6 +858,7 @@ export async function finalizeErroredRun({
     diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
     execution,
+    approvalPolicy,
     wroteFiles: false
   };
 
@@ -852,6 +872,7 @@ export async function finalizeErroredRun({
       latestReviewSummary: state.latestReviewSummary,
       latestToolResults: state.latestToolResults,
       execution,
+      approvalPolicy,
       executionTransitions: state.executionMachine.getTransitions()
     },
     logger

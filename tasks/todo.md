@@ -39,3 +39,6 @@ Last updated: 2026-04-29
 - Deterministic Task Contract extraction now covers common UI layout, API/schema preservation, risky-test, and security/dependency tasks.
 - Initial risk policy now classifies low/medium/high/blocked jobs and explains approval decisions; remaining Phase 3 work is artifact persistence, diff-size/generated-file signals, and strict reviewer enforcement.
 - Analytics now includes provider performance metrics for run count, failure rate, average duration, and total cost from existing artifact provider metrics.
+- Policy decisions are now persisted into run-state and artifact-index, including risk signals for paths, dependency/security areas, broad generated-file scope, and large diffs.
+- Multi-project foundation now exposes `/projects`, role-aware operator/admin permissions, and `/audit` events for job, queue, config, and lesson actions.
+- Learning foundation now reads/writes `tasks/lessons.md`, injects relevant lessons into planning, proposes rules from repeated failure classes, and surfaces lessons in the dashboard.

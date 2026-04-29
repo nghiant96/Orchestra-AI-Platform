@@ -16,6 +16,7 @@ import type {
   MemoryAdapter,
   MemoryStats,
   OrchestratorResult,
+  ApprovalPolicyDecision,
   PlanResult,
   RetryHint,
   ReviewIssue
@@ -48,6 +49,8 @@ import { buildExecutionSummary } from "./execution-summary.js";
 import { expandContextReadFiles } from "./context-intelligence.js";
 import { loadEditableContextCheckpoint, loadEditablePlanCheckpoint } from "./manual-checkpoints.js";
 import { enhancePlanForTaskRequirements } from "./task-requirements.js";
+import { resolveApprovalPolicy } from "./risk-policy.js";
+import { formatLessonsForPrompt, readProjectLessons } from "./lessons.js";
 
 export class Orchestrator {
   repoRoot: string;
@@ -79,8 +82,16 @@ export class Orchestrator {
       interactive = false,
       pauseAfterPlan = false,
       pauseAfterGenerate = false,
+      approvalPolicy = null,
       signal
-    }: { dryRun?: boolean; interactive?: boolean; pauseAfterPlan?: boolean; pauseAfterGenerate?: boolean; signal?: AbortSignal } = {}
+    }: {
+      dryRun?: boolean;
+      interactive?: boolean;
+      pauseAfterPlan?: boolean;
+      pauseAfterGenerate?: boolean;
+      approvalPolicy?: ApprovalPolicyDecision | null;
+      signal?: AbortSignal;
+    } = {}
   ): Promise<OrchestratorResult> {
     if (signal?.aborted) throw new Error('AbortError');
     const repoRoot = await fs.realpath(this.repoRoot);
@@ -100,6 +111,10 @@ export class Orchestrator {
       stored: false
     };
     const artifactState = createArtifactState(repoRoot, rules);
+    let effectiveApprovalPolicy = approvalPolicy ?? resolveApprovalPolicy(task, rules);
+    let effectiveInteractive = interactive;
+    let effectivePauseAfterPlan = pauseAfterPlan;
+    let effectivePauseAfterGenerate = pauseAfterGenerate;
     const executionMachine = createExecutionStateMachine(artifactState, null, this.logger);
     await executionMachine.runStage("routing-planning", async () => {
       await persistRoutingArtifacts(
@@ -129,7 +144,11 @@ export class Orchestrator {
     );
     const planningMemories = planningMemoryStep.result;
     memoryStats.planningMatches = planningMemories.length;
-    const planningMemoryContext = runtime.memory.formatForPrompt(planningMemories, "planning");
+    const projectLessons = await readProjectLessons(repoRoot);
+    const planningMemoryContext = [
+      runtime.memory.formatForPrompt(planningMemories, "planning"),
+      formatLessonsForPrompt(projectLessons)
+    ].filter(Boolean).join("\n\n");
 
     this.logger.step(`Planning relevant files with ${runtime.plannerProvider.id}`);
     const plannerStep = await executionMachine.runStage(
@@ -186,6 +205,15 @@ export class Orchestrator {
       ]
     };
     plan = enhancePlanForTaskRequirements(task, plan);
+    if (approvalPolicy) {
+      effectiveApprovalPolicy = resolveApprovalPolicy(task, rules, plan.writeTargets, {
+        changedPathCount: plan.writeTargets.length,
+        generatedFileCount: plan.writeTargets.length
+      });
+      effectiveInteractive = effectiveApprovalPolicy.interactive;
+      effectivePauseAfterPlan = effectiveApprovalPolicy.pauseAfterPlan;
+      effectivePauseAfterGenerate = effectiveApprovalPolicy.pauseAfterGenerate;
+    }
     await persistPlanArtifacts(
       artifactState,
       {
@@ -238,7 +266,7 @@ export class Orchestrator {
         ? this.confirmationHandler.confirmCheckpoint(message, artifactPath)
         : confirmCheckpoint({ message, artifactPath, logger: this.logger, signal });
 
-    if (pauseAfterPlan) {
+    if (effectivePauseAfterPlan) {
       const confirmed = await localConfirmCheckpoint(
         "Plan checkpoint saved. Review the plan artifact before continuing?",
         artifactState.stepPaths.plan
@@ -262,15 +290,16 @@ export class Orchestrator {
           executionSteps: executionMachine.getSteps(),
           executionTransitions: executionMachine.getTransitions(),
           budgetConfig: rules.execution?.budgets,
-          usageMetrics: collectProviderUsageMetrics(runRuntime)
+          usageMetrics: collectProviderUsageMetrics(runRuntime),
+          approvalPolicy: effectiveApprovalPolicy
         });
         await persistRunState(
           artifactState,
           {
             ...result,
             task,
-            pauseAfterPlan,
-            pauseAfterGenerate,
+            pauseAfterPlan: effectivePauseAfterPlan,
+            pauseAfterGenerate: effectivePauseAfterGenerate,
             latestReviewSummary: "",
             latestContextRanking: contextExpansion.rankedCandidates,
             execution: result.execution,
@@ -286,7 +315,7 @@ export class Orchestrator {
     const localConfirmPlan = (p: PlanResult) =>
       this.confirmationHandler ? this.confirmationHandler.confirmPlan(p) : confirmPlan(p, signal);
 
-    if (interactive) {
+    if (effectiveInteractive) {
       const confirmed = await localConfirmPlan(plan);
       if (!confirmed) {
         this.logger.warn("Task cancelled by user.");
@@ -321,6 +350,7 @@ export class Orchestrator {
           memory: memoryStats,
           artifacts: null,
           execution,
+          approvalPolicy: effectiveApprovalPolicy,
           wroteFiles: false
         };
       }
@@ -350,7 +380,7 @@ export class Orchestrator {
       );
       let { contextFiles } = contextStep.result;
       skippedFiles = contextStep.result.skippedFiles;
-      if (pauseAfterPlan) {
+      if (effectivePauseAfterPlan) {
         const confirmed = await localConfirmCheckpoint(
           "Context checkpoint saved. Edit context.json or files/ before generation if needed.",
           artifactState.stepPaths.context
@@ -375,18 +405,20 @@ export class Orchestrator {
             executionSteps: executionMachine.getSteps(),
             executionTransitions: executionMachine.getTransitions(),
             budgetConfig: rules.execution?.budgets,
-            usageMetrics: collectProviderUsageMetrics(runRuntime)
+            usageMetrics: collectProviderUsageMetrics(runRuntime),
+            approvalPolicy: effectiveApprovalPolicy
           });
           await persistRunState(
             artifactState,
             {
               ...result,
               task,
-              pauseAfterPlan,
-              pauseAfterGenerate,
+              pauseAfterPlan: effectivePauseAfterPlan,
+              pauseAfterGenerate: effectivePauseAfterGenerate,
               latestReviewSummary: "",
               latestContextRanking: contextExpansion.rankedCandidates,
               execution: result.execution,
+              approvalPolicy: effectiveApprovalPolicy,
               executionTransitions: executionMachine.getTransitions()
             },
             this.logger
@@ -424,8 +456,8 @@ export class Orchestrator {
           return finalizeFailedRun({
             task,
             dryRun,
-            pauseAfterPlan,
-            pauseAfterGenerate,
+            pauseAfterPlan: effectivePauseAfterPlan,
+            pauseAfterGenerate: effectivePauseAfterGenerate,
             repoRoot,
             configPath,
             plan,
@@ -442,6 +474,7 @@ export class Orchestrator {
             persistedStatus: "failed",
             budgetConfig: rules.execution?.budgets,
             additionalUsageMetrics: costEstimate.usageMetrics,
+            approvalPolicy: effectiveApprovalPolicy,
             logger: this.logger
           });
         }
@@ -451,8 +484,8 @@ export class Orchestrator {
         startIteration: 1,
         task,
         dryRun,
-        pauseAfterPlan,
-        pauseAfterGenerate,
+        pauseAfterPlan: effectivePauseAfterPlan,
+        pauseAfterGenerate: effectivePauseAfterGenerate,
         repoRoot,
         configPath,
         plan,
@@ -469,6 +502,7 @@ export class Orchestrator {
         successResultStatus: undefined,
         successPersistedStatus: "completed",
         budgetConfig: rules.execution?.budgets,
+        approvalPolicy: effectiveApprovalPolicy,
         signal
       });
       workingState = loopExecution.state;
@@ -480,8 +514,8 @@ export class Orchestrator {
       return finalizeFailedRun({
         task,
         dryRun,
-        pauseAfterPlan,
-        pauseAfterGenerate,
+        pauseAfterPlan: effectivePauseAfterPlan,
+        pauseAfterGenerate: effectivePauseAfterGenerate,
         repoRoot,
         configPath,
         plan,
@@ -494,6 +528,7 @@ export class Orchestrator {
         resultStatus: undefined,
         persistedStatus: "failed",
         budgetConfig: rules.execution?.budgets,
+        approvalPolicy: effectiveApprovalPolicy,
         logger: this.logger
       });
     } catch (error) {
@@ -502,8 +537,8 @@ export class Orchestrator {
       return await finalizeErroredRun({
         task,
         dryRun,
-        pauseAfterPlan,
-        pauseAfterGenerate,
+        pauseAfterPlan: effectivePauseAfterPlan,
+        pauseAfterGenerate: effectivePauseAfterGenerate,
         repoRoot,
         configPath,
         plan,
@@ -514,6 +549,7 @@ export class Orchestrator {
         state: workingState,
         retryHint: createRetryHintFromState(workingState, normalized),
         budgetConfig: rules.execution?.budgets,
+        approvalPolicy: effectiveApprovalPolicy,
         logger: this.logger
       });
     }
@@ -545,6 +581,10 @@ export class Orchestrator {
     });
     const dryRun = saved.dryRun ?? false;
     let plan = saved.plan;
+    const savedApprovalPolicy = saved.approvalPolicy ?? resolveApprovalPolicy(task, rules, plan.writeTargets ?? [], {
+      changedPathCount: plan.writeTargets?.length ?? 0,
+      generatedFileCount: saved.result?.files?.length ?? 0
+    });
     let skippedFiles: string[] = saved.skippedContextFiles ?? [];
     let iterationResults: IterationResult[] = Array.isArray(saved.iterations) ? [...saved.iterations] : [];
     let currentResult: FileGenerationResult | null = saved.result ?? null;
@@ -661,6 +701,7 @@ export class Orchestrator {
         resultStatus: "resumed_completed",
         persistedStatus: "resumed_completed",
         budgetConfig: rules.execution?.budgets,
+        approvalPolicy: savedApprovalPolicy,
         logger: this.logger
       });
     }
@@ -698,6 +739,7 @@ export class Orchestrator {
         resultStatus: "failed",
         persistedStatus: "failed",
         budgetConfig: rules.execution?.budgets,
+        approvalPolicy: savedApprovalPolicy,
         logger: this.logger
       });
     }
@@ -736,6 +778,7 @@ export class Orchestrator {
       successResultStatus: "resumed_completed",
       successPersistedStatus: "resumed_completed",
       budgetConfig: rules.execution?.budgets,
+      approvalPolicy: savedApprovalPolicy,
       signal
       });
     if (loopExecution.result) {
@@ -759,6 +802,7 @@ export class Orchestrator {
       resultStatus: "failed",
       persistedStatus: "failed",
       budgetConfig: rules.execution?.budgets,
+      approvalPolicy: savedApprovalPolicy,
       logger: this.logger
     });
   }

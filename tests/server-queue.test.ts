@@ -136,6 +136,52 @@ test("health and queued jobs expose effective approval mode", async () => {
   }
 });
 
+test("project registry and audit log expose multi-project operations", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-registry-"));
+  const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-registry-other-"));
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot, otherRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const projects = await requestJson(baseUrl, "GET", "/projects");
+    assert.equal(projects.ok, true);
+    assert.equal(projects.projects.length, 2);
+    assert.ok(projects.projects.some((project: any) => project.cwd === repoRoot && project.queueDir.includes(".ai-system-server")));
+
+    const denied = await requestJson(
+      baseUrl,
+      "POST",
+      "/jobs",
+      { task: "viewer should not enqueue" },
+      403,
+      { "x-ai-system-role": "viewer" }
+    );
+    assert.equal(denied.error, "Operator role required");
+
+    const created = await requestJson(
+      baseUrl,
+      "POST",
+      "/jobs",
+      { task: "audited job", dryRun: true },
+      undefined,
+      { "x-ai-system-role": "operator", "x-ai-system-actor": "tester" }
+    );
+    await waitForJob(baseUrl, String(created.jobId), "completed");
+
+    const audit = await requestJson(baseUrl, "GET", "/audit");
+    assert.ok(audit.events.some((event: any) => event.action === "job.create" && event.actor.id === "tester"));
+  } finally {
+    await closeServer(server);
+    await fs.rm(repoRoot, { recursive: true, force: true });
+    await fs.rm(otherRoot, { recursive: true, force: true });
+  }
+});
+
 test("artifact run summaries map to typed queue jobs", () => {
   const retryHint = { stage: "iteration-tools", iteration: 2, reason: "lint failed" };
   const baseRun = {
@@ -192,7 +238,8 @@ async function requestJson(
   method: string,
   pathname: string,
   body?: unknown,
-  expectedStatus?: number
+  expectedStatus?: number,
+  extraHeaders: Record<string, string> = {}
 ): Promise<any> {
   const url = new URL(pathname, baseUrl);
   const payload = body === undefined ? null : JSON.stringify(body);
@@ -201,12 +248,15 @@ async function requestJson(
       url,
       {
         method,
-        headers: payload
-          ? {
-              "Content-Type": "application/json",
-              "Content-Length": Buffer.byteLength(payload)
-            }
-          : undefined
+        headers: {
+          ...extraHeaders,
+          ...(payload
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(payload)
+              }
+            : {})
+        }
       },
       (res) => {
         const chunks: Buffer[] = [];

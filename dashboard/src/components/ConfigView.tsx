@@ -33,12 +33,14 @@ import {
   RoutingPolicyPanel,
   ToolPolicyPanel
 } from './ConfigPolicyPanels';
+import { LessonsPanel } from './LessonsPanel';
 
 interface ConfigViewProps {
   config: SystemConfig | null;
   onUpdate: () => void;
   health: SystemHealth | null;
   onRefreshHealth: () => void;
+  currentProject: string;
 }
 
 function createConfigFormData(config: SystemConfig): ConfigFormData {
@@ -57,7 +59,7 @@ function createConfigFormData(config: SystemConfig): ConfigFormData {
   };
 }
 
-export const ConfigView = ({ config, onUpdate, health, onRefreshHealth }: ConfigViewProps) => {
+export const ConfigView = ({ config, onUpdate, health, onRefreshHealth, currentProject }: ConfigViewProps) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
@@ -430,6 +432,7 @@ export const ConfigView = ({ config, onUpdate, health, onRefreshHealth }: Config
         <RoutingPolicyPanel config={config} />
         <MemoryPolicyPanel config={config} />
         <ToolPolicyPanel config={config} />
+        <LessonsPanel currentProject={currentProject} />
       </div>
 
       {/* Raw Registry with Blur Toggle */}

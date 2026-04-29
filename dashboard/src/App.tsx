@@ -256,6 +256,7 @@ function App() {
                 onUpdate={fetchConfig}
                 health={health}
                 onRefreshHealth={fetchHealth}
+                currentProject={currentProject}
               />
             } />
             <Route path="/analytics" element={

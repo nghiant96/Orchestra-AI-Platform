@@ -216,9 +216,9 @@ Goal: choose approval and verification behavior based on task risk.
 
 Tasks:
 
-- [ ] Add risk signals for path sensitivity, diff size, dependency files, auth/payment areas, migrations, and generated file count.
+- [x] Add risk signals for path sensitivity, diff size, dependency files, auth/payment areas, migrations, and generated file count.
 - [x] Produce a risk score and risk class: low, medium, high, blocked.
-- [ ] Persist policy decisions in artifacts.
+- [x] Persist policy decisions in artifacts.
 
 Acceptance:
 
@@ -228,7 +228,7 @@ Acceptance:
 
 Tasks:
 
-- [ ] Low risk: auto-run with standard checks.
+- [x] Low risk: auto-run with standard checks.
 - [x] Medium risk: pause after plan.
 - [ ] High risk: pause after generate and use strict review.
 - [x] Blocked: require explicit manual approval before write.
@@ -276,11 +276,11 @@ Goal: support multiple repositories and operators safely.
 
 Tasks:
 
-- [ ] Add project registry.
+- [x] Add project registry.
 - [ ] Add per-project queues and artifacts.
-- [ ] Add role model: viewer, operator, admin.
-- [ ] Add approval and config permissions.
-- [ ] Add audit log for job creation, approval, writes, provider usage, and checks.
+- [x] Add role model: viewer, operator, admin.
+- [x] Add approval and config permissions.
+- [x] Add audit log for job creation, approval, writes, provider usage, and checks.
 
 Acceptance:
 
@@ -294,11 +294,11 @@ Goal: improve behavior from prior executions and corrections.
 
 Tasks:
 
-- [ ] Convert recurring failures into proposed contract rules.
-- [ ] Store user corrections in `tasks/lessons.md` or project memory.
-- [ ] Inject relevant lessons into planning.
-- [ ] Track provider quality, latency, and cost over time.
-- [ ] Surface memory and lessons in dashboard.
+- [x] Convert recurring failures into proposed contract rules.
+- [x] Store user corrections in `tasks/lessons.md` or project memory.
+- [x] Inject relevant lessons into planning.
+- [x] Track provider quality, latency, and cost over time.
+- [x] Surface memory and lessons in dashboard.
 
 Acceptance:
 
