@@ -114,6 +114,7 @@ test("queue approval mode follows skip_approval config", () => {
 });
 
 test("artifact run summaries map to typed queue jobs", () => {
+  const retryHint = { stage: "iteration-tools", iteration: 2, reason: "lint failed" };
   const baseRun = {
     runName: "run-1",
     status: "completed",
@@ -123,10 +124,22 @@ test("artifact run summaries map to typed queue jobs", () => {
     runPath: "/tmp/run-1",
     diffSummaries: [],
     latestToolResults: [],
-    execution: null
+    execution: {
+      totalDurationMs: 10,
+      steps: [],
+      transitions: [],
+      currentStage: null,
+      terminalStage: null,
+      failure: null,
+      retryHint,
+      providerMetrics: [],
+      budget: null
+    }
   } as any;
 
-  assert.equal(mapRunSummaryToQueueJob(baseRun, "/repo").status, "completed");
+  const mapped = mapRunSummaryToQueueJob(baseRun, "/repo");
+  assert.equal(mapped.status, "completed");
+  assert.deepEqual(mapped.execution?.retryHint, retryHint);
   assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "failed" }, "/repo").status, "failed");
   assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "paused_after_plan" }, "/repo").status, "waiting_for_approval");
   assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "unexpected" }, "/repo").status, "failed");

@@ -1,7 +1,12 @@
-import { AlertCircle, Lightbulb, RefreshCw, XCircle } from 'lucide-react';
-import type { FailureMetadata } from '../types';
+import { AlertCircle, Lightbulb, RefreshCw, XCircle, Zap } from 'lucide-react';
+import type { FailureMetadata, RetryHint } from '../types/index.js';
 
-export const FailurePanel = ({ failure }: { failure: FailureMetadata }) => {
+interface FailurePanelProps {
+  failure: FailureMetadata;
+  retryHint?: RetryHint | null;
+}
+
+export const FailurePanel = ({ failure, retryHint }: FailurePanelProps) => {
   const getIcon = (cls: string) => {
     switch (cls) {
       case 'budget_exceeded': return <XCircle className="text-rose-500" size={20} />;
@@ -28,6 +33,9 @@ export const FailurePanel = ({ failure }: { failure: FailureMetadata }) => {
             )}
           </div>
           <h3 className="text-lg font-black text-slate-900 leading-tight mb-2">{failure.message}</h3>
+          {failure.detail && (
+            <p className="text-xs font-medium text-slate-500 leading-relaxed">{failure.detail}</p>
+          )}
           
           {failure.suggestion && (
             <div className="flex items-start gap-2 mt-4 bg-white/60 p-4 rounded-2xl border border-rose-100/50">
@@ -35,6 +43,27 @@ export const FailurePanel = ({ failure }: { failure: FailureMetadata }) => {
               <p className="text-xs font-bold text-slate-600 leading-relaxed">
                 <span className="text-slate-900">Suggestion:</span> {failure.suggestion}
               </p>
+            </div>
+          )}
+
+          {retryHint && (
+            <div className="mt-3 rounded-2xl border border-indigo-100 bg-white/70 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Zap size={15} className="text-indigo-500" />
+                <p className="text-[10px] font-black uppercase tracking-widest text-indigo-500">Retry checkpoint</p>
+              </div>
+              <div className="grid grid-cols-1 gap-2 text-xs font-bold text-slate-600 sm:grid-cols-[auto_1fr]">
+                <span className="text-slate-400">Stage</span>
+                <span>{retryHint.stage.replace(/-/g, ' ')}</span>
+                {retryHint.iteration !== undefined && (
+                  <>
+                    <span className="text-slate-400">Iteration</span>
+                    <span>{retryHint.iteration}</span>
+                  </>
+                )}
+                <span className="text-slate-400">Reason</span>
+                <span>{retryHint.reason}</span>
+              </div>
             </div>
           )}
         </div>

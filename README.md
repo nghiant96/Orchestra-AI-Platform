@@ -221,6 +221,13 @@ Tool execution workflow:
 - Optional checks:
   - `build`
   - `test`
+- Recommended safe profile checks for this repository:
+  - `pnpm run typecheck`
+  - `pnpm run lint`
+  - `pnpm test`
+  - `pnpm run dashboard:build`
+  - `pnpm audit --audit-level high --registry https://registry.npmjs.org`
+  - `git diff --check`
 - Scoped execution heuristics now prefer:
   - `lint:changed` / `lint:files` / `lint:staged` when present
   - `test:changed` / `test:related` / `test:affected` when present

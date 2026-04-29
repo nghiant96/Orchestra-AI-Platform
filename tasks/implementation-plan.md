@@ -44,7 +44,7 @@ Tasks:
 - [x] Keep manual approval as default when `skip_approval` is absent or false.
 - [ ] Show approval mode in job detail and health responses.
 - [x] Add tests for auto-run and manual approval queue jobs.
-- [ ] Ensure cancel, retry, resume, and clear-finished preserve consistent job status.
+- [x] Ensure cancel, retry, resume, and clear-finished preserve consistent job status.
 
 Acceptance:
 
@@ -70,9 +70,9 @@ Acceptance:
 Tasks:
 
 - [ ] Rework Job Detail into sections: Summary, Plan, Contract, Checks, Review, Artifacts, Retry.
-- [ ] Show failure class and retry hint prominently.
-- [ ] Add explicit approve/reject/retry/resume actions with disabled/loading states.
-- [ ] Keep Event Feed filters wrapped and count-aware.
+- [x] Show failure class and retry hint prominently.
+- [x] Add explicit approve/reject/retry/resume actions with disabled/loading states.
+- [x] Keep Event Feed filters wrapped and count-aware.
 
 Acceptance:
 
@@ -90,7 +90,7 @@ Tasks:
 
 - [ ] Split Job Detail into section components: Summary, Plan, Checks, Review, Artifacts, Retry, and Contract placeholder.
 - [ ] Keep the existing modal API stable for callers.
-- [ ] Add tests or type-level coverage for job states: queued, running, waiting for approval, failed, completed, cancelled.
+- [x] Add tests or type-level coverage for job states: queued, running, waiting for approval, failed, completed, cancelled.
 
 Acceptance:
 
@@ -101,9 +101,9 @@ Acceptance:
 
 Tasks:
 
-- [ ] Expand FailurePanel to show failure class, retryable flag, retry hint stage, reason, and suggested action.
-- [ ] Add disabled/loading states for approve, reject, retry, resume, and cancel actions.
-- [ ] Show when an action is unavailable and why.
+- [x] Expand FailurePanel to show failure class, retryable flag, retry hint stage, reason, and suggested action.
+- [x] Add disabled/loading states for approve, reject, retry, resume, and cancel actions.
+- [x] Show when an action is unavailable and why.
 
 Acceptance:
 
@@ -139,7 +139,7 @@ Tasks:
 - [x] Use package-scoped lint/typecheck/build when all changed files are inside one package.
 - [x] Run dashboard build for dashboard changes when build checks are enabled.
 - [x] Add focused tests for package build scoping.
-- [ ] Document the recommended safe profile checks.
+- [x] Document the recommended safe profile checks.
 
 Acceptance:
 
@@ -199,8 +199,8 @@ Acceptance:
 Tasks:
 
 - [x] Show contract list in Job Detail.
-- [ ] Show pass/fail/unknown status per contract.
-- [ ] Link failed contracts to suggested fixes when available.
+- [x] Show pass/fail/unknown status per contract.
+- [x] Link failed contracts to suggested fixes when available.
 
 Acceptance:
 

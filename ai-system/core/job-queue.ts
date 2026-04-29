@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { FailureMetadata, Logger, OrchestratorResult, PlanResult } from "../types.js";
+import type { FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 
 export type QueueJobStatus =
   | "queued"
@@ -34,6 +34,7 @@ export interface QueueJob {
     budget?: import("../types.js").ExecutionBudgetSummary | null;
     totalDurationMs?: number;
     pendingPlan?: PlanResult;
+    retryHint?: RetryHint | null;
   };
 }
 
@@ -279,7 +280,8 @@ export class FileBackedJobQueue {
           transitions: result.execution.transitions,
           providerMetrics: result.execution.providerMetrics,
           budget: result.execution.budget,
-          totalDurationMs: result.execution.totalDurationMs
+          totalDurationMs: result.execution.totalDurationMs,
+          retryHint: result.execution.retryHint ?? null
         } : undefined
       });
     } catch (error) {

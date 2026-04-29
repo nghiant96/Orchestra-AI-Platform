@@ -278,6 +278,7 @@ function App() {
               onRefresh={fetchJobs}
               onRetry={rerunJob}
               onResume={(job) => resumeJob(job.jobId)}
+              onCancel={(job) => cancelJob(job.jobId)}
             />
           </Suspense>
         )}

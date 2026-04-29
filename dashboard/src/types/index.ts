@@ -43,6 +43,12 @@ export interface FailureMetadata {
   suggestion?: string;
 }
 
+export interface RetryHint {
+  stage: string;
+  iteration?: number;
+  reason: string;
+}
+
 export interface TaskContract {
   id: string;
   description: string;
@@ -88,6 +94,7 @@ export interface Job {
       notes: string[];
       contracts?: TaskContract[];
     };
+    retryHint?: RetryHint | null;
   };
 }
 

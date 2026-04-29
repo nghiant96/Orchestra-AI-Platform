@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   XCircle,
-  RefreshCw,
   CheckCircle,
   AlertTriangle,
   Terminal,
@@ -26,6 +25,7 @@ import { StreamingConsole } from './StreamingConsole';
 import { FailurePanel } from './FailurePanel';
 import { BudgetWarning } from './BudgetWarning';
 import { JobComparisonView } from './JobComparisonView';
+import { JobActionPanel } from './JobActionPanel';
 
 interface JobDetailModalProps {
   job: Job;
@@ -33,9 +33,10 @@ interface JobDetailModalProps {
   onRefresh: () => void;
   onRetry?: (job: Job) => void;
   onResume?: (job: Job) => void;
+  onCancel?: (job: Job) => void;
 }
 
-export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: JobDetailModalProps) => {
+export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onCancel }: JobDetailModalProps) => {
   const [activeTab, setActiveTab] = useState<'timeline' | 'analytics' | 'diagnostics' | 'files' | 'console' | 'compare'>('timeline');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
@@ -49,6 +50,15 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
       }
     } catch {
       console.error('Approval failed');
+    } finally {
+      setActioning(false);
+    }
+  };
+
+  const handleAction = async (action: (job: Job) => void | Promise<void>) => {
+    setActioning(true);
+    try {
+      await action(job);
     } finally {
       setActioning(false);
     }
@@ -111,51 +121,25 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
           </div>
         </div>
 
-        {job.status === 'waiting_for_approval' && (
-          <div className="mx-6 mt-6 space-y-4">
-            {job.execution?.budget && (
-              <BudgetWarning 
-                totalCost={job.execution.budget.totalCostUnits} 
-                maxCost={job.execution.budget.maxCostUnits} 
-                exceeded={job.execution.budget.exceeded === 'cost'} 
-              />
-            )}
-            
-            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between shadow-sm">
-              <div className="flex items-center gap-3 text-amber-800">
-                <div className="bg-amber-100 p-2 rounded-xl">
-                  <AlertTriangle size={20} />
-                </div>
-                <div>
-                  <p className="text-sm font-black uppercase tracking-tight">Human intervention required</p>
-                  <p className="text-xs font-medium opacity-80">The system is waiting for you to review and approve the next stage.</p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => handleApproval(false)}
-                  disabled={actioning}
-                  className="px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-50 transition-all"
-                >
-                  Reject & Stop
-                </button>
-                <button
-                  onClick={() => handleApproval(true)}
-                  disabled={actioning}
-                  className={cn(
-                    "px-6 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2",
-                    job.execution?.budget?.exceeded === 'cost'
-                      ? "bg-rose-600 text-white hover:bg-rose-700 shadow-rose-100"
-                      : "bg-amber-500 text-white hover:bg-amber-600 shadow-amber-200"
-                  )}
-                >
-                  {actioning ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                  {job.execution?.budget?.exceeded === 'cost' ? "Override & Approve" : "Approve Plan"}
-                </button>
-              </div>
-            </div>
+        {job.status === 'waiting_for_approval' && job.execution?.budget && (
+          <div className="mx-6 mt-6">
+            <BudgetWarning
+              totalCost={job.execution.budget.totalCostUnits}
+              maxCost={job.execution.budget.maxCostUnits}
+              exceeded={job.execution.budget.exceeded === 'cost'}
+            />
           </div>
         )}
+
+        <JobActionPanel
+          job={job}
+          actioning={actioning}
+          onApprove={() => handleApproval(true)}
+          onReject={() => handleApproval(false)}
+          onRetry={onRetry ? (targetJob) => void handleAction(() => onRetry(targetJob)) : undefined}
+          onResume={onResume ? (targetJob) => void handleAction(() => onResume(targetJob)) : undefined}
+          onCancel={onCancel ? (targetJob) => void handleAction(() => onCancel(targetJob)) : undefined}
+        />
 
         <div className="flex-1 overflow-y-auto p-6">
           <AnimatePresence mode="wait">
@@ -168,7 +152,7 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
                 className="space-y-8"
               >
                 {job.status === 'failed' && job.failure && (
-                  <FailurePanel failure={job.failure} />
+                  <FailurePanel failure={job.failure} retryHint={job.execution?.retryHint} />
                 )}
 
                 {job.status === 'waiting_for_approval' && job.execution?.pendingPlan && (
@@ -225,6 +209,15 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
                                 </span>
                                 <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-black uppercase text-indigo-500">
                                   {contract.checkStrategy}
+                                </span>
+                                <span className={cn(
+                                  "rounded-full px-2 py-0.5 text-[9px] font-black uppercase",
+                                  contract.status === 'passed' ? "bg-emerald-50 text-emerald-600" :
+                                  contract.status === 'failed' ? "bg-rose-50 text-rose-600" :
+                                  contract.status === 'unknown' ? "bg-slate-100 text-slate-500" :
+                                  "bg-amber-50 text-amber-600"
+                                )}>
+                                  {contract.status}
                                 </span>
                               </div>
                               {contract.suggestedFix && (
@@ -540,28 +533,6 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
         </div>
 
         <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-wrap">
-          {(job.status === 'failed' || job.status === 'cancelled') && (
-            <>
-              {onRetry && (
-                <button
-                  onClick={() => onRetry(job)}
-                  className="px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
-                >
-                  <RefreshCw size={16} />
-                  Retry Task
-                </button>
-              )}
-              {onResume && (
-                <button
-                  onClick={() => onResume(job)}
-                  className="px-6 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-2"
-                >
-                  <Zap size={16} />
-                  Resume Job
-                </button>
-              )}
-            </>
-          )}
           <button
             onClick={onClose}
             className="px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm"

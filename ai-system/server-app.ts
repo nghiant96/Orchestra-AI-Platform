@@ -462,7 +462,13 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
                 error: summary.runState.status === "failed" ? "Run failed." : null,
                 diffSummaries: summary.runState.diffSummaries || summary.artifactIndex?.diffSummaries,
                 latestToolResults: summary.runState.latestToolResults || summary.artifactIndex?.latestToolResults,
-                execution: summary.runState.execution ? { transitions: summary.runState.execution.transitions } : undefined
+                execution: summary.runState.execution ? {
+                  transitions: summary.runState.execution.transitions,
+                  providerMetrics: summary.runState.execution.providerMetrics,
+                  budget: summary.runState.execution.budget,
+                  totalDurationMs: summary.runState.execution.totalDurationMs,
+                  retryHint: summary.runState.execution.retryHint ?? null
+                } : undefined
               };
             }
           } catch {
@@ -591,7 +597,8 @@ export function mapRunSummaryToQueueJob(
       transitions: run.execution.transitions,
       providerMetrics: run.execution.providerMetrics,
       budget: run.execution.budget,
-      totalDurationMs: run.execution.totalDurationMs
+      totalDurationMs: run.execution.totalDurationMs,
+      retryHint: run.execution.retryHint ?? null
     } : undefined
   };
 }

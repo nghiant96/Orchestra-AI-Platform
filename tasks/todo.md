@@ -13,12 +13,12 @@ Last updated: 2026-04-29
 
 ## Next Implementation Queue
 
-- [ ] Phase 1.3: Improve Dashboard Operations UX.
-- [ ] Phase 1.4: Document and harden Quality Gate Policy.
+- [x] Phase 1.3: Improve Dashboard Operations UX.
+- [x] Phase 1.4: Document and harden Quality Gate Policy.
 - [ ] Phase 1.5: Dashboard Polish and component decomposition.
 - [x] Phase 2.1: Add generic Task Contract model.
 - [x] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.
-- [ ] Phase 2.4: Expand contract results in Job Detail with pass/fail state.
+- [x] Phase 2.4: Expand contract results in Job Detail with pass/fail state.
 
 ## Completion Notes
 
@@ -27,3 +27,5 @@ Last updated: 2026-04-29
 - Old review and roadmap documents have been removed from the active project tree.
 - Claude's roadmap assessment has been incorporated where it affects roadmap clarity: explicit zero test failure gate, v0.2.5 Dashboard Polish, and Task Contract migration path.
 - Task Contract foundation is implemented for Event Feed requirements and surfaced in pending approval plans.
+- Dashboard job detail now surfaces retry checkpoints, failure detail, explicit approve/reject/retry/resume/cancel actions, and contract status/suggested fixes.
+- README now documents the safe profile gate set used for this repository.
