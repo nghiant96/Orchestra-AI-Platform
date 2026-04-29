@@ -5,6 +5,9 @@ interface TaskRequirement {
   note: string;
   description: string;
   suggestedFix: string;
+  severity?: TaskContract["severity"];
+  checkStrategy?: TaskContract["checkStrategy"];
+  targetPaths?: string[];
 }
 
 const EVENT_FEED_APP_PATH = "dashboard/src/App.tsx";
@@ -43,10 +46,10 @@ export function buildTaskContracts(task: string): TaskContract[] {
   return detectTaskRequirements(task).map((requirement) => ({
     id: requirement.id,
     description: requirement.description,
-    severity: "medium",
+    severity: requirement.severity ?? "medium",
     status: "pending",
-    checkStrategy: "deterministic",
-    targetPaths: [EVENT_FEED_APP_PATH],
+    checkStrategy: requirement.checkStrategy ?? "deterministic",
+    targetPaths: requirement.targetPaths ?? [EVENT_FEED_APP_PATH],
     suggestedFix: requirement.suggestedFix
   }));
 }
@@ -99,33 +102,77 @@ export function validateTaskContractCoverage(contracts: TaskContract[], files: G
 }
 
 function detectTaskRequirements(task: string): TaskRequirement[] {
-  if (!isEventFeedFilterTask(task)) {
-    return [];
+  const requirements: TaskRequirement[] = [];
+
+  if (isEventFeedFilterTask(task)) {
+    if (asksNoHorizontalScroll(task)) {
+      requirements.push({
+        id: "event-feed-filter-no-horizontal-scroll",
+        note: "Requirement: Event Feed filter controls must not require horizontal scrolling; prefer flex-wrap or a responsive grid.",
+        description: "Event Feed filter controls must not require horizontal scrolling.",
+        suggestedFix: "Replace horizontal overflow/nowrap filter rows with flex-wrap or a responsive grid."
+      });
+    }
+    if (asksHeaderThenFilters(task)) {
+      requirements.push({
+        id: "event-feed-filter-header-then-controls",
+        note: "Requirement: put the Event Feed title/header area above and the filter controls below it.",
+        description: "Event Feed title/header must be visually above the filter controls.",
+        suggestedFix: "Render the Event Feed title/summary in a header row and place filter controls underneath."
+      });
+    }
+    if (asksFilterCountBesideLabel(task)) {
+      requirements.push({
+        id: "event-feed-filter-counts",
+        note: "Requirement: show the job count beside each filter label, not only a single global count.",
+        description: "Each filter label must show its matching job count.",
+        suggestedFix: "Compute counts per filter/status and render the count next to each filter label."
+      });
+    }
   }
 
-  const requirements: TaskRequirement[] = [];
-  if (asksNoHorizontalScroll(task)) {
+  if (asksForResponsiveUILayout(task)) {
     requirements.push({
-      id: "event-feed-filter-no-horizontal-scroll",
-      note: "Requirement: Event Feed filter controls must not require horizontal scrolling; prefer flex-wrap or a responsive grid.",
-      description: "Event Feed filter controls must not require horizontal scrolling.",
-      suggestedFix: "Replace horizontal overflow/nowrap filter rows with flex-wrap or a responsive grid."
+      id: "ui-layout-responsive-no-overflow",
+      note: "Requirement: UI layout must remain responsive and avoid horizontal overflow across supported viewports.",
+      description: "UI layout must remain responsive without horizontal overflow.",
+      suggestedFix: "Use wrapping, responsive grid tracks, and bounded widths for controls and repeated items.",
+      targetPaths: ["dashboard/src"]
     });
   }
-  if (asksHeaderThenFilters(task)) {
+
+  if (asksToPreserveApiOrSchema(task)) {
     requirements.push({
-      id: "event-feed-filter-header-then-controls",
-      note: "Requirement: put the Event Feed title/header area above and the filter controls below it.",
-      description: "Event Feed title/header must be visually above the filter controls.",
-      suggestedFix: "Render the Event Feed title/summary in a header row and place filter controls underneath."
+      id: "api-schema-preserve-existing-contract",
+      note: "Requirement: preserve existing API/schema shape unless the task explicitly asks for a breaking change.",
+      description: "Existing API or schema output must remain backward compatible.",
+      suggestedFix: "Update implementation behind the existing response shape or add an explicit migration/test for any schema change.",
+      severity: "high",
+      targetPaths: ["ai-system", "dashboard/src"]
     });
   }
-  if (asksFilterCountBesideLabel(task)) {
+
+  if (touchesRiskyAreaNeedingTests(task)) {
     requirements.push({
-      id: "event-feed-filter-counts",
-      note: "Requirement: show the job count beside each filter label, not only a single global count.",
-      description: "Each filter label must show its matching job count.",
-      suggestedFix: "Compute counts per filter/status and render the count next to each filter label."
+      id: "risky-change-requires-focused-tests",
+      note: "Requirement: risky changes must include or run focused tests for the affected behavior.",
+      description: "Risky changes require focused test coverage.",
+      suggestedFix: "Add or run targeted tests covering auth, payment, migration, queue lifecycle, or config behavior touched by the task.",
+      severity: "high",
+      checkStrategy: "tool",
+      targetPaths: ["tests"]
+    });
+  }
+
+  if (touchesSecurityOrDependencyPolicy(task)) {
+    requirements.push({
+      id: "security-dependency-strict-review",
+      note: "Requirement: security or dependency changes require strict review and audit-oriented checks.",
+      description: "Security or dependency changes require strict review and audit checks.",
+      suggestedFix: "Run dependency audit or security-focused validation and document any risk introduced by the change.",
+      severity: "high",
+      checkStrategy: "tool",
+      targetPaths: ["package.json", "pnpm-lock.yaml", ".ai-system.json"]
     });
   }
 
@@ -150,6 +197,29 @@ function asksFilterCountBesideLabel(task: string): boolean {
 function asksHeaderThenFilters(task: string): boolean {
   const normalized = normalize(task);
   return normalized.includes("title") || normalized.includes("tilte") || normalized.includes("bên trên") || normalized.includes("above");
+}
+
+function asksForResponsiveUILayout(task: string): boolean {
+  const normalized = normalize(task);
+  return /\b(ui|giao diện|layout|responsive|mobile|desktop|viewport)\b/.test(normalized)
+    && (normalized.includes("scroll ngang") || normalized.includes("horizontal") || normalized.includes("responsive") || normalized.includes("đẹp"));
+}
+
+function asksToPreserveApiOrSchema(task: string): boolean {
+  const normalized = normalize(task);
+  return /(api|schema|response|payload|contract|database|db|migration)/.test(normalized)
+    && /(preserve|compatible|compatibility|không đổi|giu nguyen|giữ nguyên|backward)/.test(normalized);
+}
+
+function touchesRiskyAreaNeedingTests(task: string): boolean {
+  const normalized = normalize(task);
+  return /(auth|authentication|authorization|login|payment|billing|migration|queue|approval|config|server|orchestrator)/.test(normalized)
+    && /(fix|change|update|sửa|chỉnh|implement|add|thêm|xử lý)/.test(normalized);
+}
+
+function touchesSecurityOrDependencyPolicy(task: string): boolean {
+  const normalized = normalize(task);
+  return /(security|secure|secret|token|permission|dependency|dependencies|package|audit|vulnerability|pnpm-lock|lockfile)/.test(normalized);
 }
 
 function isRelevantEventFeedFile(filePath: string): boolean {

@@ -119,4 +119,18 @@ describe("task requirement guards", () => {
 
     assert.ok(issues.some((issue) => issue.description.includes("job count beside each filter label")));
   });
+
+  it("extracts deterministic contracts for common UI, API, risky, and security tasks", () => {
+    const contracts = buildTaskContracts([
+      "Make the settings UI responsive and không bị horizontal scroll",
+      "Update API response but preserve backward compatible schema",
+      "Fix queue approval behavior and add tests",
+      "Update package dependency and run security audit"
+    ].join(". "));
+
+    assert.ok(contracts.some((contract) => contract.id === "ui-layout-responsive-no-overflow"));
+    assert.ok(contracts.some((contract) => contract.id === "api-schema-preserve-existing-contract" && contract.severity === "high"));
+    assert.ok(contracts.some((contract) => contract.id === "risky-change-requires-focused-tests" && contract.checkStrategy === "tool"));
+    assert.ok(contracts.some((contract) => contract.id === "security-dependency-strict-review" && contract.checkStrategy === "tool"));
+  });
 });

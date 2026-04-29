@@ -8,11 +8,9 @@ import {
   Layers,
   Zap,
   Cpu,
-  BarChart3,
   Database,
   FileJson,
   Layout,
-  CheckCircle2,
   Eye,
   EyeOff,
   Shield,
@@ -28,6 +26,13 @@ import type { SystemConfig, ConfigFormData } from '../types';
 import { StatCard } from './StatCard';
 import { OperationsControl } from './OperationsControl';
 import type { SystemHealth } from '../hooks/useHealth';
+import {
+  ApprovalPolicyPanel,
+  BudgetPolicyPanel,
+  MemoryPolicyPanel,
+  RoutingPolicyPanel,
+  ToolPolicyPanel
+} from './ConfigPolicyPanels';
 
 interface ConfigViewProps {
   config: SystemConfig | null;
@@ -381,49 +386,7 @@ export const ConfigView = ({ config, onUpdate, health, onRefreshHealth }: Config
           </div>
         </section>
 
-        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-          <h2 className="text-xl font-black mb-6 flex items-center gap-3">
-            <ShieldCheck className="text-emerald-500" />
-            System Rules
-          </h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Skip Approval</p>
-              {editing ? (
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, skip_approval: !formData.skip_approval })}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all w-fit mt-1",
-                    formData.skip_approval ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-600"
-                  )}
-                >
-                  <CheckCircle2 size={14} />
-                  {formData.skip_approval ? "ENABLED" : "DISABLED"}
-                </button>
-              ) : (
-                <p className={cn(
-                  "text-lg font-bold",
-                  config.rules.skip_approval ? "text-emerald-600" : "text-slate-900"
-                )}>
-                  {config.rules.skip_approval ? 'Active' : 'Disabled'}
-                </p>
-              )}
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Files</p>
-              <p className="text-lg font-bold text-slate-900">{config.rules.max_files}</p>
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Context Limit</p>
-              <p className="text-lg font-bold text-slate-900">{((config.rules.max_context_bytes || 0) / 1024).toFixed(0)} KB</p>
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Memory Backend</p>
-              <p className="text-lg font-bold text-slate-900 capitalize">{config.rules.memory?.backend || 'Local'}</p>
-            </div>
-          </div>
-        </section>
+        <ApprovalPolicyPanel config={config} editing={editing} formData={formData} setFormData={setFormData} />
 
         <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
           <h2 className="text-xl font-black mb-6 flex items-center gap-3">
@@ -463,77 +426,10 @@ export const ConfigView = ({ config, onUpdate, health, onRefreshHealth }: Config
           </div>
         </section>
 
-        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-          <h2 className="text-xl font-black mb-6 flex items-center gap-3">
-            <BarChart3 className="text-blue-500" />
-            Execution Budgets
-          </h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Cost (Single Run)</p>
-              {editing ? (
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.max_single_run_cost_units}
-                  onChange={(e) => setFormData({ ...formData, max_single_run_cost_units: parseFloat(e.target.value) })}
-                  className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
-                />
-              ) : (
-                <p className="text-lg font-bold text-slate-900">{config.rules.execution?.budgets?.max_single_run_cost_units || config.rules.execution?.budgets?.max_cost_units || 'No Limit'}</p>
-              )}
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Cost (Daily)</p>
-              {editing ? (
-                <input
-                  type="number"
-                  step="0.1"
-                  value={formData.max_daily_cost_units}
-                  onChange={(e) => setFormData({ ...formData, max_daily_cost_units: parseFloat(e.target.value) })}
-                  className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
-                />
-              ) : (
-                <p className="text-lg font-bold text-slate-900">{config.rules.execution?.budgets?.max_daily_cost_units || 'No Limit'}</p>
-              )}
-            </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Duration</p>
-              <p className="text-lg font-bold text-slate-900">
-                {config.rules.execution?.budgets?.max_duration_ms
-                  ? `${(config.rules.execution.budgets.max_duration_ms / 60000).toFixed(0)} min`
-                  : 'No Limit'}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-          <h2 className="text-xl font-black mb-6 flex items-center gap-3">
-            <RefreshCw className="text-amber-500" />
-            Routing Configuration
-          </h2>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <span className="text-xs font-bold text-slate-400 uppercase">Routing Enabled</span>
-              <span className={cn(
-                "text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded",
-                config.rules.routing?.enabled !== false ? "bg-emerald-100 text-emerald-600" : "bg-slate-200 text-slate-500"
-              )}>
-                {config.rules.routing?.enabled !== false ? 'Enabled' : 'Disabled'}
-              </span>
-            </div>
-            <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <span className="text-xs font-bold text-slate-400 uppercase">Adaptive Routing</span>
-              <span className={cn(
-                "text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded",
-                config.rules.routing?.adaptive?.enabled ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-500"
-              )}>
-                {config.rules.routing?.adaptive?.enabled ? 'Active' : 'Inactive'}
-              </span>
-            </div>
-          </div>
-        </section>
+        <BudgetPolicyPanel config={config} editing={editing} formData={formData} setFormData={setFormData} />
+        <RoutingPolicyPanel config={config} />
+        <MemoryPolicyPanel config={config} />
+        <ToolPolicyPanel config={config} />
       </div>
 
       {/* Raw Registry with Blur Toggle */}

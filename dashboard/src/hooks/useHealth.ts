@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import type { ApprovalPolicyDecision } from '../types/index.js';
 
 export interface SystemHealth {
   ok: boolean;
@@ -12,6 +13,9 @@ export interface SystemHealth {
     queuedCount: number;
     totalRecent: number;
     paused?: boolean;
+    approvalMode?: 'manual' | 'auto';
+    skipApproval?: boolean;
+    approvalPolicy?: ApprovalPolicyDecision;
   };
   memory: {
     uptime: number;

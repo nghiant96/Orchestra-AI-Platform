@@ -42,7 +42,7 @@ Tasks:
 
 - [x] Treat `skip_approval=true` as auto-run for queue jobs.
 - [x] Keep manual approval as default when `skip_approval` is absent or false.
-- [ ] Show approval mode in job detail and health responses.
+- [x] Show approval mode in job detail and health responses.
 - [x] Add tests for auto-run and manual approval queue jobs.
 - [x] Ensure cancel, retry, resume, and clear-finished preserve consistent job status.
 
@@ -69,7 +69,7 @@ Acceptance:
 
 Tasks:
 
-- [ ] Rework Job Detail into sections: Summary, Plan, Contract, Checks, Review, Artifacts, Retry.
+- [x] Rework Job Detail into sections: Summary, Plan, Contract, Checks, Review, Artifacts, Retry.
 - [x] Show failure class and retry hint prominently.
 - [x] Add explicit approve/reject/retry/resume actions with disabled/loading states.
 - [x] Keep Event Feed filters wrapped and count-aware.
@@ -88,8 +88,8 @@ Goal: make the existing dashboard easier to operate and easier to maintain befor
 
 Tasks:
 
-- [ ] Split Job Detail into section components: Summary, Plan, Checks, Review, Artifacts, Retry, and Contract placeholder.
-- [ ] Keep the existing modal API stable for callers.
+- [x] Split Job Detail into section components: Summary, Plan, Checks, Review, Artifacts, Retry, and Contract placeholder.
+- [x] Keep the existing modal API stable for callers.
 - [x] Add tests or type-level coverage for job states: queued, running, waiting for approval, failed, completed, cancelled.
 
 Acceptance:
@@ -113,9 +113,9 @@ Acceptance:
 
 Tasks:
 
-- [ ] Split Config View into smaller panels: Approval, Budgets, Providers, Routing, Memory, Tools.
-- [ ] Preserve the existing form data shape.
-- [ ] Keep save behavior unchanged.
+- [x] Split Config View into smaller panels: Approval, Budgets, Providers, Routing, Memory, Tools.
+- [x] Preserve the existing form data shape.
+- [x] Keep save behavior unchanged.
 
 Acceptance:
 
@@ -125,8 +125,8 @@ Acceptance:
 
 Tasks:
 
-- [ ] Add a Project Health panel showing last known typecheck, lint, test, dashboard build, and audit status when available.
-- [ ] Reuse artifact or stats data instead of inventing a new storage layer in this phase.
+- [x] Add a Project Health panel showing last known typecheck, lint, test, dashboard build, and audit status when available.
+- [x] Reuse artifact or stats data instead of inventing a new storage layer in this phase.
 
 Acceptance:
 
@@ -170,11 +170,11 @@ Acceptance:
 
 Tasks:
 
-- [ ] Extract UI layout contracts from task text.
-- [ ] Extract API/schema preservation contracts.
-- [ ] Extract test-required contracts for risky areas.
-- [ ] Extract security/dependency contracts.
-- [ ] Keep extraction deterministic first; add LLM-assisted extraction only after deterministic rules are stable.
+- [x] Extract UI layout contracts from task text.
+- [x] Extract API/schema preservation contracts.
+- [x] Extract test-required contracts for risky areas.
+- [x] Extract security/dependency contracts.
+- [x] Keep extraction deterministic first; add LLM-assisted extraction only after deterministic rules are stable.
 
 Acceptance:
 
@@ -217,7 +217,7 @@ Goal: choose approval and verification behavior based on task risk.
 Tasks:
 
 - [ ] Add risk signals for path sensitivity, diff size, dependency files, auth/payment areas, migrations, and generated file count.
-- [ ] Produce a risk score and risk class: low, medium, high, blocked.
+- [x] Produce a risk score and risk class: low, medium, high, blocked.
 - [ ] Persist policy decisions in artifacts.
 
 Acceptance:
@@ -229,9 +229,9 @@ Acceptance:
 Tasks:
 
 - [ ] Low risk: auto-run with standard checks.
-- [ ] Medium risk: pause after plan.
+- [x] Medium risk: pause after plan.
 - [ ] High risk: pause after generate and use strict review.
-- [ ] Blocked: require explicit manual approval before write.
+- [x] Blocked: require explicit manual approval before write.
 
 Acceptance:
 
@@ -241,9 +241,9 @@ Acceptance:
 
 Tasks:
 
-- [ ] Show risk class and matched signals in Job Detail.
-- [ ] Show why a job required approval.
-- [ ] Show policy override source when applicable.
+- [x] Show risk class and matched signals in Job Detail.
+- [x] Show why a job required approval.
+- [x] Show policy override source when applicable.
 
 Acceptance:
 
@@ -257,12 +257,12 @@ Goal: make dashboard the primary operations surface.
 
 Tasks:
 
-- [ ] Activity Feed: recent jobs/runs, filters, counts, live status.
-- [ ] Job Detail: full execution story and actions.
-- [ ] Project Health: latest baseline gate status.
-- [ ] Provider Performance: success rate, duration, cost, failure rate.
-- [ ] Cost & Budget: daily/project trends and limits.
-- [ ] Config Policy: safe editing for approval, budgets, routing, memory, and checks.
+- [x] Activity Feed: recent jobs/runs, filters, counts, live status.
+- [x] Job Detail: full execution story and actions.
+- [x] Project Health: latest baseline gate status.
+- [x] Provider Performance: success rate, duration, cost, failure rate.
+- [x] Cost & Budget: daily/project trends and limits.
+- [x] Config Policy: safe editing for approval, budgets, routing, memory, and checks.
 
 Acceptance:
 

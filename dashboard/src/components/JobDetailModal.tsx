@@ -26,6 +26,8 @@ import { FailurePanel } from './FailurePanel';
 import { BudgetWarning } from './BudgetWarning';
 import { JobComparisonView } from './JobComparisonView';
 import { JobActionPanel } from './JobActionPanel';
+import { JobPlanSection } from './JobPlanSection';
+import { JobSummarySection } from './JobSummarySection';
 
 interface JobDetailModalProps {
   job: Job;
@@ -151,84 +153,14 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
                 exit={{ opacity: 0, x: 10 }}
                 className="space-y-8"
               >
+                <JobSummarySection job={job} />
+
                 {job.status === 'failed' && job.failure && (
                   <FailurePanel failure={job.failure} retryHint={job.execution?.retryHint} />
                 )}
 
                 {job.status === 'waiting_for_approval' && job.execution?.pendingPlan && (
-                  <section className="bg-white border-2 border-amber-200 rounded-3xl p-6 shadow-sm mb-8 animate-in zoom-in-95 duration-300">
-                    <h3 className="text-sm font-black text-amber-600 uppercase tracking-tight mb-4 flex items-center gap-2">
-                      <FileCode size={18} />
-                      Proposed Execution Plan
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Files to Read</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {job.execution.pendingPlan.readFiles.map(f => (
-                            <span key={f} className="bg-slate-100 text-slate-600 text-[10px] font-mono px-2 py-0.5 rounded border border-slate-200">{f}</span>
-                          ))}
-                          {job.execution.pendingPlan.readFiles.length === 0 && <span className="text-[10px] text-slate-400 italic">None</span>}
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Files to Modify</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {job.execution.pendingPlan.writeTargets.map(f => (
-                            <span key={f} className="bg-amber-50 text-amber-700 text-[10px] font-mono px-2 py-0.5 rounded border border-amber-200 font-bold">{f}</span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-
-                    {job.execution.pendingPlan.notes.length > 0 && (
-                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 text-center">Implementation Notes</p>
-                        <ul className="space-y-1.5">
-                          {job.execution.pendingPlan.notes.map((n, i) => (
-                            <li key={i} className="text-xs font-medium text-slate-600 flex gap-2">
-                              <span className="text-amber-400">•</span>
-                              {n}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {(job.execution.pendingPlan.contracts?.length ?? 0) > 0 && (
-                      <div className="mt-4 bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
-                        <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-3 text-center">Task Contract</p>
-                        <div className="space-y-2">
-                          {job.execution.pendingPlan.contracts?.map((contract) => (
-                            <div key={contract.id} className="rounded-xl bg-white border border-indigo-100 p-3">
-                              <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="text-xs font-black text-slate-800">{contract.description}</span>
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-500">
-                                  {contract.severity}
-                                </span>
-                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-black uppercase text-indigo-500">
-                                  {contract.checkStrategy}
-                                </span>
-                                <span className={cn(
-                                  "rounded-full px-2 py-0.5 text-[9px] font-black uppercase",
-                                  contract.status === 'passed' ? "bg-emerald-50 text-emerald-600" :
-                                  contract.status === 'failed' ? "bg-rose-50 text-rose-600" :
-                                  contract.status === 'unknown' ? "bg-slate-100 text-slate-500" :
-                                  "bg-amber-50 text-amber-600"
-                                )}>
-                                  {contract.status}
-                                </span>
-                              </div>
-                              {contract.suggestedFix && (
-                                <p className="text-[11px] font-medium text-slate-500">{contract.suggestedFix}</p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </section>
+                  <JobPlanSection job={job} />
                 )}
                 <section>
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">

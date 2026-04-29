@@ -49,6 +49,21 @@ export interface RetryHint {
   reason: string;
 }
 
+export interface ApprovalPolicyDecision {
+  riskClass: 'low' | 'medium' | 'high' | 'blocked';
+  riskScore: number;
+  signals: Array<{
+    name: string;
+    severity: 'low' | 'medium' | 'high' | 'blocked';
+    reason: string;
+  }>;
+  approvalMode: 'manual' | 'auto';
+  interactive: boolean;
+  pauseAfterPlan: boolean;
+  pauseAfterGenerate: boolean;
+  reason: string;
+}
+
 export interface TaskContract {
   id: string;
   description: string;
@@ -66,6 +81,8 @@ export interface Job {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  approvalMode?: 'manual' | 'auto';
+  approvalPolicy?: ApprovalPolicyDecision;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -123,6 +140,7 @@ export interface SystemConfig {
     execution?: { budgets?: { max_cost_units?: number; max_duration_ms?: number; max_daily_cost_units?: number; max_single_run_cost_units?: number } };
     routing?: { enabled?: boolean; adaptive?: { enabled?: boolean } };
     providers?: Record<string, { type?: string; model?: string }>;
+    tools?: { enabled?: boolean; json_validation?: boolean };
   };
   profile: string | null;
   globalProfile: string | null;

@@ -19,6 +19,7 @@ import { StatCard } from './components/StatCard';
 import { Navbar } from './components/Navbar';
 import { TaskForm } from './components/TaskForm';
 import { JobItem } from './components/JobItem';
+import { ProjectHealthPanel } from './components/ProjectHealthPanel';
 import { useJobs } from './hooks/useJobs';
 import { useConfig } from './hooks/useConfig';
 import { useHealth } from './hooks/useHealth';
@@ -157,6 +158,8 @@ function App() {
                   <StatCard title="Successful Runs" value={stats.completed} icon={ShieldCheck} color="bg-emerald-50 text-emerald-600" />
                   <StatCard title="Pipeline Failures" value={stats.failed} icon={AlertCircle} color="bg-rose-50 text-rose-600" />
                 </div>
+
+                <ProjectHealthPanel health={health} jobs={jobs} />
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                   <div className="lg:col-span-4">

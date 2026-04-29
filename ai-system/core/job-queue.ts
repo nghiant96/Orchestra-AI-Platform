@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
+import type { ApprovalPolicyDecision } from "./risk-policy.js";
 
 export type QueueJobStatus =
   | "queued"
@@ -11,6 +12,8 @@ export type QueueJobStatus =
   | "cancel_requested"
   | "cancelled";
 
+export type QueueApprovalMode = "manual" | "auto";
+
 export interface QueueJob {
   jobId: string;
   status: QueueJobStatus;
@@ -18,6 +21,8 @@ export interface QueueJob {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  approvalMode?: QueueApprovalMode;
+  approvalPolicy?: ApprovalPolicyDecision;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -44,6 +49,8 @@ export interface JobQueueRunInput {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  approvalMode?: QueueApprovalMode;
+  approvalPolicy?: ApprovalPolicyDecision;
   signal?: AbortSignal;
 }
 
@@ -87,6 +94,8 @@ export class FileBackedJobQueue {
       cwd: input.cwd,
       dryRun: input.dryRun,
       resume: input.resume,
+      approvalMode: input.approvalMode,
+      approvalPolicy: input.approvalPolicy,
       createdAt: now,
       updatedAt: now,
       artifactPath: null,

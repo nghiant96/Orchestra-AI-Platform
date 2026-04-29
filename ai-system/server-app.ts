@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { Orchestrator } from "./core/orchestrator.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
+import { resolveApprovalPolicy } from "./core/risk-policy.js";
 import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import {
@@ -103,11 +104,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       const { rules } = await loadRules(cwd);
-      const approvalMode = resolveQueueRunApprovalMode(rules);
+      const approvalMode = resolveApprovalPolicy(task, rules);
       return orchestrator.run(task, {
         dryRun,
         interactive: approvalMode.interactive,
         pauseAfterPlan: approvalMode.pauseAfterPlan,
+        pauseAfterGenerate: approvalMode.pauseAfterGenerate,
         signal
       });
     });
@@ -151,6 +153,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         const jobs = await queue.list();
         const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'waiting_for_approval');
         const queuedJobs = jobs.filter(j => j.status === 'queued');
+        const { rules } = await loadRules(defaultCwd);
+        const approvalMode = resolveApprovalPolicy("", rules);
 
         return respondJson(res, 200, {
           ok: true,
@@ -163,7 +167,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             activeCount: activeJobs.length,
             queuedCount: queuedJobs.length,
             totalRecent: jobs.length,
-            paused: queue.getPaused()
+            paused: queue.getPaused(),
+            approvalMode: approvalMode.approvalMode,
+            skipApproval: approvalMode.approvalMode === "auto",
+            approvalPolicy: approvalMode
           },
           memory: {
             usage: process.memoryUsage(),
@@ -223,8 +230,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
 
         // Budget Enforcement: Check daily usage
+        let approvalMode: ReturnType<typeof resolveApprovalPolicy> | null = null;
         try {
           const { rules } = await loadRules(cwd);
+          approvalMode = resolveApprovalPolicy(payload.task, rules);
           const maxDaily = rules.execution?.budgets?.max_daily_cost_units;
           if (maxDaily && maxDaily > 0) {
             // Self-call stats to get usage
@@ -246,7 +255,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         const job = await queue.enqueue({
           task: payload.task,
           cwd,
-          dryRun: payload.dryRun !== false
+          dryRun: payload.dryRun !== false,
+          approvalMode: approvalMode?.approvalMode ?? "manual",
+          approvalPolicy: approvalMode ?? undefined
         });
         return respondJson(res, 202, job);
       }
@@ -455,6 +466,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
                 task: summary.runState.task || "",
                 cwd: defaultCwd,
                 dryRun: summary.runState.dryRun || false,
+                approvalMode: summary.runState.status?.startsWith("paused_") ? "manual" : undefined,
                 createdAt: summary.runState.execution?.transitions?.[0]?.timestamp || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
                 artifactPath: path.dirname(summary.statePath),
@@ -586,6 +598,7 @@ export function mapRunSummaryToQueueJob(
     task: run.task,
     cwd: defaultCwd,
     dryRun: run.dryRun,
+    approvalMode: run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined,
     createdAt: run.updatedAt || new Date().toISOString(),
     updatedAt: run.updatedAt || new Date().toISOString(),
     artifactPath: run.runPath,
@@ -663,6 +676,7 @@ async function aggregateStats(cwd: string, rules: any) {
     costByDay: {} as Record<string, number>,
     failuresByClass: {} as Record<string, number>,
     avgDurationByStage: {} as Record<string, { total: number, count: number }>,
+    providerPerformance: {} as Record<string, { runs: number, failures: number, durationMs: number, costUnits: number }>,
   };
 
   for (const run of recentRuns) {
@@ -674,6 +688,15 @@ async function aggregateStats(cwd: string, rules: any) {
     if (run.status === 'failed') {
       const error = classifyError(run.execution?.failure?.reason);
       stats.failuresByClass[error.class] = (stats.failuresByClass[error.class] || 0) + 1;
+    }
+
+    for (const metric of run.execution?.providerMetrics ?? []) {
+      const current = stats.providerPerformance[metric.provider] || { runs: 0, failures: 0, durationMs: 0, costUnits: 0 };
+      current.runs += 1;
+      current.failures += run.status === "failed" ? 1 : 0;
+      current.durationMs += metric.totalDurationMs;
+      current.costUnits += metric.estimatedCostUnits;
+      stats.providerPerformance[metric.provider] = current;
     }
 
     if (run.execution?.transitions) {
@@ -695,6 +718,13 @@ async function aggregateStats(cwd: string, rules: any) {
     avgDurationByStage: Object.entries(stats.avgDurationByStage).map(([stage, data]) => ({
       stage,
       avgMs: Math.round(data.total / data.count)
-    }))
+    })),
+    providerPerformance: Object.entries(stats.providerPerformance).map(([provider, data]) => ({
+      provider,
+      runs: data.runs,
+      failureRate: data.runs > 0 ? data.failures / data.runs : 0,
+      avgDurationMs: data.runs > 0 ? Math.round(data.durationMs / data.runs) : 0,
+      totalCostUnits: data.costUnits
+    })).sort((left, right) => right.runs - left.runs)
   };
 }

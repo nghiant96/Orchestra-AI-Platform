@@ -113,6 +113,29 @@ test("queue approval mode follows skip_approval config", () => {
   });
 });
 
+test("health and queued jobs expose effective approval mode", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-approval-mode-"));
+  await fs.writeFile(path.join(repoRoot, ".ai-system.json"), JSON.stringify({ skip_approval: true }), "utf8");
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const health = await requestJson(baseUrl, "GET", "/health");
+    assert.equal(health.queue.approvalMode, "auto");
+    assert.equal(health.queue.skipApproval, true);
+
+    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "auto approval mode" });
+    assert.equal(created.approvalMode, "auto");
+  } finally {
+    await closeServer(server);
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("artifact run summaries map to typed queue jobs", () => {
   const retryHint = { stage: "iteration-tools", iteration: 2, reason: "lint failed" };
   const baseRun = {

@@ -13,6 +13,13 @@ interface AnalyticsData {
   costByDay: { date: string, cost: number }[];
   failuresByClass: { name: string, count: number }[];
   avgDurationByStage: { stage: string, avgMs: number }[];
+  providerPerformance?: {
+    provider: string;
+    runs: number;
+    failureRate: number;
+    avgDurationMs: number;
+    totalCostUnits: number;
+  }[];
 }
 
 export const AnalyticsView = ({ currentProject }: { currentProject: string }) => {
@@ -196,7 +203,7 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
         </section>
 
         {/* Avg Duration by Stage */}
-        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm lg:col-span-2">
+        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
           <h3 className="text-sm font-black mb-6 flex items-center gap-3 uppercase tracking-tight text-slate-900">
             <Clock size={18} className="text-emerald-500" />
             Average Stage Latency (ms)
@@ -222,6 +229,41 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
                 <Bar dataKey="avgMs" fill="#10b981" radius={[0, 6, 6, 0]} barSize={20} />
               </BarChart>
             </ResponsiveContainer>
+          </div>
+        </section>
+
+        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+          <h3 className="text-sm font-black mb-6 flex items-center gap-3 uppercase tracking-tight text-slate-900">
+            <TrendingUp size={18} className="text-blue-500" />
+            Provider Performance
+          </h3>
+          <div className="space-y-3">
+            {(data.providerPerformance ?? []).length === 0 ? (
+              <p className="py-12 text-center text-xs font-bold italic text-slate-400">No provider metrics recorded yet.</p>
+            ) : (
+              data.providerPerformance?.map((provider) => (
+                <div key={provider.provider} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <p className="truncate text-sm font-black uppercase text-slate-900">{provider.provider}</p>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-slate-500">{provider.runs} runs</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Failure</p>
+                      <p className="text-sm font-black text-rose-600">{(provider.failureRate * 100).toFixed(0)}%</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Avg Time</p>
+                      <p className="text-sm font-black text-slate-700">{(provider.avgDurationMs / 1000).toFixed(1)}s</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Cost</p>
+                      <p className="text-sm font-black text-indigo-600">{provider.totalCostUnits.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </section>
       </div>
