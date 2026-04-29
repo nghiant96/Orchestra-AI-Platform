@@ -63,6 +63,14 @@ function App() {
     jobs
   } = useJobs(currentProject);
 
+  const statusCounts = useMemo(() => {
+    return jobs.reduce<Record<string, number>>((counts, job) => {
+      counts.all += 1;
+      counts[job.status] = (counts[job.status] || 0) + 1;
+      return counts;
+    }, { all: 0 });
+  }, [jobs]);
+
   const {
     config,
     fetchConfig,
@@ -166,28 +174,46 @@ function App() {
 
                   <div className="lg:col-span-8">
                     <div className="space-y-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-2 mb-4">
-                        <h2 className="text-xl font-black flex items-center gap-3 text-slate-900 uppercase tracking-tight">
-                          <History size={22} className="text-indigo-500" />
-                          Event Feed
-                        </h2>
-                        <div className="flex gap-2 p-1.5 bg-slate-200/50 rounded-2xl overflow-x-auto custom-scrollbar no-scrollbar border border-slate-200/60">
+                      <div className="bg-white rounded-3xl border border-slate-200 p-4 sm:p-5 shadow-sm mb-4">
+                        <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-4">
+                          <div>
+                            <h2 className="text-xl font-black flex items-center gap-3 text-slate-900 uppercase tracking-tight">
+                              <History size={22} className="text-indigo-500" />
+                              Event Feed
+                              <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-black text-indigo-600 border border-indigo-100">
+                                {filteredJobs.length} jobs
+                              </span>
+                            </h2>
+                            <p className="mt-1 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                              Showing {filteredJobs.length} of {jobs.length} events
+                            </p>
+                          </div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Filter by status
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200/70 bg-slate-100/70 p-1.5">
                           {(['all', 'queued', 'running', 'waiting_for_approval', 'completed', 'failed', 'cancelled'] as const).map(filter => (
                             <button
                               key={filter}
                               onClick={() => setStatusFilter(filter)}
                               className={cn(
-                                "px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ease-in-out whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-indigo-500/30",
+                                "min-w-fit flex-1 sm:flex-none inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold capitalize transition-all duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500/30",
                                 statusFilter === filter
                                   ? "bg-white text-indigo-600 shadow-sm border border-slate-200/80"
-                                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-200/80 border border-transparent"
+                                  : "text-slate-500 hover:text-slate-800 hover:bg-white/70 border border-transparent"
                               )}
                             >
-                              {filter.replace(/_/g, ' ')}
+                              <span>{filter.replace(/_/g, ' ')}</span>
+                              <span className={cn(
+                                "rounded-full px-1.5 py-0.5 text-[10px] font-black leading-none",
+                                statusFilter === filter ? "bg-indigo-50 text-indigo-600" : "bg-white/80 text-slate-400"
+                              )}>
+                                {statusCounts[filter] || 0}
+                              </span>
                             </button>
                           ))}
                         </div>
-
                       </div>
 
                       <div className="space-y-4">
