@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import type { SystemConfig, ConfigFormData } from '../types';
 
 export const useConfig = () => {
@@ -31,13 +32,16 @@ export const useConfig = () => {
       });
       if (res.ok) {
         fetchConfig();
+        toast.success("Configuration updated successfully");
         return { ok: true };
       } else {
         const err = await res.json();
+        toast.error(`Update failed: ${err.error}`);
         return { ok: false, error: err.error };
       }
     } catch (error) {
       console.error('Failed to update config:', error);
+      toast.error("Network error while updating configuration");
       return { ok: false, error: 'Failed to update configuration' };
     }
   };

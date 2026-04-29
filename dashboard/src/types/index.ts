@@ -49,6 +49,7 @@ export interface Job {
   task: string;
   cwd: string;
   dryRun: boolean;
+  resume?: boolean;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;

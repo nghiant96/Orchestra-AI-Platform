@@ -31,9 +31,11 @@ interface JobDetailModalProps {
   job: Job;
   onClose: () => void;
   onRefresh: () => void;
+  onRetry?: (job: Job) => void;
+  onResume?: (job: Job) => void;
 }
 
-export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps) => {
+export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: JobDetailModalProps) => {
   const [activeTab, setActiveTab] = useState<'timeline' | 'analytics' | 'diagnostics' | 'files' | 'console' | 'compare'>('timeline');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
@@ -470,7 +472,29 @@ export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps)
           </AnimatePresence>
         </div>
 
-        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+        <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 flex-wrap">
+          {(job.status === 'failed' || job.status === 'cancelled') && (
+            <>
+              {onRetry && (
+                <button
+                  onClick={() => onRetry(job)}
+                  className="px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm flex items-center gap-2"
+                >
+                  <RefreshCw size={16} />
+                  Retry Task
+                </button>
+              )}
+              {onResume && (
+                <button
+                  onClick={() => onResume(job)}
+                  className="px-6 py-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-bold text-indigo-600 hover:bg-indigo-100 transition-all shadow-sm flex items-center gap-2"
+                >
+                  <Zap size={16} />
+                  Resume Job
+                </button>
+              )}
+            </>
+          )}
           <button
             onClick={onClose}
             className="px-6 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm"

@@ -48,7 +48,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
   const runner: JobRunner =
     options.runner ??
-    (async ({ jobId, task, cwd, dryRun }) => {
+    (async ({ jobId, task, cwd, dryRun, resume, signal }) => {
       const confirmationHandler: import("./types.js").ConfirmationHandler = {
         confirmPlan: async (plan) => {
           return new Promise((resolve) => {
@@ -88,10 +88,19 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         logger: scopedLogger,
         confirmationHandler
       });
+
+      if (resume) {
+        return orchestrator.resume(jobId, {
+          interactive: true,
+          signal
+        });
+      }
+
       return orchestrator.run(task, {
         dryRun,
         interactive: true,
-        pauseAfterPlan: true
+        pauseAfterPlan: true,
+        signal
       });
     });
 
@@ -415,7 +424,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         return respondJson(res, 200, { ok: true, action });
       }
 
-      const jobMatch = /^\/jobs\/([^/]+)(?:\/(cancel))?$/.exec(url.pathname);
+      const jobMatch = /^\/jobs\/([^/]+)(?:\/(cancel|resume|retry))?$/.exec(url.pathname);
       if (jobMatch && req.method === "GET" && !jobMatch[2]) {
         const jobId = jobMatch[1] ?? "";
         let job = await queue.get(jobId);
@@ -449,9 +458,35 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
       }
 
-      if (jobMatch && req.method === "POST" && jobMatch[2] === "cancel") {
-        const job = await queue.cancel(jobMatch[1] ?? "");
-        return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
+      if (jobMatch && req.method === "POST" && jobMatch[2]) {
+        const jobId = jobMatch[1] ?? "";
+        const action = jobMatch[2];
+
+        if (action === "cancel") {
+          const job = await queue.cancel(jobId);
+          return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
+        }
+
+        if (action === "resume") {
+          const job = await queue.get(jobId);
+          if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
+          if (job.status !== "failed" && job.status !== "cancelled") {
+            return respondJson(res, 400, { ok: false, error: "Only failed or cancelled jobs can be resumed" });
+          }
+          const updated = await queue.updateJob(job, { status: "queued", resume: true });
+          return respondJson(res, 200, updated);
+        }
+
+        if (action === "retry") {
+          const job = await queue.get(jobId);
+          if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
+          const newJob = await queue.enqueue({ 
+            task: job.task, 
+            cwd: job.cwd, 
+            dryRun: job.dryRun 
+          });
+          return respondJson(res, 201, newJob);
+        }
       }
 
       return respondJson(res, 404, {

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { toast } from 'sonner';
 import type { Job } from '../types';
 
 export const useJobs = (projectPath?: string) => {
@@ -33,22 +34,26 @@ export const useJobs = (projectPath?: string) => {
     return () => clearInterval(interval);
   }, [fetchJobs]);
 
-  const stats = useMemo(() => ({
-    total: jobs.length,
-    running: jobs.filter(j => j.status === 'running').length,
-    completed: jobs.filter(j => j.status === 'completed').length,
-    failed: jobs.filter(j => j.status === 'failed').length
-  }), [jobs]);
+  const stats = useMemo(() => {
+    const safeJobs = Array.isArray(jobs) ? jobs : [];
+    return {
+      total: safeJobs.length,
+      running: safeJobs.filter(j => j?.status === 'running').length,
+      completed: safeJobs.filter(j => j?.status === 'completed').length,
+      failed: safeJobs.filter(j => j?.status === 'failed').length
+    };
+  }, [jobs]);
 
-  const filteredJobs = useMemo(() =>
-    jobs.filter(j => {
+  const filteredJobs = useMemo(() => {
+    const safeJobs = Array.isArray(jobs) ? jobs : [];
+    return safeJobs.filter(j => {
+      if (!j) return false;
       const taskText = j.task || '';
       const matchesSearch = taskText.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === 'all' || j.status === statusFilter;
       return matchesSearch && matchesStatus;
-    }),
-    [jobs, searchTerm, statusFilter]
-  );
+    });
+  }, [jobs, searchTerm, statusFilter]);
 
   const submitTask = async (task: string, cwd: string, dryRun: boolean) => {
     if (!task) return { ok: false, error: 'Task is required' };
@@ -81,10 +86,30 @@ export const useJobs = (projectPath?: string) => {
       const response = await fetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
       if (response.ok) {
         fetchJobs();
+        toast.info(`Job cancellation requested`);
         return true;
       }
     } catch (error) {
       console.error('Failed to cancel job:', error);
+      toast.error("Failed to cancel job");
+    }
+    return false;
+  };
+
+  const resumeJob = async (jobId: string) => {
+    try {
+      const response = await fetch(`/jobs/${jobId}/resume`, { method: 'POST' });
+      if (response.ok) {
+        fetchJobs();
+        toast.success(`Job resumed from last checkpoint`);
+        return true;
+      } else {
+        const err = await response.json();
+        toast.error(`Resume failed: ${err.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to resume job:', error);
+      toast.error("Network error while resuming job");
     }
     return false;
   };
@@ -101,6 +126,7 @@ export const useJobs = (projectPath?: string) => {
     filteredJobs,
     fetchJobs,
     submitTask,
-    cancelJob
+    cancelJob,
+    resumeJob
   };
 };

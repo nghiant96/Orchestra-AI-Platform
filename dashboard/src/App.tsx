@@ -12,6 +12,7 @@ import {
   Server
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { Toaster, toast } from 'sonner';
 import type { Job } from './types';
 import { cn } from './utils/cn';
 import { StatCard } from './components/StatCard';
@@ -58,6 +59,7 @@ function App() {
     fetchJobs,
     submitTask,
     cancelJob,
+    resumeJob,
     jobs
   } = useJobs(currentProject);
 
@@ -80,6 +82,7 @@ function App() {
     setSelectedProject(path);
     setFormCwd(path); // Update form to match
     localStorage.setItem('orchestra_project', path);
+    toast.success(`Switched to project: ${path.split('/').pop()}`);
   };
 
   const selectedJob = useMemo(() =>
@@ -92,8 +95,9 @@ function App() {
     const result = await submitTask(task, displayCwd, dryRun);
     if (result.ok) {
       setTask('');
+      toast.success("Task submitted to orchestration queue");
     } else {
-      alert(`Error: ${result.error}`);
+      toast.error(`Submission failed: ${result.error}`);
     }
   };
 
@@ -222,7 +226,13 @@ function App() {
       <AnimatePresence>
         {selectedJob && (
           <Suspense fallback={null}>
-            <JobDetailModal job={selectedJob} onClose={() => setSelectedJobId(null)} onRefresh={fetchJobs} />
+            <JobDetailModal 
+              job={selectedJob} 
+              onClose={() => setSelectedJobId(null)} 
+              onRefresh={fetchJobs}
+              onRetry={handleRerun}
+              onResume={resumeJob}
+            />
           </Suspense>
         )}
       </AnimatePresence>
@@ -257,6 +267,7 @@ function App() {
           </div>
         </div>
       </footer>
+      <Toaster position="top-right" expand={true} richColors closeButton />
     </div>
   );
 }

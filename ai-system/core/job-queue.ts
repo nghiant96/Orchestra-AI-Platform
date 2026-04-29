@@ -39,6 +39,7 @@ export interface JobQueueRunInput {
   task: string;
   cwd: string;
   dryRun: boolean;
+  resume?: boolean;
   signal?: AbortSignal;
 }
 
@@ -212,6 +213,7 @@ export class FileBackedJobQueue {
         task: running.task,
         cwd: running.cwd,
         dryRun: running.dryRun,
+        resume: running.resume,
         signal: controller.signal
       });
 
