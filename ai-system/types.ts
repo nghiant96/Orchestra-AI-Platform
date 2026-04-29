@@ -280,6 +280,25 @@ export interface ExecutionProviderMetric {
   estimatedCostUnits: number;
 }
 
+export type FailureClass =
+  | "provider_timeout"
+  | "provider_error"
+  | "tool_execution_failed"
+  | "context_overflow"
+  | "budget_exceeded"
+  | "validation_failed"
+  | "user_cancelled"
+  | "internal_error";
+
+export interface FailureMetadata {
+  class: FailureClass;
+  message: string;
+  detail?: string;
+  step?: string;
+  retryable: boolean;
+  suggestion?: string;
+}
+
 export interface ExecutionSummary {
   totalDurationMs: number;
   steps: ExecutionStepSummary[];

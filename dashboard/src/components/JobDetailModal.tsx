@@ -23,6 +23,7 @@ import type { Job } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { FileDiffView } from './FileDiffView';
 import { StreamingConsole } from './StreamingConsole';
+import { FailurePanel } from './FailurePanel';
 
 interface JobDetailModalProps {
   job: Job;
@@ -147,6 +148,9 @@ export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps)
                 exit={{ opacity: 0, x: 10 }}
                 className="space-y-8"
               >
+                {job.status === 'failed' && job.failure && (
+                  <FailurePanel failure={job.failure} />
+                )}
                 <section>
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                     <Terminal size={14} />

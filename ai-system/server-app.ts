@@ -326,6 +326,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
               updatedAt: run.updatedAt || new Date().toISOString(),
               artifactPath: run.runPath,
               resultSummary: run.execution?.failure?.reason || run.status,
+              failure: run.status === 'failed' ? classifyError(run.execution?.failure?.reason) : undefined,
               diffSummaries: run.diffSummaries,
               latestToolResults: run.latestToolResults,
               execution: run.execution ? {
@@ -463,6 +464,28 @@ function respondJson(res: http.ServerResponse, statusCode: number, body: unknown
     "Expires": "0"
   });
   res.end(JSON.stringify(body, null, 2));
+}
+
+function classifyError(error: any): import("./types.js").FailureMetadata {
+  const msg = error?.message || String(error);
+  
+  if (msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
+    return { class: "provider_timeout", message: "AI Provider request timed out", retryable: true, suggestion: "Check your internet connection or try a faster model." };
+  }
+  if (msg.includes("rate limit") || msg.includes("429")) {
+    return { class: "provider_error", message: "AI Provider rate limit exceeded", retryable: true, suggestion: "Wait a few minutes or switch to another provider." };
+  }
+  if (msg.includes("context length") || msg.includes("token limit")) {
+    return { class: "context_overflow", message: "File context is too large", retryable: false, suggestion: "Try to reduce the number of files in context or use a model with larger context window." };
+  }
+  if (msg.includes("budget exceeded") || msg.includes("max cost")) {
+    return { class: "budget_exceeded", message: "Execution budget reached", retryable: false, suggestion: "Increase max_cost_units in system configuration." };
+  }
+  if (msg.includes("Command failed")) {
+    return { class: "tool_execution_failed", message: "Build or test tool failed", retryable: true, suggestion: "Fix the syntax errors in your code and run again." };
+  }
+  
+  return { class: "internal_error", message: msg, retryable: true, suggestion: "Check server logs for more details." };
 }
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {

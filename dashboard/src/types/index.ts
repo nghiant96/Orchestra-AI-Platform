@@ -35,6 +35,14 @@ export interface DiffSummary {
   changedLineEstimate: number;
 }
 
+export interface FailureMetadata {
+  class: string;
+  message: string;
+  detail?: string;
+  retryable: boolean;
+  suggestion?: string;
+}
+
 export interface Job {
   jobId: string;
   status: 'queued' | 'running' | 'waiting_for_approval' | 'completed' | 'failed' | 'cancel_requested' | 'cancelled';
@@ -48,6 +56,7 @@ export interface Job {
   artifactPath?: string | null;
   resultSummary?: string | null;
   error?: string | null;
+  failure?: FailureMetadata;
   diffSummaries?: DiffSummary[];
   latestToolResults?: ToolResult[];
   execution?: {
