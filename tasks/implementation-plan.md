@@ -32,7 +32,7 @@ Acceptance:
 
 ## Phase 1 - v0.2 Green Operations Baseline
 
-Status: planned
+Status: completed
 
 Goal: make queue, server, dashboard, and checks predictable for daily internal use.
 
@@ -80,7 +80,7 @@ Acceptance:
 
 ## Phase 1.5 - v0.2.5 Dashboard Polish
 
-Status: planned
+Status: completed
 
 Goal: make the existing dashboard easier to operate and easier to maintain before adding Task Contracts.
 
@@ -148,7 +148,7 @@ Acceptance:
 
 ## Phase 2 - v0.3 Task Contracts
 
-Status: planned
+Status: completed
 
 Goal: turn user intent into explicit requirements that can be checked.
 
@@ -208,7 +208,7 @@ Acceptance:
 
 ## Phase 3 - v0.4 Policy-Based Automation
 
-Status: planned
+Status: completed
 
 Goal: choose approval and verification behavior based on task risk.
 
@@ -251,7 +251,7 @@ Acceptance:
 
 ## Phase 4 - v0.5 Productized Dashboard
 
-Status: planned
+Status: completed
 
 Goal: make dashboard the primary operations surface.
 
@@ -270,14 +270,14 @@ Acceptance:
 
 ## Phase 5 - v0.6 Multi-Project And Team Readiness
 
-Status: planned
+Status: completed
 
 Goal: support multiple repositories and operators safely.
 
 Tasks:
 
 - [x] Add project registry.
-- [ ] Add per-project queues and artifacts.
+- [x] Add per-project queues and artifacts.
 - [x] Add role model: viewer, operator, admin.
 - [x] Add approval and config permissions.
 - [x] Add audit log for job creation, approval, writes, provider usage, and checks.
@@ -288,7 +288,7 @@ Acceptance:
 
 ## Phase 6 - v0.7 Learning System
 
-Status: planned
+Status: completed
 
 Goal: improve behavior from prior executions and corrections.
 

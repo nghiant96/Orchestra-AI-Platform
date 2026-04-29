@@ -29,7 +29,10 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
 
     const listed = await requestJson(baseUrl, "GET", "/jobs");
     assert.equal(Array.isArray(listed.jobs), true);
-    assert.equal(listed.jobs.some((job: any) => job.jobId === created.jobId), true);
+    assert.equal(
+      listed.jobs.some((job: any) => job.jobId === created.jobId),
+      true
+    );
   } finally {
     await closeServer(server);
     await fs.rm(repoRoot, { recursive: true, force: true });
@@ -153,28 +156,57 @@ test("project registry and audit log expose multi-project operations", async () 
     assert.equal(projects.projects.length, 2);
     assert.ok(projects.projects.some((project: any) => project.cwd === repoRoot && project.queueDir.includes(".ai-system-server")));
 
-    const denied = await requestJson(
-      baseUrl,
-      "POST",
-      "/jobs",
-      { task: "viewer should not enqueue" },
-      403,
-      { "x-ai-system-role": "viewer" }
-    );
+    const denied = await requestJson(baseUrl, "POST", "/jobs", { task: "viewer should not enqueue" }, 403, {
+      "x-ai-system-role": "viewer"
+    });
     assert.equal(denied.error, "Operator role required");
 
-    const created = await requestJson(
-      baseUrl,
-      "POST",
-      "/jobs",
-      { task: "audited job", dryRun: true },
-      undefined,
-      { "x-ai-system-role": "operator", "x-ai-system-actor": "tester" }
-    );
+    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "audited job", dryRun: true }, undefined, {
+      "x-ai-system-role": "operator",
+      "x-ai-system-actor": "tester"
+    });
     await waitForJob(baseUrl, String(created.jobId), "completed");
 
     const audit = await requestJson(baseUrl, "GET", "/audit");
     assert.ok(audit.events.some((event: any) => event.action === "job.create" && event.actor.id === "tester"));
+  } finally {
+    await closeServer(server);
+    await fs.rm(repoRoot, { recursive: true, force: true });
+    await fs.rm(otherRoot, { recursive: true, force: true });
+  }
+});
+
+test("jobs API filters queue records by requested project cwd", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-project-a-"));
+  const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-project-b-"));
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot, otherRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const first = await requestJson(baseUrl, "POST", "/jobs", { task: "project a" });
+    const second = await requestJson(baseUrl, "POST", "/jobs", { task: "project b", cwd: otherRoot });
+    await waitForJob(baseUrl, String(first.jobId), "completed");
+    await waitForJob(baseUrl, String(second.jobId), "completed");
+
+    const projectA = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(repoRoot)}`);
+    assert.deepEqual(
+      projectA.jobs.map((job: any) => job.cwd),
+      [repoRoot]
+    );
+
+    const projectB = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(otherRoot)}`);
+    assert.deepEqual(
+      projectB.jobs.map((job: any) => job.cwd),
+      [otherRoot]
+    );
+
+    const rejected = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(path.dirname(repoRoot))}`, undefined, 403);
+    assert.equal(rejected.ok, false);
   } finally {
     await closeServer(server);
     await fs.rm(repoRoot, { recursive: true, force: true });
@@ -290,17 +322,7 @@ async function waitForJob(baseUrl: string, jobId: string, status: string): Promi
   throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
 }
 
-function createResult({
-  task,
-  cwd,
-  dryRun,
-  ok
-}: {
-  task: string;
-  cwd: string;
-  dryRun: boolean;
-  ok: boolean;
-}): OrchestratorResult {
+function createResult({ task, cwd, dryRun, ok }: { task: string; cwd: string; dryRun: boolean; ok: boolean }): OrchestratorResult {
   return {
     ok,
     status: ok ? "completed" : "failed",

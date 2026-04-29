@@ -26,3 +26,11 @@ uses `import path from "node:path"`.
 
 **Rule**: Before writing new files, check the import convention of existing files in the project
 and follow it exactly.
+
+## 2026-04-29: Use the required completion tool in Antigravity
+
+**Mistake**: Reported task completion in a plain assistant response even though the harness
+required `attempt_completion`, causing an automated retry request.
+
+**Rule**: When work is complete in this environment, finish with `attempt_completion` and include
+the final task checklist there instead of replying conversationally.

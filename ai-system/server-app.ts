@@ -9,12 +9,7 @@ import { buildProjectRegistry } from "./core/project-registry.js";
 import { appendProjectLesson, proposeLessonsFromRuns, readProjectLessons } from "./core/lessons.js";
 import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
-import {
-  loadJsonIfExists,
-  writeJsonFile,
-  resolveProjectConfigPath,
-  mergeConfig
-} from "./utils/config.js";
+import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
 import type { Logger, RulesConfig, RunStatus } from "./types.js";
 
 export interface ServerAppOptions {
@@ -44,11 +39,14 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     broadcastLog(level, message);
   };
 
-  const pendingApprovals = new Map<string, {
-    resolve: (value: boolean) => void,
-    type: 'plan' | 'checkpoint',
-    data?: any
-  }>();
+  const pendingApprovals = new Map<
+    string,
+    {
+      resolve: (value: boolean) => void;
+      type: "plan" | "checkpoint";
+      data?: any;
+    }
+  >();
   const auditLog = new FileAuditLog(resolveAuditLogPath(defaultCwd));
 
   const runner: JobRunner =
@@ -57,27 +55,28 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       const confirmationHandler: import("./types.js").ConfirmationHandler = {
         confirmPlan: async (plan) => {
           return new Promise((resolve) => {
-            pendingApprovals.set(jobId, { resolve, type: 'plan', data: plan });
-            void queue.get(jobId).then(j => {
-              if (j) queue.updateJob(j, { 
-                status: 'waiting_for_approval',
-                resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
-                execution: {
-                  ...j.execution,
-                  pendingPlan: plan
-                }
-              });
+            pendingApprovals.set(jobId, { resolve, type: "plan", data: plan });
+            void queue.get(jobId).then((j) => {
+              if (j)
+                queue.updateJob(j, {
+                  status: "waiting_for_approval",
+                  resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
+                  execution: {
+                    ...j.execution,
+                    pendingPlan: plan
+                  }
+                });
             });
-            broadcastLog('info', 'Waiting for user approval of the plan...', jobId);
+            broadcastLog("info", "Waiting for user approval of the plan...", jobId);
           });
         },
         confirmCheckpoint: async (message, artifactPath) => {
           return new Promise((resolve) => {
-            pendingApprovals.set(jobId, { resolve, type: 'checkpoint', data: { message, artifactPath } });
-            void queue.get(jobId).then(j => {
-              if (j) queue.updateJob(j, { status: 'waiting_for_approval' });
+            pendingApprovals.set(jobId, { resolve, type: "checkpoint", data: { message, artifactPath } });
+            void queue.get(jobId).then((j) => {
+              if (j) queue.updateJob(j, { status: "waiting_for_approval" });
             });
-            broadcastLog('info', `Checkpoint: ${message}. Waiting for approval...`, jobId);
+            broadcastLog("info", `Checkpoint: ${message}. Waiting for approval...`, jobId);
           });
         }
       };
@@ -144,7 +143,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         res.writeHead(200, {
           "Content-Type": "text/event-stream",
           "Cache-Control": "no-cache",
-          "Connection": "keep-alive"
+          Connection: "keep-alive"
         });
         res.write(": ok\n\n");
         logClients.add(res);
@@ -156,8 +155,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (url.pathname === "/health" && req.method === "GET") {
         const jobs = await queue.list();
-        const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'waiting_for_approval');
-        const queuedJobs = jobs.filter(j => j.status === 'queued');
+        const activeJobs = jobs.filter((j) => j.status === "running" || j.status === "waiting_for_approval");
+        const queuedJobs = jobs.filter((j) => j.status === "queued");
         const { rules } = await loadRules(defaultCwd);
         const approvalMode = resolveApprovalPolicy("", rules);
 
@@ -206,7 +205,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       if (url.pathname === "/lessons" && req.method === "GET") {
         const cwd = resolveRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots) ?? defaultCwd;
         const { rules } = await loadRules(cwd);
-        const runs = await Promise.all((await listRecentRunSummaries(cwd, rules, 50)).map(async (entry) => await loadRunSummary(cwd, rules, entry.runName)));
+        const runs = await Promise.all(
+          (await listRecentRunSummaries(cwd, rules, 50)).map(async (entry) => await loadRunSummary(cwd, rules, entry.runName))
+        );
         return respondJson(res, 200, {
           ok: true,
           lessons: await readProjectLessons(cwd),
@@ -283,8 +284,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           if (maxDaily && maxDaily > 0) {
             // Self-call stats to get usage
             const stats = await aggregateStats(cwd, rules);
-            const todayStr = new Date().toISOString().split('T')[0];
-            const todayCost = stats.costByDay.find(d => d.date === todayStr)?.cost || 0;
+            const todayStr = new Date().toISOString().split("T")[0];
+            const todayCost = stats.costByDay.find((d) => d.date === todayStr)?.cost || 0;
 
             if (todayCost >= maxDaily) {
               return respondJson(res, 403, {
@@ -323,6 +324,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         const jobId = contentMatch[1] ?? "";
         const filePath = url.searchParams.get("path");
         const type = url.searchParams.get("type") || "generated"; // "original" or "generated"
+        const requestedCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+        if (!requestedCwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
 
         if (!filePath) {
           return respondJson(res, 400, { ok: false, error: "Missing path parameter" });
@@ -332,8 +337,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         let artifactPath = job?.artifactPath;
 
         if (!artifactPath && jobId.startsWith("run-")) {
-          const { rules } = await loadRules(defaultCwd);
-          const artifactsDir = path.resolve(defaultCwd, rules.artifacts?.data_dir || ".ai-system-artifacts");
+          const { rules } = await loadRules(requestedCwd);
+          const artifactsDir = path.resolve(requestedCwd, rules.artifacts?.data_dir || ".ai-system-artifacts");
           artifactPath = path.join(artifactsDir, jobId);
         }
 
@@ -350,9 +355,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             return respondJson(res, 404, { ok: false, error: "No iteration data found" });
           }
 
-          const iterationDir = path.isAbsolute(latestIterationPath)
-            ? latestIterationPath
-            : path.join(artifactPath, latestIterationPath);
+          const iterationDir = path.isAbsolute(latestIterationPath) ? latestIterationPath : path.join(artifactPath, latestIterationPath);
 
           const subDir = type === "original" ? "files-original" : "files";
           const fullPath = path.join(iterationDir, subDir, filePath);
@@ -380,7 +383,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             return respondJson(res, 404, { ok: false, error: "Project config file not found. Create .ai-system.json first." });
           }
 
-          const existing = await loadJsonIfExists<any>(configPath) || {};
+          const existing = (await loadJsonIfExists<any>(configPath)) || {};
           const updated = mergeConfig(existing, payload);
           await writeJsonFile(configPath, updated);
           await auditLog.append({
@@ -422,13 +425,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         const jobs = await queue.list(500);
-        const finished = jobs.filter(j => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled');
+        const finished = jobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled");
         let deletedCount = 0;
         for (const job of finished) {
-          try {
-            await fs.unlink(path.join(resolveJobQueueDirectory(defaultCwd), `${job.jobId}.json`));
-            deletedCount++;
-          } catch { /* ignore */ }
+          if (await queue.delete(job.jobId)) deletedCount++;
         }
         await auditLog.append({
           actor,
@@ -464,7 +464,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/stats" && req.method === "GET") {
-        const filterCwd = url.searchParams.get("cwd") || defaultCwd;
+        const filterCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+        if (!filterCwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
         try {
           const { rules } = await loadRules(filterCwd);
           const stats = await aggregateStats(filterCwd, rules);
@@ -475,29 +478,29 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/jobs" && req.method === "GET") {
-        const filterCwd = url.searchParams.get("cwd");
+        const filterCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+        if (!filterCwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
         const jobs = await queue.list();
-        
-        // Lọc queue jobs theo filterCwd nếu có
-        const filteredQueueJobs = filterCwd 
-          ? jobs.filter(j => j.cwd === filterCwd || j.cwd.startsWith(filterCwd))
-          : jobs;
 
-        options.logger.info(`GET /jobs - Found ${filteredQueueJobs.length} jobs in queue${filterCwd ? ` for ${filterCwd}` : ''}`);
+        // Lọc queue jobs theo filterCwd nếu có
+        const filteredQueueJobs = jobs.filter((j) => isPathWithinRoot(filterCwd, j.cwd));
+
+        options.logger.info(`GET /jobs - Found ${filteredQueueJobs.length} jobs in queue${filterCwd ? ` for ${filterCwd}` : ""}`);
 
         // Load recent runs from artifacts
         try {
-          const targetCwd = filterCwd || defaultCwd;
-          const { rules } = await loadRules(targetCwd);
-          const recentRuns = await listRecentRunSummaries(targetCwd, rules, 20);
-          options.logger.info(`GET /jobs - Found ${recentRuns.length} recent runs in ${targetCwd}`);
+          const { rules } = await loadRules(filterCwd);
+          const recentRuns = await listRecentRunSummaries(filterCwd, rules, 20);
+          options.logger.info(`GET /jobs - Found ${recentRuns.length} recent runs in ${filterCwd}`);
 
           const runJobs: QueueJob[] = recentRuns
-            .filter(run => !jobs.some(j => j.artifactPath === run.runPath || j.jobId === run.runName))
-            .map(run => mapRunSummaryToQueueJob(run, defaultCwd));
+            .filter((run) => !jobs.some((j) => j.artifactPath === run.runPath || j.jobId === run.runName))
+            .map((run) => mapRunSummaryToQueueJob(run, filterCwd));
 
-          const merged = [...filteredQueueJobs, ...runJobs].sort((a, b) =>
-            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          const merged = [...filteredQueueJobs, ...runJobs].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
 
           return respondJson(res, 200, {
@@ -538,7 +541,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           details: { pendingType: pending.type }
         });
 
-        options.logger.info(`Job ${jobId} ${approved ? 'approved' : 'rejected'} via Dashboard.`);
+        options.logger.info(`Job ${jobId} ${approved ? "approved" : "rejected"} via Dashboard.`);
         return respondJson(res, 200, { ok: true, action });
       }
 
@@ -549,16 +552,21 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
         if (!job && jobId.startsWith("run-")) {
           try {
-            const { rules } = await loadRules(defaultCwd);
-            const summary = await loadRunSummary(defaultCwd, rules, jobId);
+            const requestedCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+            if (!requestedCwd) {
+              return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+            }
+            const { rules } = await loadRules(requestedCwd);
+            const summary = await loadRunSummary(requestedCwd, rules, jobId);
             if (summary && summary.runState) {
               job = {
                 jobId: jobId,
                 status: normalizeRunStatus(summary.runState.status || "completed"),
                 task: summary.runState.task || "",
-                cwd: defaultCwd,
+                cwd: requestedCwd,
                 dryRun: summary.runState.dryRun || false,
-                approvalMode: summary.runState.approvalPolicy?.approvalMode ?? (summary.runState.status?.startsWith("paused_") ? "manual" : undefined),
+                approvalMode:
+                  summary.runState.approvalPolicy?.approvalMode ?? (summary.runState.status?.startsWith("paused_") ? "manual" : undefined),
                 approvalPolicy: summary.runState.approvalPolicy ?? summary.artifactIndex?.approvalPolicy ?? undefined,
                 createdAt: summary.runState.execution?.transitions?.[0]?.timestamp || new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
@@ -567,13 +575,15 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
                 error: summary.runState.status === "failed" ? "Run failed." : null,
                 diffSummaries: summary.runState.diffSummaries || summary.artifactIndex?.diffSummaries,
                 latestToolResults: summary.runState.latestToolResults || summary.artifactIndex?.latestToolResults,
-                execution: summary.runState.execution ? {
-                  transitions: summary.runState.execution.transitions,
-                  providerMetrics: summary.runState.execution.providerMetrics,
-                  budget: summary.runState.execution.budget,
-                  totalDurationMs: summary.runState.execution.totalDurationMs,
-                  retryHint: summary.runState.execution.retryHint ?? null
-                } : undefined
+                execution: summary.runState.execution
+                  ? {
+                      transitions: summary.runState.execution.transitions,
+                      providerMetrics: summary.runState.execution.providerMetrics,
+                      budget: summary.runState.execution.budget,
+                      totalDurationMs: summary.runState.execution.totalDurationMs,
+                      retryHint: summary.runState.execution.retryHint ?? null
+                    }
+                  : undefined
               };
             }
           } catch {
@@ -619,10 +629,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           }
           const job = await queue.get(jobId);
           if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
-          const newJob = await queue.enqueue({ 
-            task: job.task, 
-            cwd: job.cwd, 
-            dryRun: job.dryRun 
+          const newJob = await queue.enqueue({
+            task: job.task,
+            cwd: job.cwd,
+            dryRun: job.dryRun
           });
           await auditLog.append({ actor, action: "job.retry", cwd: job.cwd, jobId: newJob.jobId, details: { sourceJobId: jobId } });
           return respondJson(res, 201, newJob);
@@ -662,6 +672,10 @@ function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: s
   return allowedRoots.some((root) => isPathWithinRoot(root, requested)) ? requested : null;
 }
 
+function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {
+  return resolveRequestedCwd(typeof value === "string" && value.trim() ? value : undefined, defaultCwd, allowedRoots);
+}
+
 function isPathWithinRoot(root: string, candidate: string): boolean {
   const resolvedRoot = path.resolve(root);
   const resolvedCandidate = path.resolve(candidate);
@@ -681,8 +695,8 @@ function respondJson(res: http.ServerResponse, statusCode: number, body: unknown
   res.writeHead(statusCode, {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    "Pragma": "no-cache",
-    "Expires": "0"
+    Pragma: "no-cache",
+    Expires: "0"
   });
   res.end(JSON.stringify(body, null, 2));
 }
@@ -695,17 +709,16 @@ export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: 
   };
 }
 
-export function mapRunSummaryToQueueJob(
-  run: Awaited<ReturnType<typeof listRecentRunSummaries>>[number],
-  defaultCwd: string
-): QueueJob {
+export function mapRunSummaryToQueueJob(run: Awaited<ReturnType<typeof listRecentRunSummaries>>[number], defaultCwd: string): QueueJob {
   return {
     jobId: run.runName,
     status: normalizeRunStatus(run.status),
     task: run.task,
     cwd: defaultCwd,
     dryRun: run.dryRun,
-    approvalMode: run.approvalPolicy?.approvalMode ?? (run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined),
+    approvalMode:
+      run.approvalPolicy?.approvalMode ??
+      (run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined),
     approvalPolicy: run.approvalPolicy ?? undefined,
     createdAt: run.updatedAt || new Date().toISOString(),
     updatedAt: run.updatedAt || new Date().toISOString(),
@@ -714,13 +727,15 @@ export function mapRunSummaryToQueueJob(
     failure: run.status === "failed" ? classifyError(run.execution?.failure?.reason) : undefined,
     diffSummaries: run.diffSummaries,
     latestToolResults: run.latestToolResults,
-    execution: run.execution ? {
-      transitions: run.execution.transitions,
-      providerMetrics: run.execution.providerMetrics,
-      budget: run.execution.budget,
-      totalDurationMs: run.execution.totalDurationMs,
-      retryHint: run.execution.retryHint ?? null
-    } : undefined
+    execution: run.execution
+      ? {
+          transitions: run.execution.transitions,
+          providerMetrics: run.execution.providerMetrics,
+          budget: run.execution.budget,
+          totalDurationMs: run.execution.totalDurationMs,
+          retryHint: run.execution.retryHint ?? null
+        }
+      : undefined
   };
 }
 
@@ -743,23 +758,48 @@ function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
 
 function classifyError(error: any): import("./types.js").FailureMetadata {
   const msg = error?.message || String(error);
-  
+
   if (msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
-    return { class: "provider_timeout", message: "AI Provider request timed out", retryable: true, suggestion: "Check your internet connection or try a faster model." };
+    return {
+      class: "provider_timeout",
+      message: "AI Provider request timed out",
+      retryable: true,
+      suggestion: "Check your internet connection or try a faster model."
+    };
   }
   if (msg.includes("rate limit") || msg.includes("429")) {
-    return { class: "provider_error", message: "AI Provider rate limit exceeded", retryable: true, suggestion: "Wait a few minutes or switch to another provider." };
+    return {
+      class: "provider_error",
+      message: "AI Provider rate limit exceeded",
+      retryable: true,
+      suggestion: "Wait a few minutes or switch to another provider."
+    };
   }
   if (msg.includes("context length") || msg.includes("token limit")) {
-    return { class: "context_overflow", message: "File context is too large", retryable: false, suggestion: "Try to reduce the number of files in context or use a model with larger context window." };
+    return {
+      class: "context_overflow",
+      message: "File context is too large",
+      retryable: false,
+      suggestion: "Try to reduce the number of files in context or use a model with larger context window."
+    };
   }
   if (msg.includes("budget exceeded") || msg.includes("max cost")) {
-    return { class: "budget_exceeded", message: "Execution budget reached", retryable: false, suggestion: "Increase max_cost_units in system configuration." };
+    return {
+      class: "budget_exceeded",
+      message: "Execution budget reached",
+      retryable: false,
+      suggestion: "Increase max_cost_units in system configuration."
+    };
   }
   if (msg.includes("Command failed")) {
-    return { class: "tool_execution_failed", message: "Build or test tool failed", retryable: true, suggestion: "Fix the syntax errors in your code and run again." };
+    return {
+      class: "tool_execution_failed",
+      message: "Build or test tool failed",
+      retryable: true,
+      suggestion: "Fix the syntax errors in your code and run again."
+    };
   }
-  
+
   return { class: "internal_error", message: msg, retryable: true, suggestion: "Check server logs for more details." };
 }
 
@@ -778,22 +818,22 @@ async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, u
 
 async function aggregateStats(cwd: string, rules: any) {
   const recentRuns = await listRecentRunSummaries(cwd, rules, 50);
-  
+
   const stats = {
     totalProjectCost: 0,
     costByDay: {} as Record<string, number>,
     failuresByClass: {} as Record<string, number>,
-    avgDurationByStage: {} as Record<string, { total: number, count: number }>,
-    providerPerformance: {} as Record<string, { runs: number, failures: number, durationMs: number, costUnits: number }>,
+    avgDurationByStage: {} as Record<string, { total: number; count: number }>,
+    providerPerformance: {} as Record<string, { runs: number; failures: number; durationMs: number; costUnits: number }>
   };
 
   for (const run of recentRuns) {
-    const date = (run.updatedAt || new Date().toISOString()).split('T')[0]!;
+    const date = (run.updatedAt || new Date().toISOString()).split("T")[0]!;
     const cost = run.execution?.budget?.totalCostUnits || 0;
     stats.totalProjectCost += cost;
     stats.costByDay[date] = (stats.costByDay[date] || 0) + cost;
 
-    if (run.status === 'failed') {
+    if (run.status === "failed") {
       const error = classifyError(run.execution?.failure?.reason);
       stats.failuresByClass[error.class] = (stats.failuresByClass[error.class] || 0) + 1;
     }
@@ -809,7 +849,7 @@ async function aggregateStats(cwd: string, rules: any) {
 
     if (run.execution?.transitions) {
       for (const t of run.execution.transitions) {
-        if (t.status === 'completed' && t.durationMs) {
+        if (t.status === "completed" && t.durationMs) {
           const current = stats.avgDurationByStage[t.stage] || { total: 0, count: 0 };
           current.total += t.durationMs;
           current.count += 1;
@@ -821,18 +861,22 @@ async function aggregateStats(cwd: string, rules: any) {
 
   return {
     totalProjectCost: stats.totalProjectCost,
-    costByDay: Object.entries(stats.costByDay).map(([date, cost]) => ({ date, cost })).sort((a, b) => a.date.localeCompare(b.date)),
+    costByDay: Object.entries(stats.costByDay)
+      .map(([date, cost]) => ({ date, cost }))
+      .sort((a, b) => a.date.localeCompare(b.date)),
     failuresByClass: Object.entries(stats.failuresByClass).map(([name, count]) => ({ name, count })),
     avgDurationByStage: Object.entries(stats.avgDurationByStage).map(([stage, data]) => ({
       stage,
       avgMs: Math.round(data.total / data.count)
     })),
-    providerPerformance: Object.entries(stats.providerPerformance).map(([provider, data]) => ({
-      provider,
-      runs: data.runs,
-      failureRate: data.runs > 0 ? data.failures / data.runs : 0,
-      avgDurationMs: data.runs > 0 ? Math.round(data.durationMs / data.runs) : 0,
-      totalCostUnits: data.costUnits
-    })).sort((left, right) => right.runs - left.runs)
+    providerPerformance: Object.entries(stats.providerPerformance)
+      .map(([provider, data]) => ({
+        provider,
+        runs: data.runs,
+        failureRate: data.runs > 0 ? data.failures / data.runs : 0,
+        avgDurationMs: data.runs > 0 ? Math.round(data.durationMs / data.runs) : 0,
+        totalCostUnits: data.costUnits
+      }))
+      .sort((left, right) => right.runs - left.runs)
   };
 }

@@ -23,6 +23,7 @@ Last updated: 2026-04-29
 - [x] Phase 2.2: Add deterministic contract extraction beyond Event Feed.
 - [x] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.
 - [x] Phase 2.4: Expand contract results in Job Detail with pass/fail state.
+- [x] Phase 5: Complete multi-project queue/artifact isolation.
 
 ## Completion Notes
 
@@ -42,3 +43,4 @@ Last updated: 2026-04-29
 - Policy decisions are now persisted into run-state and artifact-index, including risk signals for paths, dependency/security areas, broad generated-file scope, and large diffs.
 - Multi-project foundation now exposes `/projects`, role-aware operator/admin permissions, and `/audit` events for job, queue, config, and lesson actions.
 - Learning foundation now reads/writes `tasks/lessons.md`, injects relevant lessons into planning, proposes rules from repeated failure classes, and surfaces lessons in the dashboard.
+- Multi-project readiness is complete: queue listing, stats, artifact lookup, run lookup, and clear-finished behavior now respect validated project cwd boundaries.

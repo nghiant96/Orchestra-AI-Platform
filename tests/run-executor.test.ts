@@ -32,7 +32,7 @@ describe("Run Executor Core", () => {
   it("loadImplementationMemoryContext formats memory matches", async () => {
     const memoryMock: any = {
       searchRelevant: async () => [{ content: "match 1" }, { content: "match 2" }],
-      formatForPrompt: (matches: any[]) => matches.map(m => m.content).join("\n")
+      formatForPrompt: (matches: any[]) => matches.map((m) => m.content).join("\n")
     };
 
     const loggerMock: any = createLogger({ verbose: false });
@@ -64,14 +64,17 @@ describe("Run Executor Core", () => {
 
     const result = sanitizeGeneratedFiles(files, plan, { max_write_files: 8 } as any, process.cwd());
 
-    assert.deepEqual(result.map((file) => file.path), ["dashboard/src/App.tsx"]);
+    assert.deepEqual(
+      result.map((file) => file.path),
+      ["dashboard/src/App.tsx"]
+    );
   });
 
   it("shouldUseStrictReview only enables strict review for high-risk policy decisions", () => {
     const basePolicy = {
       riskScore: 0,
       signals: [],
-      approvalMode: "manual",
+      approvalMode: "manual" as const,
       interactive: true,
       pauseAfterPlan: false,
       pauseAfterGenerate: false,
