@@ -115,6 +115,8 @@ export async function reviewCurrentRepoChanges({
       normalizeReviewResult(
         await runtime.reviewer.reviewCode(
           effectiveTask,
+          null,
+          false,
           changes.originalFiles,
           changes.candidateFiles,
           preReviewIssues,

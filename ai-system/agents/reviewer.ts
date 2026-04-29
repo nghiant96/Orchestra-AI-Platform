@@ -4,6 +4,7 @@ import type {
   DiffSummary,
   GeneratedFile,
   JsonSchema,
+  PlanResult,
   ReviewIssue,
   ReviewResult
 } from "../types.js";
@@ -19,6 +20,8 @@ export class ReviewerAgent {
 
   async reviewCode(
     task: string,
+    plan: PlanResult | null,
+    isStrict: boolean,
     originalFiles: Array<{ path: string; content?: string | null }>,
     candidateFiles: GeneratedFile[],
     validationIssues: ReviewIssue[],
@@ -32,11 +35,17 @@ export class ReviewerAgent {
       ...originalFiles.map((file) => file.path),
       ...candidateFiles.map((file) => file.path)
     ], promptOptions);
-    const systemPrompt = compilePrompt(template, { examples });
+
+    let systemPrompt = compilePrompt(template, { examples });
+    if (isStrict) {
+      systemPrompt += "\n\nThis is a HIGH-RISK task. You MUST perform a STRICT REVIEW. Explicitly verify all contracts and security requirements defined in the plan. Any deviation from the plan or missing security/dependency checks MUST be flagged as high or medium severity blocking issues.";
+    }
 
     const prompt = JSON.stringify(
       {
         task,
+        plan,
+        isStrict,
         originalFiles,
         candidateFiles,
         validationIssues,

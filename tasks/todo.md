@@ -18,7 +18,7 @@ Last updated: 2026-04-29
 - [x] Phase 1.5.1: Decompose Job Detail into stable section components.
 - [x] Phase 1.5.3: Decompose Config View into policy panels without changing form shape.
 - [x] Phase 1.5.4: Add Project Health from existing health/artifact data.
-- [ ] Phase 3.1-3.3: Add explainable risk policy and show approval decisions.
+- [x] Phase 3.1-3.3: Add explainable risk policy and show approval decisions (high-risk strict review complete).
 - [x] Phase 2.1: Add generic Task Contract model.
 - [x] Phase 2.2: Add deterministic contract extraction beyond Event Feed.
 - [x] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.

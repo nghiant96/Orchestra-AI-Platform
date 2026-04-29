@@ -230,7 +230,7 @@ Tasks:
 
 - [x] Low risk: auto-run with standard checks.
 - [x] Medium risk: pause after plan.
-- [ ] High risk: pause after generate and use strict review.
+- [x] High risk: pause after generate and use strict review.
 - [x] Blocked: require explicit manual approval before write.
 
 Acceptance:

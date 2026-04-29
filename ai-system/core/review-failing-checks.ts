@@ -89,6 +89,8 @@ export async function reviewFailingChecks({
     async () =>
       await runtime.reviewer.reviewCode(
         reviewTask,
+        null,
+        false,
         originalFiles,
         candidateFiles,
         toolExecution.issues,

@@ -134,7 +134,7 @@ Generator rules:
 
 Reviewer contract
 
-`agents/gemini.js` must also expose `reviewCode(task, originalFiles, candidateFiles, validationIssues, diffSummaries, rules)`.
+`agents/gemini.js` must also expose `reviewCode(task, plan, isStrict, originalFiles, candidateFiles, validationIssues, diffSummaries, cwd, memoryContext?)`.
 
 The reviewer output must be strict JSON with this schema:
 
