@@ -33,9 +33,27 @@ Key outcomes:
 
 Acceptance:
 
+- Zero test failures across the full repository suite.
 - Full baseline gates are green.
 - A simple queue task can run without approval when `skip_approval=true`.
 - A failed queue task shows a clear failure class and retry recommendation.
+
+## v0.2.5 - Dashboard Polish
+
+Goal: close the dashboard usability gap before building larger contract and policy features.
+
+Key outcomes:
+
+- Job Detail is split into clear sections: Summary, Plan, Checks, Review, Artifacts, Retry, and later Contract.
+- FailurePanel shows failure class, retryability, retry hint, and suggested next action.
+- Activity Feed has stable counts, wrapped filters, and live status clarity.
+- Config View remains the policy/config editor, but large panels are decomposed for maintainability.
+- Project Health shows the latest baseline gate state.
+
+Acceptance:
+
+- A user can understand a failed job and choose the right action without reading terminal output.
+- Dashboard code is decomposed enough that Job Detail and Config View changes can be made safely.
 
 ## v0.3 - Task Contracts
 
@@ -44,6 +62,7 @@ Goal: make user requirements explicit, checkable, and visible.
 Key outcomes:
 
 - A Task Contract layer extracts concrete requirements from the user task.
+- Existing `task-requirements.ts` Event Feed checks are migrated into the first generic contract extractors and validators.
 - Contracts are stored in plan artifacts.
 - Generator, reviewer, and fixer all receive the same contract.
 - Deterministic checks reject candidates that miss contract items.

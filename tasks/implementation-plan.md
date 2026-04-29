@@ -62,6 +62,7 @@ Tasks:
 
 Acceptance:
 
+- Full `pnpm test` has zero failures.
 - `tests/server-queue.test.ts` passes reliably in isolation and in full suite.
 
 ### 1.3 Dashboard Operations UX
@@ -76,6 +77,60 @@ Tasks:
 Acceptance:
 
 - A user can inspect a failed job and know the next action without terminal logs.
+
+## Phase 1.5 - v0.2.5 Dashboard Polish
+
+Status: planned
+
+Goal: make the existing dashboard easier to operate and easier to maintain before adding Task Contracts.
+
+### 1.5.1 Job Detail Decomposition
+
+Tasks:
+
+- [ ] Split Job Detail into section components: Summary, Plan, Checks, Review, Artifacts, Retry, and Contract placeholder.
+- [ ] Keep the existing modal API stable for callers.
+- [ ] Add tests or type-level coverage for job states: queued, running, waiting for approval, failed, completed, cancelled.
+
+Acceptance:
+
+- Job Detail changes no longer require editing a single large component.
+- Failed jobs show the full execution story in a predictable order.
+
+### 1.5.2 Failure And Retry UX
+
+Tasks:
+
+- [ ] Expand FailurePanel to show failure class, retryable flag, retry hint stage, reason, and suggested action.
+- [ ] Add disabled/loading states for approve, reject, retry, resume, and cancel actions.
+- [ ] Show when an action is unavailable and why.
+
+Acceptance:
+
+- A user can decide whether to retry, resume, inspect artifacts, or edit config from the dashboard.
+
+### 1.5.3 Config View Decomposition
+
+Tasks:
+
+- [ ] Split Config View into smaller panels: Approval, Budgets, Providers, Routing, Memory, Tools.
+- [ ] Preserve the existing form data shape.
+- [ ] Keep save behavior unchanged.
+
+Acceptance:
+
+- Config policy changes can be reviewed and tested independently by panel.
+
+### 1.5.4 Project Health
+
+Tasks:
+
+- [ ] Add a Project Health panel showing last known typecheck, lint, test, dashboard build, and audit status when available.
+- [ ] Reuse artifact or stats data instead of inventing a new storage layer in this phase.
+
+Acceptance:
+
+- The dashboard can answer whether the project baseline is currently healthy.
 
 ### 1.4 Quality Gate Policy
 
@@ -102,6 +157,7 @@ Goal: turn user intent into explicit requirements that can be checked.
 Tasks:
 
 - [ ] Add a `TaskContract` type with id, description, severity, check strategy, and status.
+- [ ] Add migration wrappers so current Event Feed requirement checks can emit `TaskContract` items without behavior loss.
 - [ ] Store contracts in plan artifacts.
 - [ ] Include contracts in generator, reviewer, and fixer prompts.
 - [ ] Add contract results to iteration artifacts.
@@ -129,6 +185,7 @@ Acceptance:
 Tasks:
 
 - [ ] Move existing Event Feed requirement guards into the generic contract system.
+- [ ] Preserve current Event Feed tests as regression tests during migration.
 - [ ] Fail candidates that miss medium/high contract requirements.
 - [ ] Feed contract failures into fixer iterations.
 - [ ] Add tests for pass/fail contract scenarios.
@@ -251,8 +308,8 @@ Acceptance:
 
 Recommended order:
 
-1. Complete Phase 1.3 Dashboard Operations UX.
-2. Complete Phase 1.4 Quality Gate Policy documentation and safe profile checks.
-3. Start Phase 2.1 Contract Model.
-4. Migrate Event Feed requirement guards into the generic contract model.
-5. Add dashboard visibility for contract results.
+1. Keep full baseline gates at zero failures.
+2. Complete Phase 1.3 Dashboard Operations UX.
+3. Complete Phase 1.4 Quality Gate Policy documentation and safe profile checks.
+4. Complete Phase 1.5 Dashboard Polish.
+5. Start Phase 2.1 Contract Model and migrate Event Feed guards without behavior loss.

@@ -37,6 +37,7 @@ test("runToolChecks auto-detects npm scripts and stores structured command resul
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.writeFile(
       path.join(tempDir, "package.json"),
       JSON.stringify(
@@ -103,6 +104,7 @@ test("runToolChecks supports changed-file placeholders in configured script args
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.writeFile(
       path.join(tempDir, "package.json"),
       JSON.stringify(
@@ -166,6 +168,7 @@ test("runToolChecks auto-detects scoped lint/test scripts for changed files", as
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.writeFile(
       path.join(tempDir, "package.json"),
       JSON.stringify(
@@ -299,6 +302,7 @@ test("runToolChecks prefers the changed package lint script over the root lint s
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.mkdir(path.join(tempDir, "dashboard/scripts"), { recursive: true });
     await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.writeFile(
@@ -652,6 +656,7 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.writeFile(
       path.join(tempDir, "package.json"),
       JSON.stringify(
@@ -1142,6 +1147,7 @@ test("runToolChecks scopes package build scripts for dashboard changes when buil
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.mkdir(path.join(tempDir, "dashboard/scripts"), { recursive: true });
     await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await fs.writeFile(

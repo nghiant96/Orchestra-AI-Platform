@@ -15,6 +15,7 @@ Last updated: 2026-04-29
 
 - [ ] Phase 1.3: Improve Dashboard Operations UX.
 - [ ] Phase 1.4: Document and harden Quality Gate Policy.
+- [ ] Phase 1.5: Dashboard Polish and component decomposition.
 - [ ] Phase 2.1: Add generic Task Contract model.
 - [ ] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.
 - [ ] Phase 2.4: Show contract results in Job Detail.
@@ -24,3 +25,4 @@ Last updated: 2026-04-29
 - `tasks/roadmap.md` is now the roadmap source of truth.
 - `tasks/implementation-plan.md` is now the concrete phase-by-phase execution plan.
 - Old review and roadmap documents have been removed from the active project tree.
+- Claude's roadmap assessment has been incorporated where it affects roadmap clarity: explicit zero test failure gate, v0.2.5 Dashboard Polish, and Task Contract migration path.
