@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Logger, OrchestratorResult, PlanResult } from "../types.js";
+import type { FailureMetadata, Logger, OrchestratorResult, PlanResult } from "../types.js";
 
 export type QueueJobStatus =
   | "queued"
@@ -25,6 +25,7 @@ export interface QueueJob {
   artifactPath?: string | null;
   resultSummary?: string | null;
   error?: string | null;
+  failure?: FailureMetadata;
   diffSummaries?: import("../types.js").DiffSummary[];
   latestToolResults?: import("../types.js").ToolExecutionResult[];
   execution?: {
@@ -52,7 +53,9 @@ export class FileBackedJobQueue {
   private drainTimer: NodeJS.Timeout | null = null;
   private controllers = new Map<string, AbortController>();
   private activeWorkspaces = new Set<string>();
+  private activeRunPromises = new Set<Promise<void>>();
   private isPaused = false;
+  private isStopped = false;
 
   constructor(
     readonly jobsDir: string,
@@ -65,7 +68,7 @@ export class FileBackedJobQueue {
 
   setPaused(paused: boolean): void {
     this.isPaused = paused;
-    if (!paused) {
+    if (!paused && !this.isStopped) {
       this.scheduleDrain();
     }
   }
@@ -159,8 +162,18 @@ export class FileBackedJobQueue {
   }
 
   start(): void {
+    this.isStopped = false;
     this.scheduleDrain();
     this.cleanupHungJobs();
+  }
+
+  async stop(): Promise<void> {
+    this.isStopped = true;
+    if (this.drainTimer) {
+      clearTimeout(this.drainTimer);
+      this.drainTimer = null;
+    }
+    await Promise.allSettled([...this.activeRunPromises]);
   }
 
   private async cleanupHungJobs(): Promise<void> {
@@ -178,6 +191,9 @@ export class FileBackedJobQueue {
   }
 
   private scheduleDrain(): void {
+    if (this.isStopped) {
+      return;
+    }
     if (this.drainTimer) {
       return;
     }
@@ -188,7 +204,7 @@ export class FileBackedJobQueue {
   }
 
   private async drain(): Promise<void> {
-    if (this.isPaused) {
+    if (this.isPaused || this.isStopped) {
       return;
     }
     const concurrency = Math.max(1, Number(this.options.concurrency || 1));
@@ -202,11 +218,14 @@ export class FileBackedJobQueue {
       }
       this.activeJobs += 1;
       this.activeWorkspaces.add(next.cwd);
-      void this.runJob(next).finally(() => {
+      const runPromise = this.runJob(next).finally(() => {
         this.activeJobs -= 1;
         this.activeWorkspaces.delete(next.cwd);
+        this.activeRunPromises.delete(runPromise);
         this.scheduleDrain();
       });
+      this.activeRunPromises.add(runPromise);
+      void runPromise;
     }
   }
 

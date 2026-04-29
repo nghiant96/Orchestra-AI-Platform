@@ -1136,6 +1136,75 @@ test("createDryRunToolExecutionSummary skips command-based checks explicitly", a
   }
 });
 
+test("runToolChecks scopes package build scripts for dashboard changes when build is enabled", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-build-scope-"));
+  const changedFiles: GeneratedFile[] = [{ path: "dashboard/src/App.tsx", content: "export const App = () => null;\n" }];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "dashboard/scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          private: true,
+          scripts: {
+            build: "node ./scripts/root-build.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "dashboard/package.json"),
+      JSON.stringify(
+        {
+          name: "dashboard",
+          private: true,
+          scripts: {
+            build: "node ./scripts/package-build.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(path.join(tempDir, "scripts/root-build.js"), "console.log('root build'); process.exit(1);\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "dashboard/scripts/package-build.js"), "console.log(process.cwd()); process.exit(0);\n", "utf8");
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: true,
+          commands: {
+            lint: { enabled: false },
+            typecheck: { enabled: false },
+            build: { enabled: true },
+            test: { enabled: false }
+          }
+        }
+      })
+    });
+
+    const buildResult = summary.results.find((entry) => entry.name === "build");
+    assert.equal(buildResult?.ok, true);
+    assert.equal(buildResult?.scope, "package");
+    assert.equal(buildResult?.workingDirectory, "dashboard");
+    assert.deepEqual(buildResult?.args, ["run", "build"]);
+    assert.match(buildResult?.stdout ?? "", /dashboard/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 function createRules(override: Partial<RulesConfig> = {}): RulesConfig {
   return {
     max_iterations: 3,

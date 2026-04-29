@@ -11,7 +11,7 @@ import {
   resolveProjectConfigPath,
   mergeConfig
 } from "./utils/config.js";
-import type { Logger } from "./types.js";
+import type { Logger, RulesConfig, RunStatus } from "./types.js";
 
 export interface ServerAppOptions {
   defaultCwd: string;
@@ -102,10 +102,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         });
       }
 
+      const { rules } = await loadRules(cwd);
+      const approvalMode = resolveQueueRunApprovalMode(rules);
       return orchestrator.run(task, {
         dryRun,
-        interactive: true,
-        pauseAfterPlan: true,
+        interactive: approvalMode.interactive,
+        pauseAfterPlan: approvalMode.pauseAfterPlan,
         signal
       });
     });
@@ -116,7 +118,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   });
   queue.start();
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     // Basic CORS support
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
@@ -399,26 +401,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
           const runJobs: QueueJob[] = recentRuns
             .filter(run => !jobs.some(j => j.artifactPath === run.runPath || j.jobId === run.runName))
-            .map(run => ({
-              jobId: run.runName,
-              status: run.status as any,
-              task: run.task,
-              cwd: defaultCwd,
-              dryRun: run.dryRun,
-              createdAt: run.updatedAt || new Date().toISOString(),
-              updatedAt: run.updatedAt || new Date().toISOString(),
-              artifactPath: run.runPath,
-              resultSummary: run.execution?.failure?.reason || run.status,
-              failure: run.status === 'failed' ? classifyError(run.execution?.failure?.reason) : undefined,
-              diffSummaries: run.diffSummaries,
-              latestToolResults: run.latestToolResults,
-              execution: run.execution ? {
-                transitions: run.execution.transitions,
-                providerMetrics: run.execution.providerMetrics,
-                budget: run.execution.budget,
-                totalDurationMs: run.execution.totalDurationMs
-              } : undefined
-            }));
+            .map(run => mapRunSummaryToQueueJob(run, defaultCwd));
 
           const merged = [...filteredQueueJobs, ...runJobs].sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -468,7 +451,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             if (summary && summary.runState) {
               job = {
                 jobId: jobId,
-                status: (summary.runState.status || "completed") as any,
+                status: normalizeRunStatus(summary.runState.status || "completed"),
                 task: summary.runState.task || "",
                 cwd: defaultCwd,
                 dryRun: summary.runState.dryRun || false,
@@ -533,6 +516,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       });
     }
   });
+  server.on("close", () => {
+    void queue.stop();
+  });
+  return server;
 }
 
 function normalizeAllowedWorkdirs(values: string[] | undefined, defaultCwd: string): string[] {
@@ -573,6 +560,57 @@ function respondJson(res: http.ServerResponse, statusCode: number, body: unknown
     "Expires": "0"
   });
   res.end(JSON.stringify(body, null, 2));
+}
+
+export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: boolean; pauseAfterPlan: boolean } {
+  const skipApproval = (rules as RulesConfig & { skip_approval?: boolean }).skip_approval === true;
+  return {
+    interactive: !skipApproval,
+    pauseAfterPlan: !skipApproval
+  };
+}
+
+export function mapRunSummaryToQueueJob(
+  run: Awaited<ReturnType<typeof listRecentRunSummaries>>[number],
+  defaultCwd: string
+): QueueJob {
+  return {
+    jobId: run.runName,
+    status: normalizeRunStatus(run.status),
+    task: run.task,
+    cwd: defaultCwd,
+    dryRun: run.dryRun,
+    createdAt: run.updatedAt || new Date().toISOString(),
+    updatedAt: run.updatedAt || new Date().toISOString(),
+    artifactPath: run.runPath,
+    resultSummary: run.execution?.failure?.reason || run.status,
+    failure: run.status === "failed" ? classifyError(run.execution?.failure?.reason) : undefined,
+    diffSummaries: run.diffSummaries,
+    latestToolResults: run.latestToolResults,
+    execution: run.execution ? {
+      transitions: run.execution.transitions,
+      providerMetrics: run.execution.providerMetrics,
+      budget: run.execution.budget,
+      totalDurationMs: run.execution.totalDurationMs
+    } : undefined
+  };
+}
+
+function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
+  switch (status) {
+    case "completed":
+    case "resumed_completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    case "paused_after_plan":
+    case "paused_after_generate":
+      return "waiting_for_approval";
+    default:
+      return "failed";
+  }
 }
 
 function classifyError(error: any): import("./types.js").FailureMetadata {

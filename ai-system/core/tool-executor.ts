@@ -480,11 +480,11 @@ async function resolveToolCommand({
   projectType: string;
 }): Promise<ResolvedToolCommand | null> {
   const packageScope =
-    toolName === "lint" || toolName === "test" || toolName === "typecheck"
+    toolName === "lint" || toolName === "test" || toolName === "typecheck" || toolName === "build"
       ? await detectPackageScopeContext(repoRoot, changedPaths, packageManager)
       : null;
   const workspaceScope =
-    toolName === "lint" || toolName === "test" || toolName === "typecheck"
+    toolName === "lint" || toolName === "test" || toolName === "typecheck" || toolName === "build"
       ? await detectWorkspaceScopeContext(repoRoot, changedPaths, packageManager)
       : null;
 

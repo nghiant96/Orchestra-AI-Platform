@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ExecutionStateMachine } from "../ai-system/core/execution-state-machine.js";
 import { buildExecutionSummary } from "../ai-system/core/execution-summary.js";
-import { estimateProviderCost, estimateRunCostFromPlan } from "../ai-system/utils/cost-calculator.js";
+import { estimateProviderCost, estimateRunCostFromPlan, PROVIDER_DEFAULT_PRICING } from "../ai-system/utils/cost-calculator.js";
 
 test("ExecutionStateMachine records explicit transitions and derives steps", async () => {
   const machine = new ExecutionStateMachine();
@@ -97,7 +97,9 @@ test("cost calculator estimates provider usage and pre-generation budget", () =>
     completionTokens: 500
   });
   assert.equal(usage.totalTokens, 1500);
-  assert.equal(usage.estimatedCostUnits, 0.015);
+  const codexPricing = PROVIDER_DEFAULT_PRICING["codex-cli"];
+  assert.ok(codexPricing);
+  assert.equal(usage.estimatedCostUnits, Number(((1000 / 1_000_000) * codexPricing.input + (500 / 1_000_000) * codexPricing.output).toFixed(6)));
 
   const estimate = estimateRunCostFromPlan({
     task: "Fix a bug in auth handling",

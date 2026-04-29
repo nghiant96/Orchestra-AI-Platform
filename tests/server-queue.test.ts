@@ -5,7 +5,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { createAiSystemServer } from "../ai-system/server-app.js";
+import { createAiSystemServer, mapRunSummaryToQueueJob, resolveQueueRunApprovalMode } from "../ai-system/server-app.js";
 import type { Logger, OrchestratorResult } from "../ai-system/types.js";
 
 test("server jobs API enqueues, completes, lists, and returns stable JSON", async () => {
@@ -31,7 +31,7 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
     assert.equal(Array.isArray(listed.jobs), true);
     assert.equal(listed.jobs.some((job: any) => job.jobId === created.jobId), true);
   } finally {
-    server.close();
+    await closeServer(server);
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
 });
@@ -56,7 +56,7 @@ test("server keeps POST /run synchronous and rejects disallowed job cwd", async 
     assert.equal(rejected.ok, false);
     assert.match(rejected.error, /outside AI_SYSTEM_ALLOWED_WORKDIRS/);
   } finally {
-    server.close();
+    await closeServer(server);
     await fs.rm(repoRoot, { recursive: true, force: true });
     await fs.rm(outsideRoot, { recursive: true, force: true });
   }
@@ -84,16 +84,52 @@ test("server cancels queued jobs", async () => {
 
   try {
     const baseUrl = await listen(server);
-    await requestJson(baseUrl, "POST", "/jobs", { task: "hold worker" });
+    const first = await requestJson(baseUrl, "POST", "/jobs", { task: "hold worker" });
     const queued = await requestJson(baseUrl, "POST", "/jobs", { task: "cancel me" });
     const cancelled = await requestJson(baseUrl, "POST", `/jobs/${queued.jobId}/cancel`);
     assert.equal(cancelled.status, "cancelled");
     releaseFirstJob();
+    await waitForJob(baseUrl, String(queued.jobId), "cancelled");
+    await waitForJob(baseUrl, String(first.jobId), "completed");
   } finally {
     releaseFirstJob();
-    server.close();
+    await closeServer(server);
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
+});
+
+test("queue approval mode follows skip_approval config", () => {
+  assert.deepEqual(resolveQueueRunApprovalMode({ skip_approval: true } as any), {
+    interactive: false,
+    pauseAfterPlan: false
+  });
+  assert.deepEqual(resolveQueueRunApprovalMode({ skip_approval: false } as any), {
+    interactive: true,
+    pauseAfterPlan: true
+  });
+  assert.deepEqual(resolveQueueRunApprovalMode({} as any), {
+    interactive: true,
+    pauseAfterPlan: true
+  });
+});
+
+test("artifact run summaries map to typed queue jobs", () => {
+  const baseRun = {
+    runName: "run-1",
+    status: "completed",
+    task: "done",
+    dryRun: false,
+    updatedAt: "2026-04-29T00:00:00.000Z",
+    runPath: "/tmp/run-1",
+    diffSummaries: [],
+    latestToolResults: [],
+    execution: null
+  } as any;
+
+  assert.equal(mapRunSummaryToQueueJob(baseRun, "/repo").status, "completed");
+  assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "failed" }, "/repo").status, "failed");
+  assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "paused_after_plan" }, "/repo").status, "waiting_for_approval");
+  assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "unexpected" }, "/repo").status, "failed");
 });
 
 async function listen(server: http.Server): Promise<string> {
@@ -101,6 +137,18 @@ async function listen(server: http.Server): Promise<string> {
   const address = server.address();
   assert.ok(address && typeof address === "object");
   return `http://127.0.0.1:${(address as AddressInfo).port}`;
+}
+
+async function closeServer(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 async function requestJson(

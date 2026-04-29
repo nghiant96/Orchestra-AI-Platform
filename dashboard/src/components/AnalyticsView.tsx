@@ -70,7 +70,7 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Intelligence data exported to JSON");
-    } catch (err) {
+    } catch {
       toast.error("Failed to export data");
     }
   };

@@ -346,3 +346,24 @@
 - Focused ESLint for touched type/queue/orchestrator/plugin/server/cost/dashboard hook files: pass.
 - `node --import tsx --test tests/orchestrator.resume.test.ts tests/server-queue.test.ts tests/workflow-modes.test.ts`: pass, 12/12.
 - `git diff --check`: pass.
+
+---
+
+# Green Baseline And Queue Approval Fix
+
+## Tasks
+
+- [x] Fix root lint and stale cost test expectation
+- [x] Add reliable queue stop/drain behavior for server tests
+- [x] Wire queue approval mode to `skip_approval`
+- [x] Replace loose artifact-run job status mapping with typed helpers
+- [x] Scope package build checks for dashboard changes when build checks are enabled
+- [x] Run full baseline gates and record result
+
+## Review Result
+
+- Queue jobs now derive approval behavior from effective rules: `skip_approval: true` runs without plan approval, while false or missing keeps manual review.
+- `FileBackedJobQueue` now has a graceful `stop()` path and tests wait for terminal queue states before temp workspace cleanup.
+- Artifact run summaries now map through typed queue-job helpers instead of `status as any`.
+- Tool checks can select package build scripts for package-scoped changes such as `dashboard/**` when build checks are enabled.
+- Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (144/144), `pnpm run dashboard:build`, `pnpm audit --audit-level high --registry https://registry.npmjs.org`, and `git diff --check` all pass.
