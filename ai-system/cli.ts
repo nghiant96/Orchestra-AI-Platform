@@ -13,7 +13,7 @@ import { handleReviewCommand, handleReviewWorkflow } from "./cli/handlers/review
 import { runTask, runInteractiveSession } from "./cli/handlers/task-handler.js";
 
 async function main(): Promise<void> {
-  const options = await parseArgs(process.argv);
+  const options = await parseArgs(process.argv.slice(2));
   const {
     cwd,
     dryRun,

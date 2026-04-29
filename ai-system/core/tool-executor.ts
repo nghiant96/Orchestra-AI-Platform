@@ -515,7 +515,7 @@ async function resolveToolCommand({
   }
 
   if (!toolConfig?.script) {
-    const scopedAutoCommand = resolveAutoScopedToolCommand(repoRoot, toolName, packageScripts, packageManager, changedPaths, packageScope, sandbox);
+    const scopedAutoCommand = resolveAutoScopedToolCommand(repoRoot, toolName, toolConfig, packageScripts, packageManager, changedPaths, packageScope, sandbox);
     if (scopedAutoCommand) {
       return scopedAutoCommand;
     }
@@ -839,6 +839,7 @@ function buildScriptCommand(
 function resolveAutoScopedToolCommand(
   repoRoot: string,
   toolName: ToolExecutionName,
+  toolConfig: ToolCommandConfig | undefined,
   packageScripts: Record<string, string>,
   packageManager: "pnpm" | "yarn" | "npm",
   changedPaths: string[],
@@ -873,6 +874,11 @@ function resolveAutoScopedToolCommand(
     }
   }
 
+  const directPackageLintCommand = resolveDirectPackageLintCommand(toolName, packageScope, toolConfig, sandbox);
+  if (directPackageLintCommand) {
+    return directPackageLintCommand;
+  }
+
   return null;
 }
 
@@ -896,6 +902,68 @@ function getScopedScriptCandidates(toolName: ToolExecutionName): Array<{ script:
   }
 
   return [];
+}
+
+function resolveDirectPackageLintCommand(
+  toolName: ToolExecutionName,
+  packageScope: PackageScopeContext | null,
+  toolConfig: ToolCommandConfig | undefined,
+  sandbox: ReturnType<typeof resolveToolSandbox>
+): ResolvedToolCommand | null {
+  if (toolName !== "lint" || !packageScope || packageScope.relativeChangedPaths.length === 0) {
+    return null;
+  }
+
+  const lintScript = packageScope.packageScripts.lint;
+  if (!lintScript || !isGenericEslintScript(lintScript)) {
+    return null;
+  }
+
+  const lintablePaths = packageScope.relativeChangedPaths.filter(isEslintablePath);
+  if (lintablePaths.length === 0) {
+    return null;
+  }
+
+  const args = buildPackageManagerExecArgs(packageScope.packageManager, "eslint", lintablePaths);
+  return {
+    name: toolName,
+    command: packageScope.packageManager,
+    args,
+    display: [packageScope.packageManager, ...args].join(" "),
+    cwd: packageScope.cwd,
+    timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
+    retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
+    baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
+    source: "fallback",
+    scopedToChangedFiles: true,
+    scope: "changed-files",
+    sandboxMode: sandbox.mode,
+    image: sandbox.image,
+    env: sandbox.env,
+    workingDirectory: packageScope.workingDirectory
+  };
+}
+
+function isGenericEslintScript(script: string): boolean {
+  return /^eslint\s+\.?(?:\s|$)/.test(script.trim());
+}
+
+function isEslintablePath(filePath: string): boolean {
+  return [".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".mts", ".cts"].includes(path.extname(filePath).toLowerCase());
+}
+
+function buildPackageManagerExecArgs(
+  packageManager: "pnpm" | "yarn" | "npm",
+  binary: string,
+  args: string[]
+): string[] {
+  if (packageManager === "npm") {
+    return ["exec", binary, "--", ...args];
+  }
+  if (packageManager === "yarn") {
+    return [binary, ...args];
+  }
+  return ["exec", binary, ...args];
 }
 
 async function detectPackageScopeContext(

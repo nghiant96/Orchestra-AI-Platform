@@ -50,6 +50,7 @@ export class FileBackedJobQueue {
   private drainTimer: NodeJS.Timeout | null = null;
   private controllers = new Map<string, AbortController>();
   private activeWorkspaces = new Set<string>();
+  private isPaused = false;
 
   constructor(
     readonly jobsDir: string,
@@ -59,6 +60,17 @@ export class FileBackedJobQueue {
       logger?: Logger;
     } = {}
   ) {}
+
+  setPaused(paused: boolean): void {
+    this.isPaused = paused;
+    if (!paused) {
+      this.scheduleDrain();
+    }
+  }
+
+  getPaused(): boolean {
+    return this.isPaused;
+  }
 
   async enqueue(input: Omit<JobQueueRunInput, "jobId">): Promise<QueueJob> {
     const now = new Date().toISOString();
@@ -173,6 +185,9 @@ export class FileBackedJobQueue {
   }
 
   private async drain(): Promise<void> {
+    if (this.isPaused) {
+      return;
+    }
     const concurrency = Math.max(1, Number(this.options.concurrency || 1));
     while (this.activeJobs < concurrency) {
       const all = await this.list(100);

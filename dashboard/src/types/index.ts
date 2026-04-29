@@ -71,6 +71,12 @@ export interface Job {
       totalCostUnits: number;
       exceeded: 'duration' | 'cost' | null;
     } | null;
+    pendingPlan?: {
+      prompt: string;
+      readFiles: string[];
+      writeTargets: string[];
+      notes: string[];
+    };
   };
 }
 
@@ -93,6 +99,7 @@ export interface SystemConfig {
     max_iterations?: number;
     max_files?: number;
     max_context_bytes?: number;
+    skip_approval?: boolean;
     memory?: { backend?: string };
     vector_search?: { enabled?: boolean };
     execution?: { budgets?: { max_cost_units?: number; max_duration_ms?: number; max_daily_cost_units?: number; max_single_run_cost_units?: number } };
@@ -112,6 +119,7 @@ export interface ConfigFormData {
   max_iterations?: number;
   max_daily_cost_units?: number;
   max_single_run_cost_units?: number;
+  skip_approval?: boolean;
   profile: string;
   providers: ProviderFormMap;
 }

@@ -54,7 +54,14 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           return new Promise((resolve) => {
             pendingApprovals.set(jobId, { resolve, type: 'plan', data: plan });
             void queue.get(jobId).then(j => {
-              if (j) queue.updateJob(j, { status: 'waiting_for_approval' });
+              if (j) queue.updateJob(j, { 
+                status: 'waiting_for_approval',
+                resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
+                execution: {
+                  ...j.execution,
+                  pendingPlan: plan
+                }
+              });
             });
             broadcastLog('info', 'Waiting for user approval of the plan...', jobId);
           });
@@ -154,7 +161,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             concurrency: Math.max(1, Number(options.queueConcurrency || 1)),
             activeCount: activeJobs.length,
             queuedCount: queuedJobs.length,
-            totalRecent: jobs.length
+            totalRecent: jobs.length,
+            paused: queue.getPaused()
           },
           memory: {
             usage: process.memoryUsage(),
@@ -311,6 +319,32 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         } catch (err) {
           return respondJson(res, 500, { ok: false, error: (err as Error).message });
         }
+      }
+
+      if (url.pathname === "/queue/pause" && req.method === "POST") {
+        queue.setPaused(true);
+        options.logger.info("System queue PAUSED via Dashboard.");
+        return respondJson(res, 200, { ok: true, paused: true });
+      }
+
+      if (url.pathname === "/queue/resume" && req.method === "POST") {
+        queue.setPaused(false);
+        options.logger.info("System queue RESUMED via Dashboard.");
+        return respondJson(res, 200, { ok: true, paused: false });
+      }
+
+      if (url.pathname === "/queue/clear-finished" && req.method === "POST") {
+        const jobs = await queue.list(500);
+        const finished = jobs.filter(j => j.status === 'completed' || j.status === 'failed' || j.status === 'cancelled');
+        let deletedCount = 0;
+        for (const job of finished) {
+          try {
+            await fs.unlink(path.join(resolveJobQueueDirectory(defaultCwd), `${job.jobId}.json`));
+            deletedCount++;
+          } catch { /* ignore */ }
+        }
+        options.logger.info(`Cleared ${deletedCount} finished jobs from queue.`);
+        return respondJson(res, 200, { ok: true, deletedCount });
       }
 
       if (url.pathname === "/config" && req.method === "GET") {

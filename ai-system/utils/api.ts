@@ -135,7 +135,11 @@ export async function runCommandWithRetry({
   }
 
   const error = lastError as CliCommandError | undefined;
-  throw new Error(`${label} failed after ${retries + 1} attempt(s): ${error?.message ?? "Unknown error"}`);
+  const wrapped: CliCommandError = new Error(`${label} failed after ${retries + 1} attempt(s): ${error?.message ?? "Unknown error"}`);
+  wrapped.code = error?.code;
+  wrapped.stdout = error?.stdout;
+  wrapped.stderr = error?.stderr;
+  throw wrapped;
 }
 
 export async function runCommand({

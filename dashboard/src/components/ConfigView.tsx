@@ -11,15 +11,29 @@ import {
   BarChart3,
   Database,
   FileJson,
-  Layout
+  Layout,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Shield,
+  Lock,
+  Unlock,
+  Gauge,
+  Activity,
+  Trash2
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '../utils/cn';
 import type { SystemConfig, ConfigFormData } from '../types';
 import { StatCard } from './StatCard';
+import { OperationsControl } from './OperationsControl';
+import type { SystemHealth } from '../hooks/useHealth';
 
 interface ConfigViewProps {
   config: SystemConfig | null;
   onUpdate: () => void;
+  health: SystemHealth | null;
+  onRefreshHealth: () => void;
 }
 
 function createConfigFormData(config: SystemConfig): ConfigFormData {
@@ -27,6 +41,7 @@ function createConfigFormData(config: SystemConfig): ConfigFormData {
     max_iterations: config.rules.max_iterations,
     max_daily_cost_units: config.rules.execution?.budgets?.max_daily_cost_units,
     max_single_run_cost_units: config.rules.execution?.budgets?.max_single_run_cost_units,
+    skip_approval: config.rules.skip_approval,
     profile: config.profile || '',
     providers: {
       planner: { model: config.rules.providers?.planner?.model || '' },
@@ -37,13 +52,44 @@ function createConfigFormData(config: SystemConfig): ConfigFormData {
   };
 }
 
-export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
+export const ConfigView = ({ config, onUpdate, health, onRefreshHealth }: ConfigViewProps) => {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+
+  // Custom model aliases persisted in localStorage to stay up-to-date without hardcoding
+  const [modelAliases, setModelAliases] = useState<string[]>(() => {
+    const saved = localStorage.getItem('orchestra_model_aliases');
+    if (saved) return JSON.parse(saved);
+    return [
+      'gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite',
+      'claude-4-7-opus-latest', 'claude-4-6-sonnet-latest', 'claude-4-5-haiku-latest',
+      'gpt-5.5', 'gpt-5.4-thinking', 'gpt-5.3-codex', 'gpt-5.4-mini'
+    ];
+  });
+
+  const [newAlias, setNewAlias] = useState('');
+
   const [formData, setFormData] = useState<ConfigFormData>({
     profile: '',
     providers: {}
   });
+
+  const addAlias = () => {
+    if (newAlias && !modelAliases.includes(newAlias)) {
+      const updated = [newAlias, ...modelAliases];
+      setModelAliases(updated);
+      localStorage.setItem('orchestra_model_aliases', JSON.stringify(updated));
+      setNewAlias('');
+      toast.success(`Added model: ${newAlias}`);
+    }
+  };
+
+  const removeAlias = (alias: string) => {
+    const updated = modelAliases.filter(a => a !== alias);
+    setModelAliases(updated);
+    localStorage.setItem('orchestra_model_aliases', JSON.stringify(updated));
+  };
 
   if (!config) {
     return (
@@ -89,6 +135,58 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-8 pb-20"
     >
+      {/* Operational Profile - Summary of setup modes */}
+      <section className="bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none">
+          <Activity size={120} className="text-indigo-400" />
+        </div>
+
+        <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-white uppercase tracking-tight">
+          <Gauge className="text-indigo-400" />
+          Operational Profile
+        </h2>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
+          <div className={cn(
+            "p-5 rounded-2xl border transition-all flex flex-col items-center justify-center text-center gap-3",
+            config.rules.skip_approval ? "bg-amber-500/10 border-amber-500/20 text-amber-400" : "bg-indigo-500/10 border-indigo-500/20 text-indigo-400"
+          )}>
+            {config.rules.skip_approval ? <Unlock size={24} /> : <Lock size={24} />}
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-60">Approval Mode</p>
+              <p className="text-sm font-black uppercase">{config.rules.skip_approval ? "Auto-Pilot" : "Manual Review"}</p>
+            </div>
+          </div>
+
+          <div className={cn(
+            "p-5 rounded-2xl border transition-all flex flex-col items-center justify-center text-center gap-3",
+            (config.rules.max_iterations || 0) <= 3 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+          )}>
+            <Shield size={24} />
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-60">Safety Level</p>
+              <p className="text-sm font-black uppercase">{(config.rules.max_iterations || 0) <= 3 ? "High Precision" : "Aggressive"}</p>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl border bg-blue-500/10 border-blue-500/20 text-blue-400 flex flex-col items-center justify-center text-center gap-3">
+            <Zap size={24} />
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-60">Cost Guard</p>
+              <p className="text-sm font-black uppercase">{config.rules.execution?.budgets?.max_daily_cost_units ? "Active Enforcement" : "Unlimited"}</p>
+            </div>
+          </div>
+
+          <div className="p-5 rounded-2xl border bg-violet-500/10 border-violet-500/20 text-violet-400 flex flex-col items-center justify-center text-center gap-3">
+            <Layers size={24} />
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-60">Intelligence</p>
+              <p className="text-sm font-black uppercase">{config.rules.vector_search?.enabled ? "Semantic Context" : "Standard Context"}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <div className="flex justify-between items-center px-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">System Registry</h2>
@@ -134,7 +232,7 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
             {editing ? (
               <select
                 value={formData.profile}
-                onChange={(e) => setFormData({...formData, profile: e.target.value})}
+                onChange={(e) => setFormData({ ...formData, profile: e.target.value })}
                 className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
               >
                 <option value="fast">Fast</option>
@@ -158,7 +256,7 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
               <input
                 type="number"
                 value={formData.max_iterations}
-                onChange={(e) => setFormData({...formData, max_iterations: parseInt(e.target.value)})}
+                onChange={(e) => setFormData({ ...formData, max_iterations: parseInt(e.target.value) })}
                 className="w-full mt-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
               />
             ) : (
@@ -169,6 +267,8 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <OperationsControl health={health} onRefresh={onRefreshHealth} />
+
         <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm lg:col-span-2">
           <h2 className="text-xl font-black mb-6 flex items-center gap-3">
             <Layout className="text-violet-500" />
@@ -198,13 +298,13 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
                       {plugin.description || "No description provided."}
                     </p>
                     <div className="flex items-center gap-3">
-                       <span className={cn(
-                         "text-[8px] font-black uppercase px-1.5 py-0.5 rounded border",
-                         plugin.enabled ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
-                       )}>
-                         {plugin.enabled ? "Active" : "Error"}
-                       </span>
-                       {plugin.error && <span className="text-[8px] text-rose-400 font-bold truncate max-w-[150px]">{plugin.error}</span>}
+                      <span className={cn(
+                        "text-[8px] font-black uppercase px-1.5 py-0.5 rounded border",
+                        plugin.enabled ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
+                      )}>
+                        {plugin.enabled ? "Active" : "Error"}
+                      </span>
+                      {plugin.error && <span className="text-[8px] text-rose-400 font-bold truncate max-w-[150px]">{plugin.error}</span>}
                     </div>
                   </div>
                 </div>
@@ -228,17 +328,51 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
                   <span className="text-sm font-black text-slate-800">{setup.type || 'N/A'}</span>
                 </div>
                 {editing ? (
-                  <input
-                    type="text"
-                    value={formData.providers?.[role]?.model || ''}
-                    placeholder="Model name..."
-                    onChange={(e) => {
-                      const newProviders = { ...formData.providers };
-                      newProviders[role] = { ...newProviders[role], model: e.target.value };
-                      setFormData({ ...formData, providers: newProviders });
-                    }}
-                    className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] font-mono font-bold text-indigo-600 outline-none w-40 shadow-inner"
-                  />
+                  <div className="flex gap-2">
+                    <select
+                      value={(() => {
+                        const currentModel = formData.providers?.[role]?.model || '';
+                        return modelAliases.includes(currentModel) ? currentModel : (currentModel ? 'custom' : '');
+                      })()}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const newProviders = { ...formData.providers };
+                        if (val === 'custom') {
+                          const currentModel = formData.providers?.[role]?.model || '';
+                          newProviders[role] = { ...newProviders[role], model: modelAliases.includes(currentModel) ? '' : currentModel };
+                        } else {
+                          newProviders[role] = { ...newProviders[role], model: val };
+                        }
+                        setFormData({ ...formData, providers: newProviders });
+                      }}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[11px] font-bold text-indigo-600 outline-none shadow-sm"
+                    >
+                      <option value="">Select Model...</option>
+                      {modelAliases.map(alias => (
+                        <option key={alias} value={alias}>{alias}</option>
+                      ))}
+                      <option value="custom">-- Custom Model --</option>
+                    </select>
+
+                    {(() => {
+                      const currentModel = formData.providers?.[role]?.model || '';
+                      return (!modelAliases.includes(currentModel) && currentModel !== '') ||
+                        (document.activeElement?.parentElement?.querySelector('select')?.value === 'custom');
+                    })() && (
+                        <input
+                          type="text"
+                          value={formData.providers?.[role]?.model || ''}
+                          placeholder="Enter model name..."
+                          onChange={(e) => {
+                            const newProviders = { ...formData.providers };
+                            newProviders[role] = { ...newProviders[role], model: e.target.value };
+                            setFormData({ ...formData, providers: newProviders });
+                          }}
+                          autoFocus
+                          className="bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-[11px] font-mono font-bold text-indigo-600 outline-none w-40 shadow-inner"
+                        />
+                      )}
+                  </div>
                 ) : (
                   setup.model && <span className="text-[10px] font-mono bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded font-bold">{setup.model}</span>
                 )}
@@ -253,6 +387,29 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
             System Rules
           </h2>
           <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex flex-col justify-between">
+              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Skip Approval</p>
+              {editing ? (
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, skip_approval: !formData.skip_approval })}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all w-fit mt-1",
+                    formData.skip_approval ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-600"
+                  )}
+                >
+                  <CheckCircle2 size={14} />
+                  {formData.skip_approval ? "ENABLED" : "DISABLED"}
+                </button>
+              ) : (
+                <p className={cn(
+                  "text-lg font-bold",
+                  config.rules.skip_approval ? "text-emerald-600" : "text-slate-900"
+                )}>
+                  {config.rules.skip_approval ? 'Active' : 'Disabled'}
+                </p>
+              )}
+            </div>
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Files</p>
               <p className="text-lg font-bold text-slate-900">{config.rules.max_files}</p>
@@ -265,9 +422,43 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Memory Backend</p>
               <p className="text-lg font-bold text-slate-900 capitalize">{config.rules.memory?.backend || 'Local'}</p>
             </div>
-            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Vector Search</p>
-              <p className="text-lg font-bold text-slate-900">{config.rules.vector_search?.enabled ? 'Active' : 'Disabled'}</p>
+          </div>
+        </section>
+
+        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+          <h2 className="text-xl font-black mb-6 flex items-center gap-3">
+            <Layers className="text-indigo-500" />
+            Model Registry
+          </h2>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newAlias}
+                onChange={(e) => setNewAlias(e.target.value)}
+                placeholder="Add new model name..."
+                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-all"
+                onKeyDown={(e) => e.key === 'Enter' && addAlias()}
+              />
+              <button
+                onClick={addAlias}
+                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all"
+              >
+                Add
+              </button>
+            </div>
+            <div className="max-h-[200px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
+              {modelAliases.map(alias => (
+                <div key={alias} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group">
+                  <span className="text-[11px] font-mono font-bold text-slate-600">{alias}</span>
+                  <button
+                    onClick={() => removeAlias(alias)}
+                    className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -285,7 +476,7 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
                   type="number"
                   step="0.01"
                   value={formData.max_single_run_cost_units}
-                  onChange={(e) => setFormData({...formData, max_single_run_cost_units: parseFloat(e.target.value)})}
+                  onChange={(e) => setFormData({ ...formData, max_single_run_cost_units: parseFloat(e.target.value) })}
                   className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
                 />
               ) : (
@@ -299,7 +490,7 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
                   type="number"
                   step="0.1"
                   value={formData.max_daily_cost_units}
-                  onChange={(e) => setFormData({...formData, max_daily_cost_units: parseFloat(e.target.value)})}
+                  onChange={(e) => setFormData({ ...formData, max_daily_cost_units: parseFloat(e.target.value) })}
                   className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
                 />
               ) : (
@@ -324,39 +515,72 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
           </h2>
           <div className="space-y-4">
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-               <span className="text-xs font-bold text-slate-400 uppercase">Routing Enabled</span>
-               <span className={cn(
-                 "text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded",
-                 config.rules.routing?.enabled !== false ? "bg-emerald-100 text-emerald-600" : "bg-slate-200 text-slate-500"
-               )}>
-                 {config.rules.routing?.enabled !== false ? 'Enabled' : 'Disabled'}
-               </span>
+              <span className="text-xs font-bold text-slate-400 uppercase">Routing Enabled</span>
+              <span className={cn(
+                "text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded",
+                config.rules.routing?.enabled !== false ? "bg-emerald-100 text-emerald-600" : "bg-slate-200 text-slate-500"
+              )}>
+                {config.rules.routing?.enabled !== false ? 'Enabled' : 'Disabled'}
+              </span>
             </div>
             <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
-               <span className="text-xs font-bold text-slate-400 uppercase">Adaptive Routing</span>
-               <span className={cn(
-                 "text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded",
-                 config.rules.routing?.adaptive?.enabled ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-500"
-               )}>
-                 {config.rules.routing?.adaptive?.enabled ? 'Active' : 'Inactive'}
-               </span>
+              <span className="text-xs font-bold text-slate-400 uppercase">Adaptive Routing</span>
+              <span className={cn(
+                "text-xs font-black uppercase tracking-widest px-2 py-0.5 rounded",
+                config.rules.routing?.adaptive?.enabled ? "bg-indigo-100 text-indigo-600" : "bg-slate-200 text-slate-500"
+              )}>
+                {config.rules.routing?.adaptive?.enabled ? 'Active' : 'Inactive'}
+              </span>
             </div>
           </div>
         </section>
       </div>
 
-      <section className="bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-xl overflow-hidden relative">
+      {/* Raw Registry with Blur Toggle */}
+      <section className="bg-slate-900 rounded-3xl p-8 border border-slate-800 shadow-xl overflow-hidden relative min-h-[400px]">
         <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
           <FileJson size={120} />
         </div>
-        <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-white">
-          <Database className="text-indigo-400" />
-          Raw Registry
-        </h2>
-        <div className="bg-slate-800/50 rounded-2xl p-6 overflow-x-auto">
-          <pre className="text-xs text-indigo-300 font-mono leading-relaxed">
-            {JSON.stringify(config.rules, null, 2)}
-          </pre>
+
+        <div className="flex justify-between items-center mb-6 relative z-10">
+          <h2 className="text-xl font-black flex items-center gap-3 text-white uppercase tracking-tight">
+            <Database className="text-indigo-400" />
+            Raw Registry
+          </h2>
+          <button
+            onClick={() => setShowRaw(!showRaw)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border",
+              showRaw
+                ? "bg-slate-800 border-slate-700 text-slate-300 hover:text-white"
+                : "bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/20 hover:bg-indigo-700"
+            )}
+          >
+            {showRaw ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showRaw ? "Mờ hóa dữ liệu" : "Hiển thị chi tiết"}
+          </button>
+        </div>
+
+        <div className="relative group rounded-2xl overflow-hidden">
+          {!showRaw && (
+            <div
+              onClick={() => setShowRaw(true)}
+              className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-slate-900/40 backdrop-blur-md cursor-pointer hover:bg-slate-900/30 transition-all group"
+            >
+              <Lock className="text-indigo-400 mb-3 group-hover:scale-110 transition-transform" size={32} />
+              <p className="text-xs font-black text-white uppercase tracking-widest">Dữ liệu hệ thống đã được mờ hóa</p>
+              <p className="text-[10px] text-slate-400 mt-1 uppercase font-bold">Nhấn để giải mã cấu hình</p>
+            </div>
+          )}
+
+          <div className={cn(
+            "bg-slate-800/50 rounded-2xl p-6 overflow-x-auto transition-all duration-700",
+            !showRaw && "grayscale"
+          )}>
+            <pre className="text-xs text-indigo-300 font-mono leading-relaxed">
+              {JSON.stringify(config.rules, null, 2)}
+            </pre>
+          </div>
         </div>
       </section>
     </motion.div>

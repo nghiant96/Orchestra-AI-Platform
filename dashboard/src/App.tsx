@@ -36,7 +36,7 @@ const ViewLoading = () => (
 );
 
 function App() {
-  const { health } = useHealth();
+  const { health, fetchHealth } = useHealth();
   
   const [selectedProject, setSelectedProject] = useState<string>(() => {
     return localStorage.getItem('orchestra_ai_project') || '';
@@ -80,9 +80,10 @@ function App() {
 
   const handleProjectChange = (path: string) => {
     setSelectedProject(path);
-    setFormCwd(path); // Update form to match
+    setFormCwd(''); // Reset manual override when project changes
     localStorage.setItem('orchestra_ai_project', path);
-    toast.success(`Switched to project: ${path.split('/').pop()}`);
+    const projectName = path === '/' ? 'Root' : (path.split('/').pop() || 'Project');
+    toast.success(`Switched to project: ${projectName}`);
   };
 
   const selectedJob = useMemo(() =>
@@ -92,21 +93,33 @@ function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = await submitTask(task, displayCwd, dryRun);
+    const finalCwd = displayCwd;
+    if (!finalCwd) {
+      toast.error("Please specify a workspace directory");
+      return;
+    }
+    const result = await submitTask(task, finalCwd, dryRun);
     if (result.ok) {
       setTask('');
+      setFormCwd(''); // Reset override after success
       toast.success("Task submitted to orchestration queue");
     } else {
       toast.error(`Submission failed: ${result.error}`);
     }
   };
 
-  const handleRerun = (e: React.MouseEvent, job: Job) => {
-    e.stopPropagation();
+  const rerunJob = (job: Job) => {
+    // Switch to the project the job belongs to so the feed updates correctly
+    handleProjectChange(job.cwd);
     setTask(job.task);
     setFormCwd(job.cwd);
     setDryRun(job.dryRun);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleRerun = (e: React.MouseEvent, job: Job) => {
+    e.stopPropagation();
+    rerunJob(job);
   };
 
   return (
@@ -158,14 +171,16 @@ function App() {
                           <History size={22} className="text-indigo-500" />
                           Event Feed
                         </h2>
-                        <div className="flex gap-1.5 p-1 bg-slate-200/50 rounded-xl overflow-x-auto custom-scrollbar no-scrollbar">
+                        <div className="flex gap-2 p-1.5 bg-slate-200/50 rounded-2xl overflow-x-auto custom-scrollbar no-scrollbar border border-slate-200/60">
                           {(['all', 'queued', 'running', 'waiting_for_approval', 'completed', 'failed', 'cancelled'] as const).map(filter => (
                             <button
                               key={filter}
                               onClick={() => setStatusFilter(filter)}
                               className={cn(
-                                "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
-                                statusFilter === filter ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                                "px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 ease-in-out whitespace-nowrap focus:outline-none focus:ring-2 focus:ring-indigo-500/30",
+                                statusFilter === filter
+                                  ? "bg-white text-indigo-600 shadow-sm border border-slate-200/80"
+                                  : "text-slate-500 hover:text-slate-800 hover:bg-slate-200/80 border border-transparent"
                               )}
                             >
                               {filter.replace(/_/g, ' ')}
@@ -207,7 +222,12 @@ function App() {
               </motion.div>
             } />
             <Route path="/config" element={
-              <ConfigView config={config} onUpdate={fetchConfig} />
+              <ConfigView
+                config={config}
+                onUpdate={fetchConfig}
+                health={health}
+                onRefreshHealth={fetchHealth}
+              />
             } />
             <Route path="/analytics" element={
               <AnalyticsView currentProject={currentProject} />
@@ -230,8 +250,8 @@ function App() {
               job={selectedJob} 
               onClose={() => setSelectedJobId(null)} 
               onRefresh={fetchJobs}
-              onRetry={handleRerun}
-              onResume={resumeJob}
+              onRetry={rerunJob}
+              onResume={(job) => resumeJob(job.jobId)}
             />
           </Suspense>
         )}
@@ -254,7 +274,7 @@ function App() {
               </div>
               <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
                 <ShieldCheck size={12} className="text-indigo-400" />
-                CWD: {health?.cwd ? health.cwd.split('/').pop() : 'N/A'}
+                CWD: {health?.cwd ? (health.cwd === '/' ? 'Root' : (health.cwd.split('/').pop() || 'N/A')) : 'N/A'}
               </div>
             </div>
           </div>

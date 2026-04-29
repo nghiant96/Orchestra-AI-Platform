@@ -170,6 +170,49 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
                 {job.status === 'failed' && job.failure && (
                   <FailurePanel failure={job.failure} />
                 )}
+
+                {job.status === 'waiting_for_approval' && job.execution?.pendingPlan && (
+                  <section className="bg-white border-2 border-amber-200 rounded-3xl p-6 shadow-sm mb-8 animate-in zoom-in-95 duration-300">
+                    <h3 className="text-sm font-black text-amber-600 uppercase tracking-tight mb-4 flex items-center gap-2">
+                      <FileCode size={18} />
+                      Proposed Execution Plan
+                    </h3>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Files to Read</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {job.execution.pendingPlan.readFiles.map(f => (
+                            <span key={f} className="bg-slate-100 text-slate-600 text-[10px] font-mono px-2 py-0.5 rounded border border-slate-200">{f}</span>
+                          ))}
+                          {job.execution.pendingPlan.readFiles.length === 0 && <span className="text-[10px] text-slate-400 italic">None</span>}
+                        </div>
+                      </div>
+                      <div className="space-y-3">
+                        <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Files to Modify</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {job.execution.pendingPlan.writeTargets.map(f => (
+                            <span key={f} className="bg-amber-50 text-amber-700 text-[10px] font-mono px-2 py-0.5 rounded border border-amber-200 font-bold">{f}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {job.execution.pendingPlan.notes.length > 0 && (
+                      <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 text-center">Implementation Notes</p>
+                        <ul className="space-y-1.5">
+                          {job.execution.pendingPlan.notes.map((n, i) => (
+                            <li key={i} className="text-xs font-medium text-slate-600 flex gap-2">
+                              <span className="text-amber-400">•</span>
+                              {n}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </section>
+                )}
                 <section>
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                     <Terminal size={14} />

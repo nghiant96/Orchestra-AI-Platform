@@ -11,6 +11,7 @@ export interface SystemHealth {
     activeCount: number;
     queuedCount: number;
     totalRecent: number;
+    paused?: boolean;
   };
   memory: {
     uptime: number;

@@ -362,6 +362,73 @@ test("runToolChecks prefers the changed package lint script over the root lint s
   }
 });
 
+test("runToolChecks scopes generic package eslint scripts to changed files", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-eslint-scope-"));
+  const changedFiles: GeneratedFile[] = [{ path: "dashboard/src/App.tsx", content: "export const App = () => null;\n" }];
+  const previousPath = process.env.PATH;
+
+  try {
+    await fs.mkdir(path.join(tempDir, "dashboard/bin"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "package.json"), JSON.stringify({ name: "workspace-root", private: true }, null, 2), "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "dashboard/package.json"),
+      JSON.stringify(
+        {
+          name: "dashboard",
+          private: true,
+          scripts: {
+            lint: "eslint ."
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    await fs.writeFile(
+      path.join(tempDir, "dashboard/bin/pnpm"),
+      "#!/usr/bin/env node\nconsole.log(process.argv.slice(2).join('|')); process.exit(0);\n",
+      "utf8"
+    );
+    await fs.chmod(path.join(tempDir, "dashboard/bin/pnpm"), 0o755);
+    process.env.PATH = `${path.join(tempDir, "dashboard/bin")}:${previousPath ?? ""}`;
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: true,
+          commands: {
+            lint: { enabled: true },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: { enabled: false }
+          }
+        }
+      })
+    });
+
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.scope, "changed-files");
+    assert.equal(lintResult?.workingDirectory, "dashboard");
+    assert.deepEqual(lintResult?.args, ["exec", "eslint", "src/App.tsx"]);
+    assert.match(lintResult?.stdout ?? "", /exec\|eslint\|src\/App\.tsx/);
+
+  } finally {
+    if (previousPath === undefined) {
+      delete process.env.PATH;
+    } else {
+      process.env.PATH = previousPath;
+    }
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("runToolChecks scopes typecheck to a single changed workspace package when it has a tsconfig", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-typecheck-"));
   const changedFiles: GeneratedFile[] = [{ path: "packages/web/src/example.ts", content: "export const value = 1;\n" }];

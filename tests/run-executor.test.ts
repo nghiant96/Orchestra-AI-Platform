@@ -2,7 +2,8 @@ import { describe, it, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { 
   createExecutionStateMachine,
-  loadImplementationMemoryContext 
+  loadImplementationMemoryContext,
+  sanitizeGeneratedFiles
 } from "../ai-system/core/run-executor.js";
 
 import { createLogger } from "../ai-system/utils/logger.js";
@@ -46,5 +47,22 @@ describe("Run Executor Core", () => {
 
     assert.equal(stats.implementationMatches, 2);
     assert.equal(result, "match 1\nmatch 2");
+  });
+
+  it("sanitizeGeneratedFiles permits updates to planned read files", () => {
+    const plan = {
+      prompt: "Polish Event Feed filters",
+      readFiles: ["dashboard/src/App.tsx"],
+      writeTargets: ["dashboard/src/components/EventFeed.tsx"],
+      notes: []
+    };
+    const files = [
+      { path: "dashboard/src/App.tsx", action: "update", content: "export const App = null;\n" },
+      { path: "dashboard/src/Outside.tsx", action: "update", content: "unexpected\n" }
+    ];
+
+    const result = sanitizeGeneratedFiles(files, plan, { max_write_files: 8 } as any, process.cwd());
+
+    assert.deepEqual(result.map((file) => file.path), ["dashboard/src/App.tsx"]);
   });
 });

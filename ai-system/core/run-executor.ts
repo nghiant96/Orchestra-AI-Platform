@@ -907,8 +907,8 @@ function createBudgetRetryHint(
   };
 }
 
-function sanitizeGeneratedFiles(files: unknown, plan: PlanResult, rules: RulesConfig, repoRoot: string): GeneratedFile[] {
-  const allowedTargets = new Set(plan.writeTargets);
+export function sanitizeGeneratedFiles(files: unknown, plan: PlanResult, rules: RulesConfig, repoRoot: string): GeneratedFile[] {
+  const allowedTargets = new Set([...plan.writeTargets, ...plan.readFiles]);
   const safeFiles: GeneratedFile[] = [];
 
   for (const file of Array.isArray(files) ? files : []) {
