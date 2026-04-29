@@ -447,11 +447,26 @@ export interface ReviewResult {
   issues: ReviewIssue[];
 }
 
+export type TaskContractSeverity = "high" | "medium" | "low";
+export type TaskContractStatus = "pending" | "passed" | "failed" | "unknown";
+export type TaskContractCheckStrategy = "deterministic" | "review" | "tool";
+
+export interface TaskContract {
+  id: string;
+  description: string;
+  severity: TaskContractSeverity;
+  status: TaskContractStatus;
+  checkStrategy: TaskContractCheckStrategy;
+  targetPaths: string[];
+  suggestedFix?: string;
+}
+
 export interface PlanResult {
   prompt: string;
   readFiles: string[];
   writeTargets: string[];
   notes: string[];
+  contracts?: TaskContract[];
 }
 
 export interface FileGenerationResult {

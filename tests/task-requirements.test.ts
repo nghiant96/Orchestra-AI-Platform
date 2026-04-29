@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildTaskContracts,
   enhancePlanForTaskRequirements,
+  validateTaskContractCoverage,
   validateTaskRequirementCoverage
 } from "../ai-system/core/task-requirements.js";
 import type { GeneratedFile, PlanResult } from "../ai-system/types.js";
@@ -22,6 +24,11 @@ describe("task requirement guards", () => {
     assert.ok(enhanced.writeTargets.includes("dashboard/src/App.tsx"));
     assert.ok(enhanced.notes.some((note) => note.includes("horizontal scrolling")));
     assert.ok(enhanced.notes.some((note) => note.includes("job count beside each filter label")));
+    assert.deepEqual(enhanced.contracts?.map((contract) => contract.id), [
+      "event-feed-filter-no-horizontal-scroll",
+      "event-feed-filter-header-then-controls",
+      "event-feed-filter-counts"
+    ]);
   });
 
   it("flags Event Feed filter output that still depends on horizontal scrolling", () => {
@@ -90,5 +97,26 @@ describe("task requirement guards", () => {
     const issues = validateTaskRequirementCoverage(eventFeedTask, files);
 
     assert.deepEqual(issues, []);
+  });
+
+  it("validates migrated TaskContract objects without reparsing task text", () => {
+    const contracts = buildTaskContracts(eventFeedTask);
+    const files: GeneratedFile[] = [
+      {
+        path: "dashboard/src/App.tsx",
+        content: `
+          export function App() {
+            return <section>
+              <h2>Event Feed</h2>
+              <div className="flex flex-wrap">{statusFilters.map((filter) => <button>{filter}</button>)}</div>
+            </section>;
+          }
+        `
+      }
+    ];
+
+    const issues = validateTaskContractCoverage(contracts, files);
+
+    assert.ok(issues.some((issue) => issue.description.includes("job count beside each filter label")));
   });
 });

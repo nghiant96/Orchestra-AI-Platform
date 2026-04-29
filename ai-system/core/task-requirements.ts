@@ -1,8 +1,10 @@
-import type { GeneratedFile, PlanResult, ReviewIssue } from "../types.js";
+import type { GeneratedFile, PlanResult, ReviewIssue, TaskContract } from "../types.js";
 
 interface TaskRequirement {
   id: string;
   note: string;
+  description: string;
+  suggestedFix: string;
 }
 
 const EVENT_FEED_APP_PATH = "dashboard/src/App.tsx";
@@ -22,17 +24,40 @@ export function enhancePlanForTaskRequirements(task: string, plan: PlanResult): 
     ...(isEventFeedFilterTask(task) && readFiles.includes(EVENT_FEED_APP_PATH) ? [EVENT_FEED_APP_PATH] : [])
   ]);
   const notes = unique([...plan.notes, ...requirements.map((requirement) => requirement.note)]);
+  const contracts = mergeContracts(plan.contracts ?? [], buildTaskContracts(task));
 
   return {
     ...plan,
     readFiles,
     writeTargets,
-    notes
+    notes,
+    contracts
   };
 }
 
 export function validateTaskRequirementCoverage(task: string, files: GeneratedFile[]): ReviewIssue[] {
-  if (!isEventFeedFilterTask(task)) {
+  return validateTaskContractCoverage(buildTaskContracts(task), files);
+}
+
+export function buildTaskContracts(task: string): TaskContract[] {
+  return detectTaskRequirements(task).map((requirement) => ({
+    id: requirement.id,
+    description: requirement.description,
+    severity: "medium",
+    status: "pending",
+    checkStrategy: "deterministic",
+    targetPaths: [EVENT_FEED_APP_PATH],
+    suggestedFix: requirement.suggestedFix
+  }));
+}
+
+export function validateTaskContractCoverage(contracts: TaskContract[], files: GeneratedFile[]): ReviewIssue[] {
+  const supportedIds = new Set([
+    "event-feed-filter-no-horizontal-scroll",
+    "event-feed-filter-header-then-controls",
+    "event-feed-filter-counts"
+  ]);
+  if (!contracts.some((contract) => supportedIds.has(contract.id))) {
     return [];
   }
 
@@ -43,7 +68,9 @@ export function validateTaskRequirementCoverage(task: string, files: GeneratedFi
   }
 
   for (const file of candidates) {
-    if (asksNoHorizontalScroll(task) && hasHorizontalScrollRisk(file.content) && !hasWrappingFilterLayout(file.content)) {
+    if (contracts.some((contract) => contract.id === "event-feed-filter-no-horizontal-scroll")
+      && hasHorizontalScrollRisk(file.content)
+      && !hasWrappingFilterLayout(file.content)) {
       issues.push(requirementIssue(
         file.path,
         "Event Feed filter still appears to rely on horizontal scrolling instead of a wrapping or grid layout.",
@@ -51,7 +78,7 @@ export function validateTaskRequirementCoverage(task: string, files: GeneratedFi
       ));
     }
 
-    if (asksFilterCountBesideLabel(task) && !hasPerFilterCount(file.content)) {
+    if (contracts.some((contract) => contract.id === "event-feed-filter-counts") && !hasPerFilterCount(file.content)) {
       issues.push(requirementIssue(
         file.path,
         "The task asks for a job count beside each filter label, but the generated filter UI does not expose per-filter counts.",
@@ -59,7 +86,7 @@ export function validateTaskRequirementCoverage(task: string, files: GeneratedFi
       ));
     }
 
-    if (asksHeaderThenFilters(task) && !hasHeaderThenFilterStructure(file.content)) {
+    if (contracts.some((contract) => contract.id === "event-feed-filter-header-then-controls") && !hasHeaderThenFilterStructure(file.content)) {
       issues.push(requirementIssue(
         file.path,
         "The task asks for a clearer Event Feed filter structure with a title/header above and filters below.",
@@ -80,19 +107,25 @@ function detectTaskRequirements(task: string): TaskRequirement[] {
   if (asksNoHorizontalScroll(task)) {
     requirements.push({
       id: "event-feed-filter-no-horizontal-scroll",
-      note: "Requirement: Event Feed filter controls must not require horizontal scrolling; prefer flex-wrap or a responsive grid."
+      note: "Requirement: Event Feed filter controls must not require horizontal scrolling; prefer flex-wrap or a responsive grid.",
+      description: "Event Feed filter controls must not require horizontal scrolling.",
+      suggestedFix: "Replace horizontal overflow/nowrap filter rows with flex-wrap or a responsive grid."
     });
   }
   if (asksHeaderThenFilters(task)) {
     requirements.push({
       id: "event-feed-filter-header-then-controls",
-      note: "Requirement: put the Event Feed title/header area above and the filter controls below it."
+      note: "Requirement: put the Event Feed title/header area above and the filter controls below it.",
+      description: "Event Feed title/header must be visually above the filter controls.",
+      suggestedFix: "Render the Event Feed title/summary in a header row and place filter controls underneath."
     });
   }
   if (asksFilterCountBesideLabel(task)) {
     requirements.push({
       id: "event-feed-filter-counts",
-      note: "Requirement: show the job count beside each filter label, not only a single global count."
+      note: "Requirement: show the job count beside each filter label, not only a single global count.",
+      description: "Each filter label must show its matching job count.",
+      suggestedFix: "Compute counts per filter/status and render the count next to each filter label."
     });
   }
 
@@ -157,4 +190,15 @@ function normalize(value: string): string {
 
 function unique<T>(items: T[]): T[] {
   return [...new Set(items)];
+}
+
+function mergeContracts(existing: TaskContract[], next: TaskContract[]): TaskContract[] {
+  const byId = new Map<string, TaskContract>();
+  for (const contract of existing) {
+    byId.set(contract.id, contract);
+  }
+  for (const contract of next) {
+    byId.set(contract.id, contract);
+  }
+  return [...byId.values()];
 }

@@ -443,7 +443,8 @@ export async function persistIterationArtifacts(
       prompt: payload.plan.prompt,
       readFiles: payload.plan.readFiles,
       writeTargets: payload.plan.writeTargets,
-      notes: payload.plan.notes
+      notes: payload.plan.notes,
+      contracts: payload.plan.contracts ?? []
     },
     resultSummary: payload.resultSummary,
     candidateFiles: payload.candidateFiles.map((file) => ({

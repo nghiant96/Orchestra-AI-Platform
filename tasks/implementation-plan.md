@@ -13,17 +13,17 @@ This plan breaks the roadmap into concrete implementation phases. Each phase sho
 
 ## Phase 0 - Documentation And Source Cleanup
 
-Status: planned
+Status: completed
 
 Goal: keep one source of truth for roadmap and execution planning.
 
 Tasks:
 
-- [ ] Keep `tasks/roadmap.md` as the only roadmap document.
-- [ ] Keep `tasks/implementation-plan.md` as the detailed execution plan.
-- [ ] Keep `tasks/todo.md` for active task checklists and completion records only.
-- [ ] Remove obsolete review and roadmap documents from root and `tasks/`.
-- [ ] Preserve `tasks/lessons.md` as the project learning log.
+- [x] Keep `tasks/roadmap.md` as the only roadmap document.
+- [x] Keep `tasks/implementation-plan.md` as the detailed execution plan.
+- [x] Keep `tasks/todo.md` for active task checklists and completion records only.
+- [x] Remove obsolete review and roadmap documents from root and `tasks/`.
+- [x] Preserve `tasks/lessons.md` as the project learning log.
 
 Acceptance:
 
@@ -40,10 +40,10 @@ Goal: make queue, server, dashboard, and checks predictable for daily internal u
 
 Tasks:
 
-- [ ] Treat `skip_approval=true` as auto-run for queue jobs.
-- [ ] Keep manual approval as default when `skip_approval` is absent or false.
+- [x] Treat `skip_approval=true` as auto-run for queue jobs.
+- [x] Keep manual approval as default when `skip_approval` is absent or false.
 - [ ] Show approval mode in job detail and health responses.
-- [ ] Add tests for auto-run and manual approval queue jobs.
+- [x] Add tests for auto-run and manual approval queue jobs.
 - [ ] Ensure cancel, retry, resume, and clear-finished preserve consistent job status.
 
 Acceptance:
@@ -55,10 +55,10 @@ Acceptance:
 
 Tasks:
 
-- [ ] Add graceful queue shutdown and active job draining.
-- [ ] Ensure server close does not race active job writes.
-- [ ] Ensure tests wait for terminal job states before temp cleanup.
-- [ ] Add regression tests for cancel and shutdown behavior.
+- [x] Add graceful queue shutdown and active job draining.
+- [x] Ensure server close does not race active job writes.
+- [x] Ensure tests wait for terminal job states before temp cleanup.
+- [x] Add regression tests for cancel and shutdown behavior.
 
 Acceptance:
 
@@ -136,9 +136,9 @@ Acceptance:
 
 Tasks:
 
-- [ ] Use package-scoped lint/typecheck/build when all changed files are inside one package.
-- [ ] Run dashboard build for dashboard changes when build checks are enabled.
-- [ ] Add focused tests for package build scoping.
+- [x] Use package-scoped lint/typecheck/build when all changed files are inside one package.
+- [x] Run dashboard build for dashboard changes when build checks are enabled.
+- [x] Add focused tests for package build scoping.
 - [ ] Document the recommended safe profile checks.
 
 Acceptance:
@@ -156,11 +156,11 @@ Goal: turn user intent into explicit requirements that can be checked.
 
 Tasks:
 
-- [ ] Add a `TaskContract` type with id, description, severity, check strategy, and status.
-- [ ] Add migration wrappers so current Event Feed requirement checks can emit `TaskContract` items without behavior loss.
-- [ ] Store contracts in plan artifacts.
-- [ ] Include contracts in generator, reviewer, and fixer prompts.
-- [ ] Add contract results to iteration artifacts.
+- [x] Add a `TaskContract` type with id, description, severity, check strategy, and status.
+- [x] Add migration wrappers so current Event Feed requirement checks can emit `TaskContract` items without behavior loss.
+- [x] Store contracts in plan artifacts.
+- [x] Include contracts in generator, reviewer, and fixer prompts.
+- [x] Add contract results to iteration artifacts.
 
 Acceptance:
 
@@ -184,11 +184,11 @@ Acceptance:
 
 Tasks:
 
-- [ ] Move existing Event Feed requirement guards into the generic contract system.
-- [ ] Preserve current Event Feed tests as regression tests during migration.
-- [ ] Fail candidates that miss medium/high contract requirements.
-- [ ] Feed contract failures into fixer iterations.
-- [ ] Add tests for pass/fail contract scenarios.
+- [x] Move existing Event Feed requirement guards into the generic contract system.
+- [x] Preserve current Event Feed tests as regression tests during migration.
+- [x] Fail candidates that miss medium/high contract requirements.
+- [x] Feed contract failures into fixer iterations.
+- [x] Add tests for pass/fail contract scenarios.
 
 Acceptance:
 
@@ -198,7 +198,7 @@ Acceptance:
 
 Tasks:
 
-- [ ] Show contract list in Job Detail.
+- [x] Show contract list in Job Detail.
 - [ ] Show pass/fail/unknown status per contract.
 - [ ] Link failed contracts to suggested fixes when available.
 

@@ -211,6 +211,30 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume }: J
                         </ul>
                       </div>
                     )}
+
+                    {(job.execution.pendingPlan.contracts?.length ?? 0) > 0 && (
+                      <div className="mt-4 bg-indigo-50 rounded-2xl p-4 border border-indigo-100">
+                        <p className="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-3 text-center">Task Contract</p>
+                        <div className="space-y-2">
+                          {job.execution.pendingPlan.contracts?.map((contract) => (
+                            <div key={contract.id} className="rounded-xl bg-white border border-indigo-100 p-3">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <span className="text-xs font-black text-slate-800">{contract.description}</span>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-black uppercase text-slate-500">
+                                  {contract.severity}
+                                </span>
+                                <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[9px] font-black uppercase text-indigo-500">
+                                  {contract.checkStrategy}
+                                </span>
+                              </div>
+                              {contract.suggestedFix && (
+                                <p className="text-[11px] font-medium text-slate-500">{contract.suggestedFix}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </section>
                 )}
                 <section>

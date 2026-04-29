@@ -43,6 +43,16 @@ export interface FailureMetadata {
   suggestion?: string;
 }
 
+export interface TaskContract {
+  id: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low';
+  status: 'pending' | 'passed' | 'failed' | 'unknown';
+  checkStrategy: 'deterministic' | 'review' | 'tool';
+  targetPaths: string[];
+  suggestedFix?: string;
+}
+
 export interface Job {
   jobId: string;
   status: 'queued' | 'running' | 'waiting_for_approval' | 'completed' | 'failed' | 'cancel_requested' | 'cancelled';
@@ -76,6 +86,7 @@ export interface Job {
       readFiles: string[];
       writeTargets: string[];
       notes: string[];
+      contracts?: TaskContract[];
     };
   };
 }
