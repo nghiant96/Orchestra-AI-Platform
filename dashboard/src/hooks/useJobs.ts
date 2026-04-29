@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Job } from '../types';
 
-export const useJobs = () => {
+export const useJobs = (projectPath?: string) => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -9,7 +9,11 @@ export const useJobs = () => {
   const [statusFilter, setStatusFilter] = useState<Job['status'] | 'all'>('all');
 
   const fetchJobs = useCallback(() => {
-    fetch(`/jobs?t=${Date.now()}`)
+    const url = projectPath 
+      ? `/jobs?cwd=${encodeURIComponent(projectPath)}&t=${Date.now()}` 
+      : `/jobs?t=${Date.now()}`;
+      
+    fetch(url)
       .then(res => res.json())
       .then(data => {
         // Đảm bảo lấy được mảng jobs dù cấu trúc data như thế nào
@@ -21,7 +25,7 @@ export const useJobs = () => {
         console.error('fetchJobs failed:', error);
         setLoading(false);
       });
-  }, []);
+  }, [projectPath]);
 
   useEffect(() => {
     fetchJobs();

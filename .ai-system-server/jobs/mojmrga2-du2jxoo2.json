@@ -1,0 +1,398 @@
+{
+  "jobId": "mojmrga2-du2jxoo2",
+  "status": "failed",
+  "task": "Chỉnh sửa lại giao diện filter Event Feed cho đẹp. ",
+  "cwd": "/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM",
+  "dryRun": false,
+  "createdAt": "2026-04-29T05:44:35.882Z",
+  "updatedAt": "2026-04-29T05:53:41.127Z",
+  "artifactPath": "/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/.ai-system-artifacts/run-2026-04-29T05-44-36-098Z-1nsa7t",
+  "resultSummary": "Root cause: the prior review only reported repository-level lint/typecheck command failures without file-specific diagnostics for the Event Feed candidate. The scoped replacement keeps the UI polish in App.tsx and tightens the filter value typing so filter buttons stay aligned with the Job status union, including the existing cancel_requested state.",
+  "error": "Tool checks failed: lint, typecheck.",
+  "startedAt": "2026-04-29T05:44:35.978Z",
+  "finishedAt": "2026-04-29T05:53:41.127Z",
+  "diffSummaries": [
+    {
+      "path": "dashboard/src/App.tsx",
+      "beforeLineCount": 265,
+      "afterLineCount": 348,
+      "addedLines": 83,
+      "removedLines": 0,
+      "changedLineEstimate": 331
+    }
+  ],
+  "latestToolResults": [
+    {
+      "name": "json-validation",
+      "kind": "validation",
+      "ok": true,
+      "skipped": false,
+      "issueCount": 0,
+      "durationMs": 0,
+      "summary": "JSON validation passed."
+    },
+    {
+      "name": "lint",
+      "kind": "command",
+      "ok": false,
+      "skipped": false,
+      "issueCount": 1,
+      "durationMs": 7158,
+      "summary": "lint failed.",
+      "command": "pnpm",
+      "args": [
+        "run",
+        "lint"
+      ],
+      "scope": "full",
+      "sandboxMode": "inherit",
+      "exitCode": null,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "typecheck",
+      "kind": "command",
+      "ok": false,
+      "skipped": false,
+      "issueCount": 1,
+      "durationMs": 6868,
+      "summary": "typecheck failed.",
+      "command": "pnpm",
+      "args": [
+        "run",
+        "typecheck"
+      ],
+      "scope": "full",
+      "sandboxMode": "inherit",
+      "exitCode": null,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "build",
+      "kind": "command",
+      "ok": false,
+      "skipped": true,
+      "issueCount": 0,
+      "durationMs": 0,
+      "summary": "Skipped build: no configured or detected command."
+    },
+    {
+      "name": "test",
+      "kind": "command",
+      "ok": false,
+      "skipped": true,
+      "issueCount": 0,
+      "durationMs": 0,
+      "summary": "Skipped test: no configured or detected command."
+    }
+  ],
+  "execution": {
+    "transitions": [
+      {
+        "stage": "routing-planning",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:44:36.096Z",
+        "detail": "Planning routing uses profile balanced."
+      },
+      {
+        "stage": "routing-planning",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:44:36.121Z",
+        "durationMs": 15,
+        "detail": "Planning routing uses profile balanced."
+      },
+      {
+        "stage": "project-tree",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:44:36.122Z"
+      },
+      {
+        "stage": "project-tree",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:44:40.239Z",
+        "durationMs": 4116
+      },
+      {
+        "stage": "planning-memory",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:44:40.242Z",
+        "detail": "Loaded planning memories."
+      },
+      {
+        "stage": "planning-memory",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:44:40.741Z",
+        "durationMs": 498,
+        "detail": "Loaded planning memories."
+      },
+      {
+        "stage": "planner",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:44:40.743Z",
+        "detail": "Planner provider: gemini-cli."
+      },
+      {
+        "stage": "planner",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:45:54.538Z",
+        "durationMs": 73791,
+        "detail": "Planner provider: gemini-cli."
+      },
+      {
+        "stage": "context-expansion",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:45:54.544Z",
+        "detail": "Expanded context from 1 planned file(s) to include dependency and semantic matches."
+      },
+      {
+        "stage": "context-expansion",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:45:56.697Z",
+        "durationMs": 2152,
+        "detail": "Expanded context from 1 planned file(s) to include dependency and semantic matches."
+      },
+      {
+        "stage": "routing-implementation",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:45:56.710Z",
+        "detail": "Implementation routing evaluated after the plan."
+      },
+      {
+        "stage": "routing-implementation",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:45:56.731Z",
+        "durationMs": 20,
+        "detail": "Implementation routing evaluated after the plan."
+      },
+      {
+        "stage": "implementation-memory",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:47:02.433Z",
+        "detail": "Loaded implementation memories."
+      },
+      {
+        "stage": "implementation-memory",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:47:02.526Z",
+        "durationMs": 92,
+        "detail": "Loaded implementation memories."
+      },
+      {
+        "stage": "context",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:47:02.528Z",
+        "detail": "Read 5 context file(s)."
+      },
+      {
+        "stage": "context",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:47:02.570Z",
+        "durationMs": 41,
+        "detail": "Read 5 context file(s)."
+      },
+      {
+        "stage": "iteration-generate",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:47:09.006Z",
+        "detail": "Generating candidate files.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-generate",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:47:52.958Z",
+        "durationMs": 43943,
+        "detail": "Generating candidate files.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-tools",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:47:52.965Z",
+        "detail": "Running repository tool checks for generated files.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-tools",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:48:11.497Z",
+        "durationMs": 18532,
+        "detail": "Running repository tool checks for generated files.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-review",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:48:11.499Z",
+        "detail": "Reviewer provider: codex-cli.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-review",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:48:37.005Z",
+        "durationMs": 25506,
+        "detail": "Reviewer provider: codex-cli.",
+        "iteration": 1
+      },
+      {
+        "stage": "iteration-fix",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:48:37.022Z",
+        "detail": "Fixing blocking issues from prior review.",
+        "iteration": 2
+      },
+      {
+        "stage": "iteration-fix",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:50:19.968Z",
+        "durationMs": 102945,
+        "detail": "Fixing blocking issues from prior review.",
+        "iteration": 2
+      },
+      {
+        "stage": "iteration-tools",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:50:19.991Z",
+        "detail": "Running repository tool checks for generated files.",
+        "iteration": 2
+      },
+      {
+        "stage": "iteration-tools",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:51:26.704Z",
+        "durationMs": 66703,
+        "detail": "Running repository tool checks for generated files.",
+        "iteration": 2
+      },
+      {
+        "stage": "iteration-review",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:51:26.706Z",
+        "detail": "Reviewer provider: codex-cli.",
+        "iteration": 2
+      },
+      {
+        "stage": "iteration-review",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:51:50.588Z",
+        "durationMs": 23881,
+        "detail": "Reviewer provider: codex-cli.",
+        "iteration": 2
+      },
+      {
+        "stage": "iteration-fix",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:51:50.592Z",
+        "detail": "Fixing blocking issues from prior review.",
+        "iteration": 3
+      },
+      {
+        "stage": "iteration-fix",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:53:01.924Z",
+        "durationMs": 71331,
+        "detail": "Fixing blocking issues from prior review.",
+        "iteration": 3
+      },
+      {
+        "stage": "iteration-tools",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:53:01.925Z",
+        "detail": "Running repository tool checks for generated files.",
+        "iteration": 3
+      },
+      {
+        "stage": "iteration-tools",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:53:15.958Z",
+        "durationMs": 14033,
+        "detail": "Running repository tool checks for generated files.",
+        "iteration": 3
+      },
+      {
+        "stage": "iteration-review",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:53:15.959Z",
+        "detail": "Reviewer provider: codex-cli.",
+        "iteration": 3
+      },
+      {
+        "stage": "iteration-review",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:53:39.806Z",
+        "durationMs": 23846,
+        "detail": "Reviewer provider: codex-cli.",
+        "iteration": 3
+      },
+      {
+        "stage": "memory-store",
+        "status": "entered",
+        "timestamp": "2026-04-29T05:53:39.881Z",
+        "detail": "Persisted failed run summary to memory."
+      },
+      {
+        "stage": "memory-store",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:53:41.119Z",
+        "durationMs": 1232,
+        "detail": "Persisted failed run summary to memory."
+      },
+      {
+        "stage": "failure",
+        "status": "completed",
+        "timestamp": "2026-04-29T05:53:41.121Z",
+        "durationMs": 0,
+        "detail": "Run finished with blocking issues or failed checks."
+      }
+    ],
+    "providerMetrics": [
+      {
+        "provider": "gemini-cli",
+        "role": "planner",
+        "stages": [
+          "planner"
+        ],
+        "totalDurationMs": 73791,
+        "estimatedCostUnits": 0.004554
+      },
+      {
+        "provider": "codex-cli",
+        "role": "reviewer",
+        "stages": [
+          "iteration-review"
+        ],
+        "totalDurationMs": 73233,
+        "estimatedCostUnits": 0.023004999999999998
+      },
+      {
+        "provider": "codex-cli",
+        "role": "generator",
+        "stages": [
+          "iteration-generate"
+        ],
+        "totalDurationMs": 43943,
+        "estimatedCostUnits": 0.024318
+      },
+      {
+        "provider": "codex-cli",
+        "role": "fixer",
+        "stages": [
+          "iteration-fix"
+        ],
+        "totalDurationMs": 174276,
+        "estimatedCostUnits": 0.044438000000000005
+      }
+    ],
+    "budget": {
+      "maxDurationMs": 600000,
+      "maxCostUnits": 300,
+      "totalDurationMs": 472677,
+      "totalCostUnits": 0.096,
+      "exceeded": null
+    },
+    "totalDurationMs": 472677
+  }
+}

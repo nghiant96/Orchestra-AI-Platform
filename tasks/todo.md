@@ -218,6 +218,25 @@
 
 ## Tasks
 
+---
+
+# Fix Package-Scoped Tool Checks
+
+## Tasks
+
+- [x] Inspect failed job `mojmrga2-du2jxoo2` artifacts and tool outputs
+- [x] Reproduce root `lint` and `typecheck` failures
+- [x] Patch tool resolution to prefer the changed package for lint/typecheck
+- [x] Run focused tool-executor tests
+- [x] Record review result
+
+## Review Result
+
+- Root checks in failed job were not the right surface for `dashboard/src/App.tsx`: root `pnpm run lint` and `pnpm run typecheck` report unrelated backend/root configuration failures.
+- `runToolChecks` now prefers the changed package command/tsconfig before root scripts when all changed files belong to one package.
+- Verification: `node --import tsx --test tests/tool-executor.test.ts` passed 18/18, `pnpm exec eslint ai-system/core/tool-executor.ts tests/tool-executor.test.ts` passed, actual dashboard `pnpm run lint` passed, actual dashboard `pnpm run build` passed, and a direct `runToolChecks` smoke for `dashboard/src/App.tsx` selected `dashboard` package lint/typecheck and passed.
+- Full repo `pnpm test`/root typecheck remain blocked by pre-existing unrelated failures in `ai-system/types.ts`, `ai-system/core/orchestrator.ts`, `ai-system/utils/cost-calculator.ts`, and `tests/server-queue.test.ts`.
+
 - [x] Review README against current CLI, sandbox, queue, prompt, and parser behavior
 - [x] Patch stale wording and missing environment/config details
 - [x] Run README-focused hygiene checks

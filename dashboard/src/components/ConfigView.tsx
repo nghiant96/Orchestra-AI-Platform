@@ -10,7 +10,8 @@ import {
   Cpu,
   BarChart3,
   Database,
-  FileJson
+  FileJson,
+  Layout
 } from 'lucide-react';
 import { cn } from '../utils/cn';
 import type { SystemConfig, ConfigFormData } from '../types';
@@ -24,6 +25,8 @@ interface ConfigViewProps {
 function createConfigFormData(config: SystemConfig): ConfigFormData {
   return {
     max_iterations: config.rules.max_iterations,
+    max_daily_cost_units: config.rules.execution?.budgets?.max_daily_cost_units,
+    max_single_run_cost_units: config.rules.execution?.budgets?.max_single_run_cost_units,
     profile: config.profile || '',
     providers: {
       planner: { model: config.rules.providers?.planner?.model || '' },
@@ -166,6 +169,50 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm lg:col-span-2">
+          <h2 className="text-xl font-black mb-6 flex items-center gap-3">
+            <Layout className="text-violet-500" />
+            Discovered Plugins
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(!config.plugins || config.plugins.length === 0) ? (
+              <div className="md:col-span-2 p-10 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-200">
+                <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">No local plugins discovered</p>
+                <p className="text-[10px] text-slate-400 mt-1 font-medium">Place plugins in .ai-system/plugins/ to extend the system.</p>
+              </div>
+            ) : (
+              config.plugins.map(plugin => (
+                <div key={plugin.name} className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm hover:shadow-md transition-all flex items-start gap-4">
+                  <div className={cn(
+                    "p-2.5 rounded-xl shrink-0",
+                    plugin.enabled ? "bg-emerald-50 text-emerald-600" : "bg-rose-50 text-rose-600"
+                  )}>
+                    <Zap size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <h3 className="text-sm font-black text-slate-900 uppercase truncate">{plugin.name}</h3>
+                      <span className="text-[10px] font-mono font-bold bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">v{plugin.version}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-medium line-clamp-2 leading-relaxed mb-3">
+                      {plugin.description || "No description provided."}
+                    </p>
+                    <div className="flex items-center gap-3">
+                       <span className={cn(
+                         "text-[8px] font-black uppercase px-1.5 py-0.5 rounded border",
+                         plugin.enabled ? "bg-emerald-50 text-emerald-600 border-emerald-100" : "bg-rose-50 text-rose-600 border-rose-100"
+                       )}>
+                         {plugin.enabled ? "Active" : "Error"}
+                       </span>
+                       {plugin.error && <span className="text-[8px] text-rose-400 font-bold truncate max-w-[150px]">{plugin.error}</span>}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
         <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
           <h2 className="text-xl font-black mb-6 flex items-center gap-3 text-slate-900">
             <Cpu className="text-indigo-500" />
@@ -232,8 +279,32 @@ export const ConfigView = ({ config, onUpdate }: ConfigViewProps) => {
           </h2>
           <div className="grid grid-cols-2 gap-4">
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Cost Units</p>
-              <p className="text-lg font-bold text-slate-900">{config.rules.execution?.budgets?.max_cost_units || 'No Limit'}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Cost (Single Run)</p>
+              {editing ? (
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.max_single_run_cost_units}
+                  onChange={(e) => setFormData({...formData, max_single_run_cost_units: parseFloat(e.target.value)})}
+                  className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
+                />
+              ) : (
+                <p className="text-lg font-bold text-slate-900">{config.rules.execution?.budgets?.max_single_run_cost_units || config.rules.execution?.budgets?.max_cost_units || 'No Limit'}</p>
+              )}
+            </div>
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+              <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Cost (Daily)</p>
+              {editing ? (
+                <input
+                  type="number"
+                  step="0.1"
+                  value={formData.max_daily_cost_units}
+                  onChange={(e) => setFormData({...formData, max_daily_cost_units: parseFloat(e.target.value)})}
+                  className="w-full mt-1 bg-white border border-slate-200 rounded-lg px-2 py-1 text-sm font-bold text-indigo-600 outline-none"
+                />
+              ) : (
+                <p className="text-lg font-bold text-slate-900">{config.rules.execution?.budgets?.max_daily_cost_units || 'No Limit'}</p>
+              )}
             </div>
             <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Max Duration</p>

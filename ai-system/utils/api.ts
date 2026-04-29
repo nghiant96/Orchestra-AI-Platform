@@ -99,11 +99,16 @@ export async function runCommandWithRetry({
   baseDelayMs = 500,
   label = command,
   monitorIntervalMs = 0,
-  onMonitor
+  onMonitor,
+  signal
 }: CommandRetryOptions): Promise<CommandRunResult> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (signal?.aborted) {
+      throw new Error('AbortError');
+    }
+
     try {
       return await runCommand({
         command,
@@ -113,15 +118,20 @@ export async function runCommandWithRetry({
         timeoutMs,
         killGraceMs,
         monitorIntervalMs,
-        onMonitor: typeof onMonitor === "function" ? (event) => onMonitor({ ...event, attempt }) : undefined
+        onMonitor: typeof onMonitor === "function" ? (event) => onMonitor({ ...event, attempt }) : undefined,
+        signal
       });
     } catch (error) {
       lastError = error;
-      if (attempt === retries || !isRetryableCliError(error)) {
+      if (attempt === retries || !isRetryableCliError(error) || signal?.aborted) {
         break;
       }
       await sleep(Math.min(baseDelayMs * 2 ** attempt, 8000));
     }
+  }
+
+  if (signal?.aborted) {
+    throw new Error('AbortError');
   }
 
   const error = lastError as CliCommandError | undefined;
@@ -137,14 +147,20 @@ export async function runCommand({
   timeoutMs = 60000,
   killGraceMs = DEFAULT_KILL_GRACE_MS,
   monitorIntervalMs = 0,
-  onMonitor
+  onMonitor,
+  signal
 }: CommandRunOptions): Promise<CommandRunResult> {
+  if (signal?.aborted) {
+    return Promise.reject(new Error('AbortError'));
+  }
+
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const child = spawn(command, args, {
       cwd,
       env: env ?? process.env,
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      detached: process.platform !== 'win32' // Use detached to kill process group if needed
     });
 
     let stdout = "";
@@ -152,22 +168,50 @@ export async function runCommand({
     let settled = false;
     let nextMonitorId = 1;
     let forceKillTimeout: NodeJS.Timeout | null = null;
+
+    const abortHandler = () => {
+      cleanup(new Error('AbortError'));
+    };
+    signal?.addEventListener('abort', abortHandler);
+
     const timeout =
       Number.isFinite(timeoutMs) && timeoutMs > 0
         ? setTimeout(() => {
-            child.kill("SIGTERM");
-
-            if (Number.isFinite(killGraceMs) && killGraceMs >= 0) {
-              forceKillTimeout = setTimeout(() => {
-                if (child.exitCode === null && child.signalCode === null) {
-                  child.kill("SIGKILL");
-                }
-              }, killGraceMs);
-            }
-
-            rejectOnce(new Error(`Command timed out after ${timeoutMs}ms: ${command}`), { preserveForceKill: true });
+            cleanup(new Error(`Command timed out after ${timeoutMs}ms: ${command}`));
           }, timeoutMs)
         : null;
+
+    function cleanup(error?: Error) {
+      if (settled) return;
+      
+      if (error) {
+        // Kill the process group if detached, otherwise just the child
+        if (child.pid) {
+          try {
+            if (process.platform !== 'win32') {
+              process.kill(-child.pid, 'SIGTERM');
+            } else {
+              child.kill('SIGTERM');
+            }
+          } catch { /* ignore */ }
+
+          if (Number.isFinite(killGraceMs) && killGraceMs >= 0) {
+            forceKillTimeout = setTimeout(() => {
+              if (child.exitCode === null && child.signalCode === null && child.pid) {
+                try {
+                  if (process.platform !== 'win32') {
+                    process.kill(-child.pid, 'SIGKILL');
+                  } else {
+                    child.kill('SIGKILL');
+                  }
+                } catch { /* ignore */ }
+              }
+            }, killGraceMs);
+          }
+        }
+        rejectOnce(error, { preserveForceKill: true });
+      }
+    }
     const monitor =
       Number.isFinite(monitorIntervalMs) && monitorIntervalMs > 0 && typeof onMonitor === "function"
         ? setInterval(() => {
@@ -232,6 +276,9 @@ export async function runCommand({
       if (!preserveForceKill && forceKillTimeout) {
         clearTimeout(forceKillTimeout);
         forceKillTimeout = null;
+      }
+      if (signal && abortHandler) {
+        signal.removeEventListener('abort', abortHandler);
       }
     }
 

@@ -91,13 +91,16 @@ export async function runToolChecks({
   repoRoot,
   changedFiles,
   rules,
-  logger
+  logger,
+  signal
 }: {
   repoRoot: string;
   changedFiles: GeneratedFile[];
   rules: RulesConfig;
   logger?: Logger;
+  signal?: AbortSignal;
 }): Promise<ToolExecutionSummary> {
+  if (signal?.aborted) throw new Error('AbortError');
   const issues: ReviewIssue[] = [];
   const results: ToolExecutionResult[] = [];
   const tools = rules.tools ?? {};
@@ -121,7 +124,13 @@ export async function runToolChecks({
   const projectType = String(tools.project_type ?? "auto");
   const adapterContexts = await detectToolAdapterContexts(repoRoot, changedPaths, tools);
 
-  const toolNames: ToolExecutionName[] = ["lint", "typecheck", "build", "test"];
+  const toolNames = Object.keys(tools.commands || {}) as ToolExecutionName[];
+  // Ensure basic tools are at least checked if not defined but detected
+  const standardTools: ToolExecutionName[] = ["lint", "typecheck", "build", "test"];
+  for (const st of standardTools) {
+    if (!toolNames.includes(st)) toolNames.push(st);
+  }
+
   for (const toolName of toolNames) {
     let resolved = await resolveToolCommand({
       repoRoot,
@@ -153,7 +162,7 @@ export async function runToolChecks({
     const startedAt = Date.now();
 
     try {
-      const preflight = await preflightDockerSandbox(resolved, repoRoot);
+      const preflight = await preflightDockerSandbox(resolved, repoRoot, signal);
       if (!preflight.ok) {
         logger?.warn(preflight.summary);
         results.push({
@@ -185,7 +194,8 @@ export async function runToolChecks({
         timeoutMs: resolved.timeoutMs,
         retries: resolved.retries,
         baseDelayMs: resolved.baseDelayMs,
-        label: resolved.display
+        label: resolved.display,
+        signal
       });
       results.push({
         name: toolName,
@@ -518,13 +528,11 @@ async function resolveToolCommand({
     }
   }
 
-  const scriptName = resolveToolScriptName(toolName, toolConfig, packageScripts);
-  if (scriptName) {
-    return buildScriptCommand(toolName, scriptName, packageManager, toolConfig, changedPaths, {
-      cwd: repoRoot,
-      scope: toolConfig?.append_changed_files === true || usesChangedFilePlaceholder(toolConfig?.args ?? []) ? "changed-files" : "full",
-      sandbox
-    });
+  if (toolName === "typecheck" && !toolConfig?.script && packageScope?.tsconfigPath) {
+    const packageTypecheckCommand = await resolvePackageTypecheckCommand(toolName, repoRoot, packageScope, toolConfig, sandbox);
+    if (packageTypecheckCommand) {
+      return packageTypecheckCommand;
+    }
   }
 
   if (!toolConfig?.script && packageScope) {
@@ -539,6 +547,15 @@ async function resolveToolCommand({
     }
   }
 
+  const scriptName = resolveToolScriptName(toolName, toolConfig, packageScripts);
+  if (scriptName) {
+    return buildScriptCommand(toolName, scriptName, packageManager, toolConfig, changedPaths, {
+      cwd: repoRoot,
+      scope: toolConfig?.append_changed_files === true || usesChangedFilePlaceholder(toolConfig?.args ?? []) ? "changed-files" : "full",
+      sandbox
+    });
+  }
+
   const adapterCommand = resolveAdapterToolCommand(toolName, adapterContexts, toolConfig, changedPaths, sandbox);
   if (adapterCommand) {
     return adapterCommand;
@@ -549,28 +566,9 @@ async function resolveToolCommand({
 
   if (toolName === "typecheck") {
     if (packageScope?.tsconfigPath) {
-      const rootTscPath = path.join(repoRoot, "node_modules", "typescript", "bin", "tsc");
-      try {
-        await fs.access(rootTscPath);
-        return {
-          name: toolName,
-          command: "node",
-          args: [rootTscPath, "--noEmit", "-p", packageScope.tsconfigPath],
-          display: `node ${rootTscPath} --noEmit -p ${packageScope.tsconfigPath}`,
-          cwd: packageScope.cwd,
-          timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
-          retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
-          baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
-          source: "fallback",
-          scopedToChangedFiles: false,
-          scope: "package",
-          sandboxMode: sandbox.mode,
-          image: sandbox.image,
-          env: sandbox.env,
-          workingDirectory: packageScope.workingDirectory
-        };
-      } catch {
-        // Fall through to the root-level fallback.
+      const packageTypecheckCommand = await resolvePackageTypecheckCommand(toolName, repoRoot, packageScope, toolConfig, sandbox);
+      if (packageTypecheckCommand) {
+        return packageTypecheckCommand;
       }
     }
 
@@ -673,7 +671,8 @@ function applyResolvedSandboxImage(
 
 async function preflightDockerSandbox(
   resolved: ResolvedToolCommand,
-  repoRoot: string
+  repoRoot: string,
+  signal?: AbortSignal
 ): Promise<{ ok: boolean; summary: string }> {
   if (resolved.sandboxMode !== "docker") {
     return { ok: true, summary: "" };
@@ -691,7 +690,8 @@ async function preflightDockerSandbox(
       timeoutMs: 10000,
       retries: 0,
       baseDelayMs: 0,
-      label: "docker --version"
+      label: "docker --version",
+      signal
     });
   } catch {
     return {
@@ -708,7 +708,8 @@ async function preflightDockerSandbox(
       timeoutMs: 10000,
       retries: 0,
       baseDelayMs: 0,
-      label: `docker image inspect ${image}`
+      label: `docker image inspect ${image}`,
+      signal
     });
     return { ok: true, summary: "" };
   } catch {
@@ -727,7 +728,8 @@ async function preflightDockerSandbox(
     timeoutMs: DEFAULT_TOOL_TIMEOUT_MS.build,
     retries: 0,
     baseDelayMs: 0,
-    label: `docker build ${image}`
+    label: `docker build ${image}`,
+    signal
   });
   return { ok: true, summary: "" };
 }
@@ -1037,6 +1039,56 @@ function resolveWorkspaceScriptName(
   return scriptNames.every((scriptName) => scriptName === first) ? first : null;
 }
 
+async function resolvePackageTypecheckCommand(
+  toolName: ToolExecutionName,
+  repoRoot: string,
+  packageScope: PackageScopeContext,
+  toolConfig: ToolCommandConfig | undefined,
+  sandbox: ReturnType<typeof resolveToolSandbox>
+): Promise<ResolvedToolCommand | null> {
+  const tscPath = await findTypescriptCompilerPath(packageScope.cwd, repoRoot);
+  const tsconfigPath = packageScope.tsconfigPath;
+  if (!tscPath || !tsconfigPath) {
+    return null;
+  }
+
+  return {
+    name: toolName,
+    command: "node",
+    args: [tscPath, "--noEmit", "-p", tsconfigPath],
+    display: `node ${tscPath} --noEmit -p ${tsconfigPath}`,
+    cwd: packageScope.cwd,
+    timeoutMs: numberOrDefault(toolConfig?.timeout_ms, DEFAULT_TOOL_TIMEOUT_MS[toolName] || 120000),
+    retries: numberOrDefault(toolConfig?.retries, DEFAULT_TOOL_RETRIES[toolName] || 0),
+    baseDelayMs: numberOrDefault(toolConfig?.base_delay_ms, DEFAULT_TOOL_BASE_DELAY_MS),
+    source: "fallback",
+    scopedToChangedFiles: false,
+    scope: "package",
+    sandboxMode: sandbox.mode,
+    image: sandbox.image,
+    env: sandbox.env,
+    workingDirectory: packageScope.workingDirectory
+  };
+}
+
+async function findTypescriptCompilerPath(packageDir: string, repoRoot: string): Promise<string | null> {
+  const candidates = [
+    path.join(packageDir, "node_modules", "typescript", "bin", "tsc"),
+    path.join(repoRoot, "node_modules", "typescript", "bin", "tsc")
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 async function findNearestPackageDir(repoRoot: string, changedPath: string): Promise<string | null> {
   let currentDir = path.dirname(path.join(repoRoot, changedPath));
   const resolvedRepoRoot = path.resolve(repoRoot);
@@ -1109,6 +1161,14 @@ async function detectToolAdapterContexts(
       continue;
     }
 
+    if (adapter.name === "python") {
+      const pythonContext = await resolvePythonAdapterContext(cwd, repoRoot, adapter);
+      if (pythonContext) {
+        contexts.push(pythonContext);
+        continue;
+      }
+    }
+
     contexts.push({
       name: adapter.name,
       cwd,
@@ -1148,6 +1208,16 @@ function buildBuiltinToolAdapters(projectType: string): Array<ToolAdapterConfig 
       detect_files: ["go.mod"],
       changed_file_extensions: [".go"],
       commands: {
+        lint: {
+          command: "golangci-lint",
+          args: ["run", "./..."],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.lint
+        },
+        typecheck: {
+          command: "go",
+          args: ["vet", "./..."],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.typecheck
+        },
         test: {
           command: "go",
           args: ["test", "./..."],
@@ -1160,6 +1230,16 @@ function buildBuiltinToolAdapters(projectType: string): Array<ToolAdapterConfig 
       detect_files: ["Cargo.toml"],
       changed_file_extensions: [".rs"],
       commands: {
+        lint: {
+          command: "cargo",
+          args: ["clippy", "--", "-D", "warnings"],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.lint
+        },
+        typecheck: {
+          command: "cargo",
+          args: ["check"],
+          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.typecheck
+        },
         test: {
           command: "cargo",
           args: ["test"],
@@ -1331,4 +1411,78 @@ function expandToolArgs(args: string[], changedPaths: string[], appendChangedFil
 
 function usesChangedFilePlaceholder(args: string[] | undefined): boolean {
   return (args ?? []).some((arg) => arg === "{changed_files}" || arg === "{changed_files_csv}");
+}
+
+async function resolvePythonAdapterContext(cwd: string, repoRoot: string, baseAdapter: any): Promise<ToolAdapterContext | null> {
+  const detectFiles = ["pyproject.toml", "requirements.txt", "Pipfile", "poetry.lock", "uv.lock", "setup.py"];
+  if (!(await adapterDetected(cwd, detectFiles))) {
+    return null;
+  }
+
+  // Detect Package Manager
+  let pm: "uv" | "poetry" | "pipenv" | "pip" = "pip";
+  if (await pathExists(path.join(cwd, "uv.lock"))) pm = "uv";
+  else if (await pathExists(path.join(cwd, "poetry.lock"))) pm = "poetry";
+  else if (await pathExists(path.join(cwd, "Pipfile"))) pm = "pipenv";
+
+  const runPrefix = pm === "uv" ? ["uv", "run"] : 
+                   pm === "poetry" ? ["poetry", "run"] : 
+                   pm === "pipenv" ? ["pipenv", "run"] : 
+                   ["python", "-m"];
+
+  const commands: Partial<Record<ToolExecutionName, ToolCommandConfig>> = { ...baseAdapter.commands };
+
+  // Smart Tool Detection
+  const hasRuff = await adapterDetected(cwd, ["ruff.toml", ".ruff.toml"]) || await checkPyprojectForTool(cwd, "ruff");
+  const hasMypy = await adapterDetected(cwd, ["mypy.ini", ".mypy.ini"]) || await checkPyprojectForTool(cwd, "mypy");
+  const hasPytest = await adapterDetected(cwd, ["pytest.ini", "conftest.py"]) || await checkPyprojectForTool(cwd, "pytest");
+
+  if (!commands.lint) {
+    if (hasRuff) {
+      commands.lint = { command: runPrefix[0], args: [...runPrefix.slice(1), "ruff", "check", "."] };
+    } else {
+      commands.lint = { command: runPrefix[0], args: [...runPrefix.slice(1), "flake8", "."] };
+    }
+  }
+
+  if (!commands.typecheck) {
+    if (hasMypy) {
+      commands.typecheck = { command: runPrefix[0], args: [...runPrefix.slice(1), "mypy", "."] };
+    }
+  }
+
+  if (!commands.test) {
+    if (hasPytest) {
+      commands.test = { command: runPrefix[0], args: [...runPrefix.slice(1), "pytest"] };
+    } else {
+      commands.test = { command: runPrefix[0], args: [...runPrefix.slice(1), "unittest", "discover"] };
+    }
+  }
+
+  return {
+    name: "python",
+    cwd,
+    workingDirectory: normalizePath(path.relative(repoRoot, cwd)) || ".",
+    commands,
+    changedFileExtensions: [".py"]
+  };
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function checkPyprojectForTool(cwd: string, toolName: string): Promise<boolean> {
+  const p = path.join(cwd, "pyproject.toml");
+  try {
+    const content = await fs.readFile(p, "utf8");
+    return content.includes(`[tool.${toolName}]`);
+  } catch {
+    return false;
+  }
 }

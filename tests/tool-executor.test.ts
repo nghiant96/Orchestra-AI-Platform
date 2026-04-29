@@ -293,6 +293,75 @@ test("runToolChecks scopes lint/test to a single changed workspace package", asy
   }
 });
 
+test("runToolChecks prefers the changed package lint script over the root lint script", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-root-precedence-"));
+  const changedFiles: GeneratedFile[] = [{ path: "dashboard/src/App.tsx", content: "export const App = () => null;\n" }];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "dashboard/scripts"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/root-lint.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "dashboard/package.json"),
+      JSON.stringify(
+        {
+          name: "dashboard",
+          private: true,
+          scripts: {
+            lint: "node ./scripts/package-lint.js"
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(path.join(tempDir, "scripts/root-lint.js"), "console.log('root lint'); process.exit(1);\n", "utf8");
+    await fs.writeFile(path.join(tempDir, "dashboard/scripts/package-lint.js"), "console.log(process.cwd()); process.exit(0);\n", "utf8");
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: true,
+          commands: {
+            lint: { enabled: true },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: { enabled: false }
+          }
+        }
+      })
+    });
+
+    const lintResult = summary.results.find((entry) => entry.name === "lint");
+    assert.equal(lintResult?.ok, true);
+    assert.equal(lintResult?.scope, "package");
+    assert.equal(lintResult?.workingDirectory, "dashboard");
+    assert.deepEqual(lintResult?.args, ["run", "lint"]);
+    assert.match(lintResult?.stdout ?? "", /dashboard/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("runToolChecks scopes typecheck to a single changed workspace package when it has a tsconfig", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-typecheck-"));
   const changedFiles: GeneratedFile[] = [{ path: "packages/web/src/example.ts", content: "export const value = 1;\n" }];
@@ -346,6 +415,73 @@ test("runToolChecks scopes typecheck to a single changed workspace package when 
     assert.equal(typecheckResult?.workingDirectory, "packages/web");
     assert.match(typecheckResult?.stdout ?? "", /packages[/\\]web/);
     assert.ok(typecheckResult?.args?.includes(path.join(tempDir, "packages/web/tsconfig.json")));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runToolChecks prefers a changed package tsconfig over the root typecheck script", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-package-typecheck-precedence-"));
+  const changedFiles: GeneratedFile[] = [{ path: "dashboard/src/App.tsx", content: "export const App = () => null;\n" }];
+
+  try {
+    await fs.mkdir(path.join(tempDir, "node_modules/typescript/bin"), { recursive: true });
+    await fs.mkdir(path.join(tempDir, "dashboard/src"), { recursive: true });
+    await fs.writeFile(path.join(tempDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await fs.writeFile(
+      path.join(tempDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "workspace-root",
+          private: true,
+          scripts: {
+            typecheck: "node -e \"console.log('root typecheck'); process.exit(1)\""
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "dashboard/package.json"),
+      JSON.stringify({ name: "dashboard", private: true }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "dashboard/tsconfig.json"),
+      JSON.stringify({ compilerOptions: { noEmit: true } }, null, 2),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(tempDir, "node_modules/typescript/bin/tsc"),
+      "console.log(process.cwd()); console.log(process.argv.slice(2).join('|')); process.exit(0);\n",
+      "utf8"
+    );
+
+    const summary = await runToolChecks({
+      repoRoot: tempDir,
+      changedFiles,
+      rules: createRules({
+        tools: {
+          enabled: true,
+          json_validation: true,
+          commands: {
+            lint: { enabled: false },
+            typecheck: { enabled: true },
+            build: { enabled: false },
+            test: { enabled: false }
+          }
+        }
+      })
+    });
+
+    const typecheckResult = summary.results.find((entry) => entry.name === "typecheck");
+    assert.equal(typecheckResult?.ok, true);
+    assert.equal(typecheckResult?.scope, "package");
+    assert.equal(typecheckResult?.workingDirectory, "dashboard");
+    assert.match(typecheckResult?.stdout ?? "", /dashboard/);
+    assert.ok(typecheckResult?.args?.includes(path.join(tempDir, "dashboard/tsconfig.json")));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

@@ -253,6 +253,8 @@ export interface RetryHint {
 export interface ExecutionBudgetConfig {
   max_duration_ms?: number;
   max_cost_units?: number;
+  max_daily_cost_units?: number;
+  max_single_run_cost_units?: number;
 }
 
 export interface ExecutionBudgetSummary {
@@ -371,6 +373,25 @@ export interface RulesConfig {
   [key: string]: unknown;
 }
 
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description?: string;
+  tools?: Record<string, ToolCommandConfig>;
+  adapters?: Record<string, ToolAdapterConfig>;
+  prompts?: {
+    planner?: string;
+    generator?: string;
+    reviewer?: string;
+  };
+}
+
+export interface PluginInfo extends PluginManifest {
+  path: string;
+  enabled: boolean;
+  error?: string;
+}
+
 export interface RunJsonOptions {
   cwd: string;
   label: string;
@@ -380,6 +401,7 @@ export interface RunJsonOptions {
   timeoutMs?: number;
   retries?: number;
   baseDelayMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface JsonProvider {
@@ -595,6 +617,7 @@ export interface CommandRunOptions {
   killGraceMs?: number;
   monitorIntervalMs?: number;
   onMonitor?: (event: CommandMonitorEvent) => void;
+  signal?: AbortSignal;
 }
 
 export interface CommandRetryOptions extends CommandRunOptions {

@@ -1,4 +1,3 @@
-import React from 'react';
 import { AlertCircle, Lightbulb, RefreshCw, XCircle } from 'lucide-react';
 import type { FailureMetadata } from '../types';
 

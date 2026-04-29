@@ -73,6 +73,20 @@ export interface Job {
   };
 }
 
+export interface PluginManifest {
+  name: string;
+  version: string;
+  description?: string;
+  tools?: Record<string, ToolResult>;
+  adapters?: Record<string, unknown>;
+}
+
+export interface PluginInfo extends PluginManifest {
+  path: string;
+  enabled: boolean;
+  error?: string;
+}
+
 export interface SystemConfig {
   rules: {
     max_iterations?: number;
@@ -80,12 +94,13 @@ export interface SystemConfig {
     max_context_bytes?: number;
     memory?: { backend?: string };
     vector_search?: { enabled?: boolean };
-    execution?: { budgets?: { max_cost_units?: number; max_duration_ms?: number } };
+    execution?: { budgets?: { max_cost_units?: number; max_duration_ms?: number; max_daily_cost_units?: number; max_single_run_cost_units?: number } };
     routing?: { enabled?: boolean; adaptive?: { enabled?: boolean } };
     providers?: Record<string, { type?: string; model?: string }>;
   };
   profile: string | null;
   globalProfile: string | null;
+  plugins: PluginInfo[];
 }
 
 export type ViewMode = 'activity' | 'config';
@@ -94,6 +109,8 @@ export type ProviderFormMap = Record<string, { model?: string }>;
 
 export interface ConfigFormData {
   max_iterations?: number;
+  max_daily_cost_units?: number;
+  max_single_run_cost_units?: number;
   profile: string;
   providers: ProviderFormMap;
 }

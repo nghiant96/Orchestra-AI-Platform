@@ -25,6 +25,7 @@ import { useHealth } from './hooks/useHealth';
 // Lazy loaded components for code splitting
 const JobDetailModal = lazy(() => import('./components/JobDetailModal').then(m => ({ default: m.JobDetailModal })));
 const ConfigView = lazy(() => import('./components/ConfigView').then(m => ({ default: m.ConfigView })));
+const AnalyticsView = lazy(() => import('./components/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
 
 const ViewLoading = () => (
   <div className="p-20 text-center flex flex-col items-center justify-center gap-4">
@@ -34,6 +35,17 @@ const ViewLoading = () => (
 );
 
 function App() {
+  const { health } = useHealth();
+  
+  const [selectedProject, setSelectedProject] = useState<string>(() => {
+    return localStorage.getItem('orchestra_project') || '';
+  });
+
+  // Decide current project based on selection or health fallback
+  const currentProject = useMemo(() => {
+    return selectedProject || health?.cwd || '';
+  }, [selectedProject, health?.cwd]);
+
   const {
     loading: jobsLoading,
     submitting,
@@ -47,19 +59,28 @@ function App() {
     submitTask,
     cancelJob,
     jobs
-  } = useJobs();
+  } = useJobs(currentProject);
 
   const {
     config,
     fetchConfig,
   } = useConfig();
 
-  const { health } = useHealth();
-
   const [task, setTask] = useState('');
-  const [cwd, setCwd] = useState('');
+  const [formCwd, setFormCwd] = useState('');
   const [dryRun, setDryRun] = useState(true);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+
+  // Sync form CWD with current project if it changes and form is empty or matches previous project
+  const displayCwd = useMemo(() => {
+    return formCwd || currentProject;
+  }, [formCwd, currentProject]);
+
+  const handleProjectChange = (path: string) => {
+    setSelectedProject(path);
+    setFormCwd(path); // Update form to match
+    localStorage.setItem('orchestra_project', path);
+  };
 
   const selectedJob = useMemo(() =>
     jobs.find(j => j.jobId === selectedJobId),
@@ -68,7 +89,7 @@ function App() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = await submitTask(task, cwd, dryRun);
+    const result = await submitTask(task, displayCwd, dryRun);
     if (result.ok) {
       setTask('');
     } else {
@@ -79,7 +100,7 @@ function App() {
   const handleRerun = (e: React.MouseEvent, job: Job) => {
     e.stopPropagation();
     setTask(job.task);
-    setCwd(job.cwd);
+    setFormCwd(job.cwd);
     setDryRun(job.dryRun);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -91,6 +112,9 @@ function App() {
         setSearchTerm={setSearchTerm}
         fetchJobs={fetchJobs}
         loading={jobsLoading}
+        allowedWorkdirs={health?.allowedWorkdirs || []}
+        currentProject={currentProject}
+        onProjectChange={handleProjectChange}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -115,8 +139,8 @@ function App() {
                       handleSubmit={handleSubmit}
                       task={task}
                       setTask={setTask}
-                      cwd={cwd}
-                      setCwd={setCwd}
+                      cwd={displayCwd}
+                      setCwd={setFormCwd}
                       dryRun={dryRun}
                       setDryRun={setDryRun}
                       submitting={submitting}
@@ -130,20 +154,21 @@ function App() {
                           <History size={22} className="text-indigo-500" />
                           Event Feed
                         </h2>
-                        <div className="flex gap-1.5 p-1 bg-slate-200/50 rounded-xl">
-                          {(['all', 'running', 'completed', 'failed'] as const).map(filter => (
+                        <div className="flex gap-1.5 p-1 bg-slate-200/50 rounded-xl overflow-x-auto custom-scrollbar no-scrollbar">
+                          {(['all', 'queued', 'running', 'waiting_for_approval', 'completed', 'failed', 'cancelled'] as const).map(filter => (
                             <button
                               key={filter}
                               onClick={() => setStatusFilter(filter)}
                               className={cn(
-                                "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                                "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
                                 statusFilter === filter ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
                               )}
                             >
-                              {filter}
+                              {filter.replace(/_/g, ' ')}
                             </button>
                           ))}
                         </div>
+
                       </div>
 
                       <div className="space-y-4">
@@ -179,6 +204,9 @@ function App() {
             } />
             <Route path="/config" element={
               <ConfigView config={config} onUpdate={fetchConfig} />
+            } />
+            <Route path="/analytics" element={
+              <AnalyticsView currentProject={currentProject} />
             } />
             <Route path="*" element={
               <div className="p-20 text-center">

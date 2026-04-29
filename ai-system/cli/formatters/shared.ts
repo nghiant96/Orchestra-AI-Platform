@@ -95,3 +95,9 @@ export function maskSecrets(value: string): string {
   }
   return value;
 }
+
+export function formatCost(units: number): string {
+  if (units === 0) return "0.00 units";
+  if (units < 0.01) return "${(units * 1000).toFixed(2)}mU";
+  return "${units.toFixed(2)} units";
+}

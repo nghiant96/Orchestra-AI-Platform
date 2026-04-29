@@ -173,7 +173,8 @@ export async function executeGenerationLoop({
   resumeFromStage,
   successResultStatus,
   successPersistedStatus,
-  budgetConfig
+  budgetConfig,
+  signal
 }: {
   startIteration: number;
   task: string;
@@ -197,7 +198,9 @@ export async function executeGenerationLoop({
   successResultStatus?: RunStatus;
   successPersistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
+  signal?: AbortSignal;
 }): Promise<{ result: OrchestratorResult | null; state: LoopExecutionState }> {
+  if (signal?.aborted) throw new Error('AbortError');
   const state: LoopExecutionState = {
     currentResult: initialState.currentResult,
     acceptedIssues: [...initialState.acceptedIssues],

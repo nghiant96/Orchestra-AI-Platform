@@ -1,0 +1,13 @@
+{
+  "name": "strict-reviewer",
+  "version": "1.0.0",
+  "description": "Adds strict security and performance audits to the review process.",
+  "tools": {
+    "security-audit": {
+      "command": "npm",
+      "args": ["audit"],
+      "enabled": true,
+      "timeout_ms": 60000
+    }
+  }
+}

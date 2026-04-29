@@ -35,7 +35,8 @@ export class OpenAICompatibleProvider implements JsonProvider {
     schema,
     timeoutMs,
     retries,
-    baseDelayMs
+    baseDelayMs,
+    signal
   }: RunJsonOptions): Promise<T> {
     const effectiveTimeoutMs = this.config.timeout_ms ?? timeoutMs ?? 60000;
     const effectiveRetries = this.config.retries ?? retries ?? 2;
@@ -43,12 +44,15 @@ export class OpenAICompatibleProvider implements JsonProvider {
 
     let lastError;
     for (let attempt = 0; attempt <= effectiveRetries; attempt += 1) {
+      if (signal?.aborted) throw new Error('AbortError');
+
       try {
         const responseText = await this.requestJson({
           systemPrompt,
           prompt,
           schema,
-          timeoutMs: effectiveTimeoutMs
+          timeoutMs: effectiveTimeoutMs,
+          signal
         });
         const parsed = extractStructuredData(responseText, schema, label);
         assertMatchesBasicSchema(parsed, schema, label);
@@ -70,12 +74,14 @@ export class OpenAICompatibleProvider implements JsonProvider {
     systemPrompt,
     prompt,
     schema,
-    timeoutMs
+    timeoutMs,
+    signal
   }: {
     systemPrompt: string;
     prompt: string;
     schema: JsonSchema;
     timeoutMs?: number;
+    signal?: AbortSignal;
   }): Promise<string> {
     const baseUrl = stripTrailingSlash(this.config.base_url);
     if (!baseUrl) {
@@ -101,7 +107,7 @@ export class OpenAICompatibleProvider implements JsonProvider {
         messages: buildMessages(systemPrompt, prompt, schema),
         response_format: this.config.response_format ?? { type: "json_object" }
       }),
-      signal: buildAbortSignal(timeoutMs)
+      signal: buildCombinedSignal(timeoutMs, signal)
     });
 
     const raw = await response.text();
@@ -114,8 +120,16 @@ export class OpenAICompatibleProvider implements JsonProvider {
   }
 }
 
-function buildAbortSignal(timeoutMs?: number): AbortSignal | undefined {
-  return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+function buildCombinedSignal(timeoutMs?: number, externalSignal?: AbortSignal): AbortSignal | undefined {
+  const timeoutSignal = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0 
+    ? AbortSignal.timeout(timeoutMs) 
+    : undefined;
+
+  if (!timeoutSignal && !externalSignal) return undefined;
+  if (!timeoutSignal) return externalSignal;
+  if (!externalSignal) return timeoutSignal;
+
+  return AbortSignal.any([timeoutSignal, externalSignal]);
 }
 
 function buildMessages(systemPrompt: string, prompt: string, schema: JsonSchema) {

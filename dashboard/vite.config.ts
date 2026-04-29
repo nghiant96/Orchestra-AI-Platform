@@ -9,6 +9,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    port: 5253,
     proxy: {
       '/jobs': {
         target: 'http://localhost:3927',
@@ -24,6 +25,10 @@ export default defineConfig({
         ws: true,
       },
       '/health': {
+        target: 'http://localhost:3927',
+        changeOrigin: true,
+      },
+      '/stats': {
         target: 'http://localhost:3927',
         changeOrigin: true,
       },

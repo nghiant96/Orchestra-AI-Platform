@@ -1053,6 +1053,11 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
     return null;
   }
 
+  // Integrity Check: ensure critical fields exist if the file is present
+  if (runState && (!runState.task || !runState.status)) {
+    return null;
+  }
+
   // Try to load diff summaries from the latest iteration manifest
   let diffSummaries: import("../types.js").DiffSummary[] | undefined = undefined;
   const latestIterationPath = artifactIndex?.latestIterationPath || runState?.artifacts?.latestIterationPath;

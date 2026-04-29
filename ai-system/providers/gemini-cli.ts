@@ -23,7 +23,8 @@ export class GeminiCliProvider implements JsonProvider {
     schema,
     timeoutMs,
     retries,
-    baseDelayMs
+    baseDelayMs,
+    signal
   }: RunJsonOptions): Promise<T> {
     const effectiveTimeoutMs = this.config.timeout_ms ?? timeoutMs;
     const effectiveRetries = this.config.retries ?? retries;
@@ -52,7 +53,8 @@ export class GeminiCliProvider implements JsonProvider {
       baseDelayMs: effectiveBaseDelayMs,
       monitorIntervalMs: effectiveMonitorIntervalMs,
       onMonitor: buildMonitorHandler(this.logger, label, this.id),
-      label
+      label,
+      signal
     });
 
     const parsed = extractStructuredData(result.stdout, schema, label);

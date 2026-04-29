@@ -85,11 +85,14 @@ export async function rerouteRuntimeForPlan({
   };
 }
 
+import { applyPluginsToRules, discoverPlugins } from "./plugins.js";
+
 export async function loadRules(
   repoRoot: string,
   explicitConfigPath?: string | null,
   explicitGlobalConfigPath?: string | null,
-  ignoreProjectConfig = false
+  ignoreProjectConfig = false,
+  logger?: Logger
 ): Promise<{
   rules: RulesConfig;
   configPath: string | null;
@@ -98,6 +101,7 @@ export async function loadRules(
   globalConfigPath: string | null;
   globalConfig: ProjectConfig | null;
   globalProfile: ProjectConfigPresetName | null;
+  plugins: import("../types.js").PluginInfo[];
 }> {
   const rulesPath = new URL("../config/rules.json", import.meta.url);
   const raw = await fs.readFile(rulesPath, "utf8");
@@ -110,10 +114,16 @@ export async function loadRules(
   const projectConfig = configPath ? await loadJsonIfExists<ProjectConfig>(configPath) : null;
   const preset = getProjectConfigPreset(projectConfig?.profile);
   const projectRules = stripProjectConfigProfile(projectConfig);
-  const mergedRules = mergeConfig(
+  
+  let mergedRules = mergeConfig(
     mergeConfig(mergeConfig(mergeConfig(baseRules, globalPreset?.config ?? null), globalRules), preset?.config ?? null),
     projectRules
   );
+
+  // Discovery & Apply Plugins
+  const plugins = await discoverPlugins(repoRoot, logger);
+  mergedRules = applyPluginsToRules(mergedRules, plugins);
+
   mergedRules.routing = {
     ...(mergedRules.routing ?? {}),
     locked_roles: Object.keys(projectConfig?.providers ?? {})
@@ -132,7 +142,8 @@ export async function loadRules(
     profile: preset?.name ?? null,
     globalConfigPath,
     globalConfig,
-    globalProfile: globalPreset?.name ?? null
+    globalProfile: globalPreset?.name ?? null,
+    plugins
   };
 }
 

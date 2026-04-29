@@ -19,5 +19,20 @@
       "**/*.json"
     ]
   },
-  "profile": "hybrid"
+  "profile": "hybrid",
+  "max_iterations": 3,
+  "providers": {
+    "planner": {
+      "model": ""
+    },
+    "reviewer": {
+      "model": ""
+    },
+    "generator": {
+      "model": ""
+    },
+    "fixer": {
+      "model": ""
+    }
+  }
 }

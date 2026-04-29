@@ -39,6 +39,7 @@ export interface JobQueueRunInput {
   task: string;
   cwd: string;
   dryRun: boolean;
+  signal?: AbortSignal;
 }
 
 export type JobRunner = (input: JobQueueRunInput) => Promise<OrchestratorResult>;
@@ -46,6 +47,8 @@ export type JobRunner = (input: JobQueueRunInput) => Promise<OrchestratorResult>
 export class FileBackedJobQueue {
   private activeJobs = 0;
   private drainTimer: NodeJS.Timeout | null = null;
+  private controllers = new Map<string, AbortController>();
+  private activeWorkspaces = new Set<string>();
 
   constructor(
     readonly jobsDir: string,
@@ -56,7 +59,7 @@ export class FileBackedJobQueue {
     } = {}
   ) {}
 
-  async enqueue(input: JobQueueRunInput): Promise<QueueJob> {
+  async enqueue(input: Omit<JobQueueRunInput, "jobId">): Promise<QueueJob> {
     const now = new Date().toISOString();
     const job: QueueJob = {
       jobId: createJobId(),
@@ -72,6 +75,7 @@ export class FileBackedJobQueue {
     };
     await this.writeJob(job);
     this.scheduleDrain();
+    void this.cleanupOldJobs();
     return job;
   }
 
@@ -89,7 +93,12 @@ export class FileBackedJobQueue {
 
   async list(limit = 50): Promise<QueueJob[]> {
     await fs.mkdir(this.jobsDir, { recursive: true });
-    const entries = await fs.readdir(this.jobsDir);
+    let entries: string[] = [];
+    try {
+      entries = await fs.readdir(this.jobsDir);
+    } catch {
+      return [];
+    }
     const jobs = await Promise.all(
       entries
         .filter((entry) => entry.endsWith(".json"))
@@ -106,6 +115,14 @@ export class FileBackedJobQueue {
     if (!job) {
       return null;
     }
+
+    const controller = this.controllers.get(jobId);
+    if (controller) {
+      this.options.logger?.info(`Cancelling active job ${jobId}...`);
+      controller.abort();
+      this.controllers.delete(jobId);
+    }
+
     if (job.status === "queued") {
       return this.updateJob(job, {
         status: "cancelled",
@@ -113,17 +130,35 @@ export class FileBackedJobQueue {
         resultSummary: "Job cancelled before it started."
       });
     }
-    if (job.status === "running") {
+
+    if (job.status === "running" || job.status === "waiting_for_approval") {
       return this.updateJob(job, {
-        status: "cancel_requested",
-        resultSummary: "Cancellation requested; current run will stop at the next supported boundary."
+        status: "cancelled",
+        finishedAt: new Date().toISOString(),
+        resultSummary: "Job cancelled by user."
       });
     }
+
     return job;
   }
 
   start(): void {
     this.scheduleDrain();
+    this.cleanupHungJobs();
+  }
+
+  private async cleanupHungJobs(): Promise<void> {
+    // Mark jobs that were 'running' when the server stopped as 'failed'
+    const jobs = await this.list(100);
+    const hungJobs = jobs.filter(j => j.status === 'running' || j.status === 'cancel_requested');
+    for (const job of hungJobs) {
+      this.options.logger?.warn(`Cleaning up hung job ${job.jobId} from previous session.`);
+      await this.updateJob(job, { 
+        status: 'failed', 
+        error: 'Job was interrupted by server restart.',
+        finishedAt: new Date().toISOString()
+      });
+    }
   }
 
   private scheduleDrain(): void {
@@ -139,13 +174,18 @@ export class FileBackedJobQueue {
   private async drain(): Promise<void> {
     const concurrency = Math.max(1, Number(this.options.concurrency || 1));
     while (this.activeJobs < concurrency) {
-      const next = (await this.list(100)).reverse().find((job) => job.status === "queued");
+      const all = await this.list(100);
+      const next = [...all].reverse().find((job) => 
+        job.status === "queued" && !this.activeWorkspaces.has(job.cwd)
+      );
       if (!next) {
         break;
       }
       this.activeJobs += 1;
+      this.activeWorkspaces.add(next.cwd);
       void this.runJob(next).finally(() => {
         this.activeJobs -= 1;
+        this.activeWorkspaces.delete(next.cwd);
         this.scheduleDrain();
       });
     }
@@ -156,6 +196,9 @@ export class FileBackedJobQueue {
     if (!latest || latest.status !== "queued") {
       return;
     }
+
+    const controller = new AbortController();
+    this.controllers.set(job.jobId, controller);
 
     const running = await this.updateJob(latest, {
       status: "running",
@@ -168,10 +211,23 @@ export class FileBackedJobQueue {
         jobId: running.jobId,
         task: running.task,
         cwd: running.cwd,
-        dryRun: running.dryRun
+        dryRun: running.dryRun,
+        signal: controller.signal
       });
+
+      // Check if it was cancelled during execution
+      if (controller.signal.aborted) {
+         await this.updateJob(running, {
+           status: "cancelled",
+           finishedAt: new Date().toISOString(),
+           resultSummary: "Job was aborted."
+         });
+         return;
+      }
+
       const current = (await this.get(running.jobId)) ?? running;
-      const status: QueueJobStatus = current.status === "cancel_requested" ? "cancel_requested" : result.ok ? "completed" : "failed";
+      const status: QueueJobStatus = result.ok ? "completed" : "failed";
+      
       await this.updateJob(current, {
         status,
         finishedAt: new Date().toISOString(),
@@ -188,13 +244,16 @@ export class FileBackedJobQueue {
         } : undefined
       });
     } catch (error) {
+      const isAbort = error instanceof Error && error.name === 'AbortError';
       await this.updateJob(running, {
-        status: "failed",
+        status: isAbort ? "cancelled" : "failed",
         finishedAt: new Date().toISOString(),
         error: (error as Error).message,
-        resultSummary: "Job failed before producing a run result."
+        resultSummary: isAbort ? "Job aborted." : "Job failed before producing a run result."
       });
-      this.options.logger?.error(`Queued job ${running.jobId} failed: ${(error as Error).message}`);
+      this.options.logger?.error(`Queued job ${running.jobId} ${isAbort ? 'aborted' : 'failed'}: ${(error as Error).message}`);
+    } finally {
+      this.controllers.delete(job.jobId);
     }
   }
 
@@ -215,6 +274,23 @@ export class FileBackedJobQueue {
 
   private jobPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.json`);
+  }
+
+  private async cleanupOldJobs(): Promise<void> {
+    try {
+      const all = await this.list(500);
+      if (all.length <= 100) return;
+
+      const toDelete = all.slice(100);
+      for (const job of toDelete) {
+        try {
+          await fs.unlink(this.jobPath(job.jobId));
+        } catch { /* ignore */ }
+      }
+      this.options.logger?.info(`Cleaned up ${toDelete.length} old job records.`);
+    } catch (err) {
+      this.options.logger?.warn(`Failed to cleanup old jobs: ${(err as Error).message}`);
+    }
   }
 }
 

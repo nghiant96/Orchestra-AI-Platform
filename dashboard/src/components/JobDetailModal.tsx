@@ -24,6 +24,8 @@ import { StatusBadge } from './StatusBadge';
 import { FileDiffView } from './FileDiffView';
 import { StreamingConsole } from './StreamingConsole';
 import { FailurePanel } from './FailurePanel';
+import { BudgetWarning } from './BudgetWarning';
+import { JobComparisonView } from './JobComparisonView';
 
 interface JobDetailModalProps {
   job: Job;
@@ -32,7 +34,7 @@ interface JobDetailModalProps {
 }
 
 export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps) => {
-  const [activeTab, setActiveTab] = useState<'timeline' | 'analytics' | 'diagnostics' | 'files' | 'console'>('timeline');
+  const [activeTab, setActiveTab] = useState<'timeline' | 'analytics' | 'diagnostics' | 'files' | 'console' | 'compare'>('timeline');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
 
@@ -92,7 +94,7 @@ export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps)
           </div>
 
           <div className="flex gap-1 p-1 bg-slate-200/50 rounded-xl w-fit">
-            {(['timeline', 'analytics', 'diagnostics', 'files', 'console'] as const).map(tab => (
+            {(['timeline', 'analytics', 'diagnostics', 'files', 'console', 'compare'] as const).map(tab => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -101,39 +103,54 @@ export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps)
                   activeTab === tab ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
                 )}
               >
-                {tab === 'files' ? 'File Changes' : tab}
+                {tab === 'files' ? 'File Changes' : tab === 'compare' ? 'Comparison' : tab}
               </button>
             ))}
           </div>
         </div>
 
         {job.status === 'waiting_for_approval' && (
-          <div className="mx-6 mt-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between">
-            <div className="flex items-center gap-3 text-amber-800">
-              <div className="bg-amber-100 p-2 rounded-xl">
-                <AlertTriangle size={20} />
+          <div className="mx-6 mt-6 space-y-4">
+            {job.execution?.budget && (
+              <BudgetWarning 
+                totalCost={job.execution.budget.totalCostUnits} 
+                maxCost={job.execution.budget.maxCostUnits} 
+                exceeded={job.execution.budget.exceeded === 'cost'} 
+              />
+            )}
+            
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between shadow-sm">
+              <div className="flex items-center gap-3 text-amber-800">
+                <div className="bg-amber-100 p-2 rounded-xl">
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <p className="text-sm font-black uppercase tracking-tight">Human intervention required</p>
+                  <p className="text-xs font-medium opacity-80">The system is waiting for you to review and approve the next stage.</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-black uppercase tracking-tight">Human intervention required</p>
-                <p className="text-xs font-medium opacity-80">The system is waiting for you to review and approve the next stage.</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => handleApproval(false)}
+                  disabled={actioning}
+                  className="px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-50 transition-all"
+                >
+                  Reject & Stop
+                </button>
+                <button
+                  onClick={() => handleApproval(true)}
+                  disabled={actioning}
+                  className={cn(
+                    "px-6 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-2",
+                    job.execution?.budget?.exceeded === 'cost'
+                      ? "bg-rose-600 text-white hover:bg-rose-700 shadow-rose-100"
+                      : "bg-amber-500 text-white hover:bg-amber-600 shadow-amber-200"
+                  )}
+                >
+                  {actioning ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                  {job.execution?.budget?.exceeded === 'cost' ? "Override & Approve" : "Approve Plan"}
+                </button>
               </div>
-            </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => handleApproval(false)}
-                disabled={actioning}
-                className="px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-xs font-bold hover:bg-rose-50 transition-all"
-              >
-                Reject & Stop
-              </button>
-              <button
-                onClick={() => handleApproval(true)}
-                disabled={actioning}
-                className="px-6 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold hover:bg-amber-600 transition-all shadow-md shadow-amber-200 flex items-center gap-2"
-              >
-                {actioning ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                Approve Plan
-              </button>
             </div>
           </div>
         )}
@@ -437,6 +454,17 @@ export const JobDetailModal = ({ job, onClose, onRefresh }: JobDetailModalProps)
                 className="h-full"
               >
                 <StreamingConsole jobId={job.jobId} />
+              </motion.div>
+            )}
+
+            {activeTab === 'compare' && (
+              <motion.div
+                key="compare"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+              >
+                <JobComparisonView currentJob={job} />
               </motion.div>
             )}
           </AnimatePresence>

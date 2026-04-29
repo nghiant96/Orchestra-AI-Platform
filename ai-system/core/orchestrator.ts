@@ -77,9 +77,11 @@ export class Orchestrator {
       dryRun = false,
       interactive = false,
       pauseAfterPlan = false,
-      pauseAfterGenerate = false
-    }: { dryRun?: boolean; interactive?: boolean; pauseAfterPlan?: boolean; pauseAfterGenerate?: boolean } = {}
+      pauseAfterGenerate = false,
+      signal
+    }: { dryRun?: boolean; interactive?: boolean; pauseAfterPlan?: boolean; pauseAfterGenerate?: boolean; signal?: AbortSignal } = {}
   ): Promise<OrchestratorResult> {
+    if (signal?.aborted) throw new Error('AbortError');
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 
@@ -232,7 +234,7 @@ export class Orchestrator {
     const localConfirmCheckpoint = (message: string, artifactPath?: string | null) =>
       this.confirmationHandler
         ? this.confirmationHandler.confirmCheckpoint(message, artifactPath)
-        : confirmCheckpoint({ message, artifactPath, logger: this.logger });
+        : confirmCheckpoint({ message, artifactPath, logger: this.logger, signal });
 
     if (pauseAfterPlan) {
       const confirmed = await localConfirmCheckpoint(
@@ -280,7 +282,7 @@ export class Orchestrator {
     }
 
     const localConfirmPlan = (p: PlanResult) =>
-      this.confirmationHandler ? this.confirmationHandler.confirmPlan(p) : confirmPlan(p);
+      this.confirmationHandler ? this.confirmationHandler.confirmPlan(p) : confirmPlan(p, signal);
 
     if (interactive) {
       const confirmed = await localConfirmPlan(plan);
@@ -464,7 +466,8 @@ export class Orchestrator {
         confirmCheckpoint: localConfirmCheckpoint,
         successResultStatus: undefined,
         successPersistedStatus: "completed",
-        budgetConfig: rules.execution?.budgets
+        budgetConfig: rules.execution?.budgets,
+        signal
       });
       workingState = loopExecution.state;
 
@@ -590,7 +593,7 @@ export class Orchestrator {
     const localConfirmCheckpoint = (message: string, artifactPath?: string | null) =>
       this.confirmationHandler
         ? this.confirmationHandler.confirmCheckpoint(message, artifactPath)
-        : confirmCheckpoint({ message, artifactPath, logger: this.logger });
+        : confirmCheckpoint({ message, artifactPath, logger: this.logger, signal });
 
     const memoryStats: MemoryStats = {
       backend: runtime.memory.id,
@@ -725,9 +728,9 @@ export class Orchestrator {
       resumeFromStage: resumeStrategy.resumeFromStage,
       successResultStatus: "resumed_completed",
       successPersistedStatus: "resumed_completed",
-      budgetConfig: rules.execution?.budgets
-    });
-
+      budgetConfig: rules.execution?.budgets,
+      signal
+      });
     if (loopExecution.result) {
       return loopExecution.result;
     }

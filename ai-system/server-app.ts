@@ -203,6 +203,28 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS"
           });
         }
+
+        // Budget Enforcement: Check daily usage
+        try {
+          const { rules } = await loadRules(cwd);
+          const maxDaily = rules.execution?.budgets?.max_daily_cost_units;
+          if (maxDaily && maxDaily > 0) {
+            // Self-call stats to get usage
+            const stats = await aggregateStats(cwd, rules, options.logger);
+            const todayStr = new Date().toISOString().split('T')[0];
+            const todayCost = stats.costByDay.find(d => d.date === todayStr)?.cost || 0;
+
+            if (todayCost >= maxDaily) {
+              return respondJson(res, 403, {
+                ok: false,
+                error: `Daily budget exceeded: ${todayCost.toFixed(2)}/${maxDaily} units used today.`
+              });
+            }
+          }
+        } catch (err) {
+          options.logger.warn(`Daily budget check failed (ignoring): ${(err as Error).message}`);
+        }
+
         const job = await queue.enqueue({
           jobId: `job-${Date.now().toString(36)}`,
           task: payload.task,
@@ -284,7 +306,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (url.pathname === "/config" && req.method === "GET") {
         try {
-          const { rules, profile, globalProfile } = await loadRules(defaultCwd);
+          const { rules, profile, globalProfile, plugins } = await loadRules(defaultCwd);
           // Mask sensitive info
           const safeRules = JSON.parse(JSON.stringify(rules));
           if (safeRules.providers) {
@@ -297,22 +319,42 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           return respondJson(res, 200, {
             rules: safeRules,
             profile,
-            globalProfile
+            globalProfile,
+            plugins
           });
         } catch (err) {
           return respondJson(res, 500, { ok: false, error: (err as Error).message });
         }
       }
 
-      if (url.pathname === "/jobs" && req.method === "GET") {
-        const jobs = await queue.list();
-        options.logger.info(`GET /jobs - Found ${jobs.length} jobs in queue`);
-
-        // Also load recent runs from artifacts to show CLI runs
+      if (url.pathname === "/stats" && req.method === "GET") {
+        const filterCwd = url.searchParams.get("cwd") || defaultCwd;
         try {
-          const { rules } = await loadRules(defaultCwd);
-          const recentRuns = await listRecentRunSummaries(defaultCwd, rules, 20);
-          options.logger.info(`GET /jobs - Found ${recentRuns.length} recent runs`);
+          const { rules } = await loadRules(filterCwd);
+          const stats = await aggregateStats(filterCwd, rules, options.logger);
+          return respondJson(res, 200, { ok: true, ...stats });
+        } catch (err) {
+          return respondJson(res, 500, { ok: false, error: (err as Error).message });
+        }
+      }
+
+      if (url.pathname === "/jobs" && req.method === "GET") {
+        const filterCwd = url.searchParams.get("cwd");
+        const jobs = await queue.list();
+        
+        // Lọc queue jobs theo filterCwd nếu có
+        const filteredQueueJobs = filterCwd 
+          ? jobs.filter(j => j.cwd === filterCwd || j.cwd.startsWith(filterCwd))
+          : jobs;
+
+        options.logger.info(`GET /jobs - Found ${filteredQueueJobs.length} jobs in queue${filterCwd ? ` for ${filterCwd}` : ''}`);
+
+        // Load recent runs from artifacts
+        try {
+          const targetCwd = filterCwd || defaultCwd;
+          const { rules } = await loadRules(targetCwd);
+          const recentRuns = await listRecentRunSummaries(targetCwd, rules, 20);
+          options.logger.info(`GET /jobs - Found ${recentRuns.length} recent runs in ${targetCwd}`);
 
           const runJobs: QueueJob[] = recentRuns
             .filter(run => !jobs.some(j => j.artifactPath === run.runPath || j.jobId === run.runName))
@@ -337,7 +379,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
               } : undefined
             }));
 
-          const merged = [...jobs, ...runJobs].sort((a, b) =>
+          const merged = [...filteredQueueJobs, ...runJobs].sort((a, b) =>
             new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
 
@@ -346,7 +388,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           });
         } catch {
           // If artifacts can't be loaded, just return queue jobs
-          return respondJson(res, 200, { jobs });
+          return respondJson(res, 200, { jobs: filteredQueueJobs });
         }
       }
 
@@ -499,4 +541,48 @@ async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, u
   }
 
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+}
+
+async function aggregateStats(cwd: string, rules: any, logger?: any) {
+  const recentRuns = await listRecentRunSummaries(cwd, rules, 50);
+  
+  const stats = {
+    totalProjectCost: 0,
+    costByDay: {} as Record<string, number>,
+    failuresByClass: {} as Record<string, number>,
+    avgDurationByStage: {} as Record<string, { total: number, count: number }>,
+  };
+
+  for (const run of recentRuns) {
+    const date = (run.updatedAt || new Date().toISOString()).split('T')[0]!;
+    const cost = run.execution?.budget?.totalCostUnits || 0;
+    stats.totalProjectCost += cost;
+    stats.costByDay[date] = (stats.costByDay[date] || 0) + cost;
+
+    if (run.status === 'failed') {
+      const error = classifyError(run.execution?.failure?.reason);
+      stats.failuresByClass[error.class] = (stats.failuresByClass[error.class] || 0) + 1;
+    }
+
+    if (run.execution?.transitions) {
+      for (const t of run.execution.transitions) {
+        if (t.status === 'completed' && t.durationMs) {
+          const current = stats.avgDurationByStage[t.stage] || { total: 0, count: 0 };
+          current.total += t.durationMs;
+          current.count += 1;
+          stats.avgDurationByStage[t.stage] = current;
+        }
+      }
+    }
+  }
+
+  return {
+    totalProjectCost: stats.totalProjectCost,
+    costByDay: Object.entries(stats.costByDay).map(([date, cost]) => ({ date, cost })).sort((a, b) => a.date.localeCompare(b.date)),
+    failuresByClass: Object.entries(stats.failuresByClass).map(([name, count]) => ({ name, count })),
+    avgDurationByStage: Object.entries(stats.avgDurationByStage).map(([stage, data]) => ({
+      stage,
+      avgMs: Math.round(data.total / data.count)
+    }))
+  };
 }

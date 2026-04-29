@@ -4,7 +4,8 @@ import {
   formatDuration,
   formatExecutionBudget,
   summarizeToolResults,
-  summarizeIssueCountsFromIssues
+  summarizeIssueCountsFromIssues,
+  formatCost
 } from "./shared.js";
 
 export function printRecentRunSummary(summary: RecentRunSummary): void {
@@ -43,7 +44,7 @@ export function printRecentRunSummary(summary: RecentRunSummary): void {
   console.log(`- changed files: ${changedFiles.join(", ") || "(none)"}`);
   console.log(`- issues: high=${issueCounts.high ?? 0}, medium=${issueCounts.medium ?? 0}, low=${issueCounts.low ?? 0}`);
   if (execution) {
-    console.log(`- execution: total=${formatDuration(execution.totalDurationMs)}`);
+    console.log(`- execution: total=${formatDuration(execution.totalDurationMs)}, cost=${formatCost(execution.budget?.totalCostUnits || 0)}`);
     console.log(`- execution stage: current=${execution.currentStage ?? "none"}, terminal=${execution.terminalStage ?? "none"}`);
     console.log(
       `- failure class: ${execution.failure ? `${execution.failure.class} (${execution.failure.reason})` : "none"}`
@@ -120,7 +121,7 @@ export function printRunList(runs: RunListEntry[], repoRoot: string): void {
     console.log(`  state: ${run.statePath}`);
     if (execution) {
       console.log(
-        `  execution: total=${formatDuration(execution.totalDurationMs)}, failure=${execution.failure ? execution.failure.class : "none"}`
+        `  execution: total=${formatDuration(execution.totalDurationMs)}, cost=${formatCost(execution.budget?.totalCostUnits || 0)}, failure=${execution.failure ? execution.failure.class : "none"}`
       );
     }
     if (run.applyEventCount) {
