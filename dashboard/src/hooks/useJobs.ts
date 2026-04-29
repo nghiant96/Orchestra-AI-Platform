@@ -14,7 +14,6 @@ export const useJobs = () => {
       .then(data => {
         // Đảm bảo lấy được mảng jobs dù cấu trúc data như thế nào
         const jobsArray = Array.isArray(data) ? data : (data.jobs || []);
-        console.log('Processed Jobs Array:', jobsArray);
         setJobs(jobsArray);
         setLoading(false);
       })

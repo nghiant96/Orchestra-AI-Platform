@@ -131,13 +131,25 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/health" && req.method === "GET") {
+        const jobs = await queue.list();
+        const activeJobs = jobs.filter(j => j.status === 'running' || j.status === 'waiting_for_approval');
+        const queuedJobs = jobs.filter(j => j.status === 'queued');
+
         return respondJson(res, 200, {
           ok: true,
-          mode: "server",
+          status: "online",
+          version: "2.0.0",
           cwd: defaultCwd,
+          allowedWorkdirs: options.allowedWorkdirs || [defaultCwd],
           queue: {
-            enabled: true,
-            concurrency: Math.max(1, Number(options.queueConcurrency || 1))
+            concurrency: Math.max(1, Number(options.queueConcurrency || 1)),
+            activeCount: activeJobs.length,
+            queuedCount: queuedJobs.length,
+            totalRecent: jobs.length
+          },
+          memory: {
+            usage: process.memoryUsage(),
+            uptime: process.uptime()
           }
         });
       }
