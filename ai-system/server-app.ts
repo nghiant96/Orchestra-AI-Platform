@@ -98,7 +98,6 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (resume) {
         return orchestrator.resume(jobId, {
-          interactive: true,
           signal
         });
       }
@@ -227,7 +226,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           const maxDaily = rules.execution?.budgets?.max_daily_cost_units;
           if (maxDaily && maxDaily > 0) {
             // Self-call stats to get usage
-            const stats = await aggregateStats(cwd, rules, options.logger);
+            const stats = await aggregateStats(cwd, rules);
             const todayStr = new Date().toISOString().split('T')[0];
             const todayCost = stats.costByDay.find(d => d.date === todayStr)?.cost || 0;
 
@@ -243,7 +242,6 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
 
         const job = await queue.enqueue({
-          jobId: `job-${Date.now().toString(36)}`,
           task: payload.task,
           cwd,
           dryRun: payload.dryRun !== false
@@ -374,7 +372,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         const filterCwd = url.searchParams.get("cwd") || defaultCwd;
         try {
           const { rules } = await loadRules(filterCwd);
-          const stats = await aggregateStats(filterCwd, rules, options.logger);
+          const stats = await aggregateStats(filterCwd, rules);
           return respondJson(res, 200, { ok: true, ...stats });
         } catch (err) {
           return respondJson(res, 500, { ok: false, error: (err as Error).message });
@@ -612,7 +610,7 @@ async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, u
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 }
 
-async function aggregateStats(cwd: string, rules: any, logger?: any) {
+async function aggregateStats(cwd: string, rules: any) {
   const recentRuns = await listRecentRunSummaries(cwd, rules, 50);
   
   const stats = {

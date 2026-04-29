@@ -7,7 +7,13 @@ function validatePluginSafety(manifest: PluginManifest): string | null {
   const allTools = Object.values(manifest.tools || {});
   const allAdapters = Object.values(manifest.adapters || {});
 
-  const check = (cmd?: string, workingDir?: string) => {
+  const check = (cmd?: unknown, workingDir?: unknown) => {
+    if (cmd !== undefined && typeof cmd !== "string") {
+      return "Unsafe command path: expected a string command.";
+    }
+    if (workingDir !== undefined && typeof workingDir !== "string") {
+      return "Unsafe working directory: expected a string working directory.";
+    }
     if (cmd && (path.isAbsolute(cmd) || cmd.includes('..'))) {
       return `Unsafe command path: ${cmd}`;
     }
@@ -27,6 +33,7 @@ function validatePluginSafety(manifest: PluginManifest): string | null {
     if (err) return err;
     if (adapter.commands) {
       for (const cmd of Object.values(adapter.commands)) {
+        if (!cmd || typeof cmd !== "object") continue;
         const cmdErr = check(cmd.command, cmd.working_directory);
         if (cmdErr) return cmdErr;
       }

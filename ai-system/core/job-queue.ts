@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Logger, OrchestratorResult } from "../types.js";
+import type { Logger, OrchestratorResult, PlanResult } from "../types.js";
 
 export type QueueJobStatus =
   | "queued"
@@ -17,6 +17,7 @@ export interface QueueJob {
   task: string;
   cwd: string;
   dryRun: boolean;
+  resume?: boolean;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -31,6 +32,7 @@ export interface QueueJob {
     providerMetrics?: import("../types.js").ExecutionProviderMetric[];
     budget?: import("../types.js").ExecutionBudgetSummary | null;
     totalDurationMs?: number;
+    pendingPlan?: PlanResult;
   };
 }
 
@@ -80,6 +82,7 @@ export class FileBackedJobQueue {
       task: input.task,
       cwd: input.cwd,
       dryRun: input.dryRun,
+      resume: input.resume,
       createdAt: now,
       updatedAt: now,
       artifactPath: null,
@@ -106,7 +109,7 @@ export class FileBackedJobQueue {
 
   async list(limit = 50): Promise<QueueJob[]> {
     await fs.mkdir(this.jobsDir, { recursive: true });
-    let entries: string[] = [];
+    let entries: string[];
     try {
       entries = await fs.readdir(this.jobsDir);
     } catch {

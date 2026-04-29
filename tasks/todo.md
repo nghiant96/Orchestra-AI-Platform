@@ -306,3 +306,43 @@
 - `ConfigView` now initializes editable form state when entering edit mode, avoiding synchronous setState inside an effect.
 - Verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm run dashboard:build`, `pnpm test` (133/133), and `git diff --check` pass.
 - `pnpm run dashboard:build` still reports the existing large chunk warning for the dashboard JS bundle; it does not fail the build.
+
+---
+
+# Tool Requirement Guard Upgrade
+
+## Tasks
+
+- [x] Inspect planner/review execution flow for where deterministic task checks fit
+- [x] Add UI filter requirement extraction and plan enhancement
+- [x] Add generated-file validation for Event Feed filter requirements
+- [x] Add focused tests for plan enhancement and validation
+- [x] Run targeted verification and record result
+
+## Review Result
+
+- Added deterministic Event Feed filter requirement guards so planner notes explicitly call out no horizontal scroll, header-above-filter layout, and per-filter job counts when the task asks for them.
+- The planner now promotes `dashboard/src/App.tsx` into write targets for Event Feed filter tasks when that file is relevant context, avoiding generated updates being dropped as unsafe.
+- The generation loop now merges requirement coverage issues into pre-review issues, so a candidate can be sent back to the fixer when it still uses horizontal scrolling or only renders a global count.
+- Verification: focused tests passed 29/29, ESLint passed for touched system/test files, and `git diff --check` passed for touched files.
+- Full `pnpm exec tsc --noEmit` remains blocked by pre-existing unrelated type errors in queue/server/types/cost/dashboard hook files.
+
+---
+
+# Fix Existing TypeScript Errors
+
+## Tasks
+
+- [x] Consolidate duplicate failure typing and provider usage model metadata
+- [x] Align queue/server resume and pending approval metadata types
+- [x] Add resume cancellation signal typing through orchestrator resume
+- [x] Tighten plugin manifest safety narrowing
+- [x] Fix dashboard NodeNext type imports
+- [x] Run typecheck, focused lint, queue/resume/server tests, and diff hygiene
+
+## Review Result
+
+- `pnpm exec tsc --noEmit`: pass.
+- Focused ESLint for touched type/queue/orchestrator/plugin/server/cost/dashboard hook files: pass.
+- `node --import tsx --test tests/orchestrator.resume.test.ts tests/server-queue.test.ts tests/workflow-modes.test.ts`: pass, 12/12.
+- `git diff --check`: pass.

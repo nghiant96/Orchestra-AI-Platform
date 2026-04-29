@@ -55,7 +55,7 @@ export function estimateProviderCost({
   const totalTokens = prompt + completion;
   
   // Find pricing
-  let pricing = MODEL_PRICING[model || ""] || PROVIDER_DEFAULT_PRICING[provider] || MODEL_PRICING["default"];
+  const pricing = MODEL_PRICING[model || ""] || PROVIDER_DEFAULT_PRICING[provider] || MODEL_PRICING["default"];
   
   const estimatedCostUnits = Number(
     ((prompt / 1_000_000) * pricing.input + (completion / 1_000_000) * pricing.output).toFixed(6)

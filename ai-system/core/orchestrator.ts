@@ -47,6 +47,7 @@ import {
 import { buildExecutionSummary } from "./execution-summary.js";
 import { expandContextReadFiles } from "./context-intelligence.js";
 import { loadEditableContextCheckpoint, loadEditablePlanCheckpoint } from "./manual-checkpoints.js";
+import { enhancePlanForTaskRequirements } from "./task-requirements.js";
 
 export class Orchestrator {
   repoRoot: string;
@@ -184,6 +185,7 @@ export class Orchestrator {
           : [])
       ]
     };
+    plan = enhancePlanForTaskRequirements(task, plan);
     await persistPlanArtifacts(
       artifactState,
       {
@@ -517,7 +519,12 @@ export class Orchestrator {
     }
   }
 
-  async resume(resumeTarget: string, options: { stage?: ExecutionStage | null } = {}): Promise<OrchestratorResult> {
+  async resume(
+    resumeTarget: string,
+    options: { stage?: ExecutionStage | null; signal?: AbortSignal } = {}
+  ): Promise<OrchestratorResult> {
+    const { signal } = options;
+    if (signal?.aborted) throw new Error('AbortError');
     const repoRoot = await fs.realpath(this.repoRoot);
     await loadEnvironment(repoRoot);
 

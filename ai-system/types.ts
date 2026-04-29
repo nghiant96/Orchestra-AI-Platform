@@ -220,7 +220,15 @@ export type FailureClass =
   | "cost-budget-exceeded"
   | "iteration-limit"
   | "review-blocking-issues"
-  | "unknown";
+  | "unknown"
+  | "provider_timeout"
+  | "provider_error"
+  | "tool_execution_failed"
+  | "context_overflow"
+  | "budget_exceeded"
+  | "validation_failed"
+  | "user_cancelled"
+  | "internal_error";
 
 export interface ExecutionStepSummary {
   name: string;
@@ -268,6 +276,7 @@ export interface ExecutionBudgetSummary {
 export interface ProviderUsageMetric {
   role: ProviderRole;
   provider: string;
+  model?: string;
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -281,16 +290,6 @@ export interface ExecutionProviderMetric {
   totalDurationMs: number;
   estimatedCostUnits: number;
 }
-
-export type FailureClass =
-  | "provider_timeout"
-  | "provider_error"
-  | "tool_execution_failed"
-  | "context_overflow"
-  | "budget_exceeded"
-  | "validation_failed"
-  | "user_cancelled"
-  | "internal_error";
 
 export interface FailureMetadata {
   class: FailureClass;

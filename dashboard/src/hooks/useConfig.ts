@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import type { SystemConfig, ConfigFormData } from '../types';
+import type { SystemConfig, ConfigFormData } from '../types/index.js';
 
 export const useConfig = () => {
   const [config, setConfig] = useState<SystemConfig | null>(null);

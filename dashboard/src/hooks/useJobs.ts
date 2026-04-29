@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
-import type { Job } from '../types';
+import type { Job } from '../types/index.js';
 
 export const useJobs = (projectPath?: string) => {
   const [jobs, setJobs] = useState<Job[]>([]);

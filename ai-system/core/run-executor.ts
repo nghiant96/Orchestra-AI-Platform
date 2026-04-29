@@ -52,6 +52,7 @@ import {
 } from "./artifacts.js";
 import { buildExecutionBudgetSummary, buildExecutionSummary } from "./execution-summary.js";
 import { ExecutionStateMachine } from "./execution-state-machine.js";
+import { validateTaskRequirementCoverage } from "./task-requirements.js";
 
 export interface RuntimeDependencies {
   plannerProvider: JsonProvider;
@@ -288,7 +289,10 @@ export async function executeGenerationLoop({
       content: originals.get(file.path)
     }));
     state.diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
-    const validationIssues = validateCandidateFiles(state.currentResult.files);
+    const validationIssues = [
+      ...validateCandidateFiles(state.currentResult.files),
+      ...validateTaskRequirementCoverage(task, state.currentResult.files)
+    ];
 
     const toolExecution = await state.executionMachine.runStage(
       "iteration-tools",
