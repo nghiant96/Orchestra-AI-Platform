@@ -337,17 +337,17 @@ Recommended order:
 
 ## Phase 8 - v0.9 Release Candidate Packaging
 
-Status: planned
+Status: completed
 
 Goal: make the platform installable and operable by an internal user who did not build it.
 
 Tasks:
 
 - [x] Add a release note for completed v0.2-v0.8 capabilities and migration notes.
-- [ ] Add a release check command or `ai doctor` extension for Node, pnpm, provider CLIs, config, server token, allowed workdirs, and dashboard build.
-- [ ] Refresh config examples for local CLI, 9router, hybrid, safe-review, and server mode.
-- [ ] Add operator runbook sections for startup, shutdown, queue recovery, artifact cleanup, and common failures.
-- [ ] Add a one-command local server/dashboard start path or documented script pair.
+- [x] Add a release check command or `ai doctor` extension for Node, pnpm, provider CLIs, config, server token, allowed workdirs, and dashboard build.
+- [x] Refresh config examples for local CLI, 9router, hybrid, safe-review, and server mode.
+- [x] Add operator runbook sections for startup, shutdown, queue recovery, artifact cleanup, and common failures.
+- [x] Add a one-command local server/dashboard start path or documented script pair.
 
 Acceptance:
 

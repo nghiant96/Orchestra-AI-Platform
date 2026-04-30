@@ -1,0 +1,13 @@
+{
+  "tools": {
+    "enabled": true,
+    "sandbox": {
+      "mode": "docker",
+      "image_profile": "auto",
+      "auto_build": true
+    }
+  },
+  "artifacts": {
+    "data_dir": ".ai-system-artifacts"
+  }
+}

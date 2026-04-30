@@ -330,6 +330,41 @@ test("runSetupCheck reports OpenMemory probe failures against the configured env
   });
 });
 
+test("runSetupCheck includes runtime, server, and dashboard prerequisites", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-config-"));
+  await fs.writeFile(path.join(repoRoot, "package.json"), JSON.stringify({
+    scripts: { "dashboard:build": "true" }
+  }), "utf8");
+
+  const originalServerToken = process.env.AI_SYSTEM_SERVER_TOKEN;
+  const originalAllowedWorkdirs = process.env.AI_SYSTEM_ALLOWED_WORKDIRS;
+  const originalServerMode = process.env.AI_SYSTEM_SERVER_MODE;
+
+  try {
+    process.env.AI_SYSTEM_SERVER_TOKEN = "test-token";
+    process.env.AI_SYSTEM_ALLOWED_WORKDIRS = `${repoRoot},/non-existent-path`;
+    process.env.AI_SYSTEM_SERVER_MODE = "true";
+
+    const result = await runSetupCheck({ repoRoot });
+
+    assert.ok(result.inspection.runtime.nodeVersion.startsWith("v"));
+    assert.ok(typeof result.inspection.runtime.pnpmVersion === "string" || result.inspection.runtime.pnpmVersion === null);
+    assert.equal(result.inspection.server.tokenSet, true);
+    assert.equal(result.inspection.server.allowedWorkdirs.length, 2);
+    assert.equal(result.inspection.server.allowedWorkdirs[0].path, repoRoot);
+    assert.equal(result.inspection.server.allowedWorkdirs[0].exists, true);
+    assert.equal(result.inspection.server.allowedWorkdirs[0].absolute, true);
+    assert.equal(result.inspection.server.allowedWorkdirs[1].exists, false);
+    assert.equal(result.inspection.dashboard.buildScriptExists, true);
+    assert.ok("pnpm" in result.cliAvailability);
+  } finally {
+    process.env.AI_SYSTEM_SERVER_TOKEN = originalServerToken;
+    process.env.AI_SYSTEM_ALLOWED_WORKDIRS = originalAllowedWorkdirs;
+    process.env.AI_SYSTEM_SERVER_MODE = originalServerMode;
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("project-configured providers stay pinned while auto roles remain routable", async () => {
   await withEnv({}, async () => {
     const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-config-"));

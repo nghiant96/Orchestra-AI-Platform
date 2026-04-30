@@ -87,6 +87,22 @@ export function printDoctor(
   console.log(
     `- prompts: directory=${inspection.effectiveRules.prompts?.directory || "(built-in)"}, examples_directory=${inspection.effectiveRules.prompts?.examples_directory || "(built-in)"}`
   );
+  console.log(`- node: ${inspection.runtime.nodeVersion}`);
+  console.log(`- pnpm: ${inspection.runtime.pnpmVersion ?? "missing"}`);
+
+  if (process.env.AI_SYSTEM_SERVER_MODE === "true") {
+    console.log("- server mode prerequisites:");
+    console.log(`  - server token: ${inspection.server.tokenSet ? "set" : "missing"}`);
+    if (inspection.server.allowedWorkdirs.length > 0) {
+      console.log("  - allowed workdirs:");
+      for (const entry of inspection.server.allowedWorkdirs) {
+        console.log(`    - ${entry.path}: exists=${entry.exists}, absolute=${entry.absolute}`);
+      }
+    }
+  }
+
+  console.log(`- dashboard build script: ${inspection.dashboard.buildScriptExists ? "found" : "missing"}`);
+
   if (inspection.toolSummaries.length > 0) {
     console.log("- effective tool commands:");
     for (const tool of inspection.toolSummaries) {
@@ -128,9 +144,27 @@ export function printSetupCheck(result: SetupCheckResult): void {
   console.log(
     `- effective providers: planner=${result.inspection.effectiveRules.providers.planner.type}, reviewer=${result.inspection.effectiveRules.providers.reviewer.type}, generator=${result.inspection.effectiveRules.providers.generator.type}, fixer=${result.inspection.effectiveRules.providers.fixer.type}`
   );
+  console.log(`- node: ${result.inspection.runtime.nodeVersion}`);
+  console.log(`- pnpm: ${result.inspection.runtime.pnpmVersion ?? "missing"}`);
   console.log(`- codex CLI: ${result.cliAvailability.codex ? "ok" : "missing"}`);
   console.log(`- gemini CLI: ${result.cliAvailability.gemini ? "ok" : "missing"}`);
   console.log(`- claude CLI: ${result.cliAvailability.claude ? "ok" : "missing"}`);
+  console.log(`- pnpm CLI: ${result.cliAvailability.pnpm ? "ok" : "missing"}`);
+
+  if (process.env.AI_SYSTEM_SERVER_MODE === "true") {
+    console.log("- server mode prerequisites:");
+    console.log(`  - server token: ${result.inspection.server.tokenSet ? "set" : "missing"}`);
+    if (result.inspection.server.allowedWorkdirs.length > 0) {
+      console.log("  - allowed workdirs:");
+      for (const entry of result.inspection.server.allowedWorkdirs) {
+        console.log(`    - ${entry.path}: exists=${entry.exists}, absolute=${entry.absolute}`);
+      }
+    } else {
+      console.log("  - allowed workdirs: (none configured)");
+    }
+  }
+
+  console.log(`- dashboard build script: ${result.inspection.dashboard.buildScriptExists ? "found" : "missing"}`);
 
   if (result.openmemory.enabled) {
     console.log(`- OpenMemory base URL: ${result.openmemory.baseUrl ?? "(missing)"}`);

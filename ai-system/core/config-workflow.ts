@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import path from "node:path";
-import { loadEnvironment } from "../utils/api.js";
+import { loadEnvironment, runCommand } from "../utils/api.js";
 import {
   listProjectConfigPresets,
   loadJsonIfExists,
@@ -27,6 +27,17 @@ export interface ConfigInspection {
   routing: RoutingDecision;
   toolSummaries: ToolConfigurationSummary[];
   activeEnvOverrides: Array<{ key: string; value: string; category: "behavior" | "secret" }>;
+  runtime: {
+    nodeVersion: string;
+    pnpmVersion: string | null;
+  };
+  server: {
+    tokenSet: boolean;
+    allowedWorkdirs: Array<{ path: string; exists: boolean; absolute: boolean }>;
+  };
+  dashboard: {
+    buildScriptExists: boolean;
+  };
   recommendations: string[];
 }
 
@@ -57,7 +68,7 @@ export interface SetupCheckResult {
   inspection: ConfigInspection;
   configPath: string | null;
   envPath: string;
-  cliAvailability: Record<"codex" | "gemini" | "claude", boolean>;
+  cliAvailability: Record<"codex" | "gemini" | "claude" | "pnpm", boolean>;
   openmemory:
     | {
         enabled: false;
@@ -131,12 +142,31 @@ export async function inspectProjectConfiguration({
   const toolSummaries = await summarizeConfiguredTools({ repoRoot, rules: effectiveRules });
 
   const activeEnvOverrides = collectActiveEnvOverrides();
+
+  const pnpmVersion = await getPnpmVersion();
+  const runtime = {
+    nodeVersion: process.version,
+    pnpmVersion
+  };
+
+  const server = {
+    tokenSet: Boolean(process.env.AI_SYSTEM_SERVER_TOKEN),
+    allowedWorkdirs: await validateAllowedWorkdirs(process.env.AI_SYSTEM_ALLOWED_WORKDIRS)
+  };
+
+  const dashboard = {
+    buildScriptExists: await checkDashboardBuildScript(repoRoot)
+  };
+
   const recommendations = buildRecommendations({
     configPath,
     projectConfig,
     profile,
     effectiveRules,
-    activeEnvOverrides
+    activeEnvOverrides,
+    runtime,
+    server,
+    dashboard
   });
 
   return {
@@ -151,6 +181,9 @@ export async function inspectProjectConfiguration({
     routing,
     toolSummaries,
     activeEnvOverrides,
+    runtime,
+    server,
+    dashboard,
     recommendations
   };
 }
@@ -310,7 +343,8 @@ export async function runSetupCheck({
   const cliAvailability = {
     codex: await commandExists("codex"),
     gemini: await commandExists("gemini"),
-    claude: await commandExists("claude")
+    claude: await commandExists("claude"),
+    pnpm: await commandExists("pnpm")
   };
 
   const openmemory =
@@ -334,6 +368,49 @@ export async function runSetupCheck({
     cliAvailability,
     openmemory
   };
+}
+
+async function getPnpmVersion(): Promise<string | null> {
+  try {
+    const result = await runCommand({
+      command: "pnpm",
+      args: ["--version"],
+      cwd: process.cwd(),
+      timeoutMs: 5000
+    });
+    return result.stdout.trim();
+  } catch {
+    return null;
+  }
+}
+
+async function validateAllowedWorkdirs(value?: string): Promise<ConfigInspection["server"]["allowedWorkdirs"]> {
+  if (!value) return [];
+  const paths = value.split(",").map((p) => p.trim()).filter(Boolean);
+  return Promise.all(
+    paths.map(async (p) => {
+      const isAbsolute = path.isAbsolute(p);
+      let exists = false;
+      try {
+        await fs.access(p);
+        exists = true;
+      } catch {
+        // ignore
+      }
+      return { path: p, exists, absolute: isAbsolute };
+    })
+  );
+}
+
+async function checkDashboardBuildScript(repoRoot: string): Promise<boolean> {
+  try {
+    const packageJsonPath = path.join(repoRoot, "package.json");
+    const content = await fs.readFile(packageJsonPath, "utf8");
+    const pkg = JSON.parse(content);
+    return Boolean(pkg.scripts?.["dashboard:build"]);
+  } catch {
+    return false;
+  }
 }
 
 export function getPresetCatalog(): Array<{ name: ProjectConfigPresetName; summary: string }> {
@@ -379,13 +456,19 @@ function buildRecommendations({
   projectConfig,
   profile,
   effectiveRules,
-  activeEnvOverrides
+  activeEnvOverrides,
+  runtime,
+  server,
+  dashboard
 }: {
   configPath: string | null;
   projectConfig: ProjectConfig | null;
   profile: ProjectConfigPresetName | null;
   effectiveRules: RulesConfig;
   activeEnvOverrides: Array<{ key: string; value: string; category: "behavior" | "secret" }>;
+  runtime: ConfigInspection["runtime"];
+  server: ConfigInspection["server"];
+  dashboard: ConfigInspection["dashboard"];
 }): string[] {
   const recommendations: string[] = [];
 
@@ -419,6 +502,26 @@ function buildRecommendations({
 
   if (effectiveRules.memory?.backend === "openmemory" && !effectiveRules.memory?.api_key) {
     recommendations.push("OpenMemory is enabled without an API key. Set `AI_SYSTEM_OPENMEMORY_API_KEY` in `.env`.");
+  }
+
+  if (process.env.AI_SYSTEM_SERVER_MODE === "true" && !server.tokenSet) {
+    recommendations.push("Server mode is enabled but `AI_SYSTEM_SERVER_TOKEN` is not set in env.");
+  }
+
+  if (process.env.AI_SYSTEM_SERVER_MODE === "true" && server.allowedWorkdirs.length === 0) {
+    recommendations.push("Server mode is enabled but `AI_SYSTEM_ALLOWED_WORKDIRS` is not set.");
+  }
+
+  if (server.allowedWorkdirs.some((entry) => !entry.exists || !entry.absolute)) {
+    recommendations.push("One or more `AI_SYSTEM_ALLOWED_WORKDIRS` are invalid or missing.");
+  }
+
+  if (!dashboard.buildScriptExists) {
+    recommendations.push("Dashboard build script `dashboard:build` is missing in `package.json`.");
+  }
+
+  if (!runtime.pnpmVersion) {
+    recommendations.push("`pnpm` is not available in PATH. It is required for many project tool checks.");
   }
 
   return recommendations;

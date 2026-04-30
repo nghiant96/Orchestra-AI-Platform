@@ -42,8 +42,13 @@ Result:
 Recommended next implementation:
 
 - [x] Phase 8.1: Write internal release notes for completed v0.2-v0.8 capabilities.
-- [ ] Phase 8.2: Add or extend release checks for runtime, provider CLIs, config, allowed workdirs, server token, and dashboard build.
-- [ ] Phase 8.3: Refresh config examples and operator runbook.
+- [x] Phase 8.2: Add or extend release checks for runtime, provider CLIs, config, allowed workdirs, server token, and dashboard build.
+- [x] Phase 8.3: Refresh config examples and operator runbook.
+- [x] Phase 8.4: Add one-command local start script.
+
+Result:
+- Phase 8 (v0.9 Release Candidate Packaging) is complete.
+- Release notes, doctor checks, operator runbook, and convenience scripts are ready.
 
 ## Roadmap Reset
 

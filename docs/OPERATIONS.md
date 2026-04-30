@@ -26,6 +26,16 @@ Run the dashboard in another shell:
 pnpm run dashboard:dev
 ```
 
+### One-Command Local Start
+
+For local development and testing, you can start both the server and dashboard with a single command:
+
+```bash
+pnpm run local:dev
+```
+
+This uses a default `dev-token` and starts the server in the background.
+
 ## Authentication And Roles
 
 All API routes except the health/log preflight paths require the configured bearer token or server auth mechanism used by `isAuthorized`.
@@ -182,6 +192,65 @@ Then perform a local server smoke:
 5. Confirm it appears in `GET /jobs?cwd=...`.
 6. If it pauses, approve or reject it from the dashboard and confirm an audit event appears.
 7. Open the dashboard and verify Project Health, Activity Feed, Job Detail, Config, Analytics, and Lessons load for the selected project.
+
+## Operator Runbook
+
+### Setup Modes
+
+#### Local CLI Mode (Default)
+Uses installed and authenticated CLIs (`gemini`, `codex`, `claude`) directly.
+- **Prerequisites:** CLIs must be in PATH and logged in.
+- **Usage:** `ai "task"`
+- **Benefit:** Fast, zero-config for secrets.
+
+#### Hybrid Provider Mode
+Mixes local CLIs for planning/review with cloud providers for generation.
+- **Config:** Use `ai config use hybrid` or see `.ai-system.hybrid.json.example`.
+- **Benefit:** Balances cost and performance.
+
+#### 9router / OpenAI Mode
+Routes all requests through a central OpenAI-compatible provider.
+- **Config:** See `.ai-system.9router.json.example`.
+- **Env:** Requires `AI_SYSTEM_API_KEY` and `AI_SYSTEM_BASE_URL`.
+- **Benefit:** Unified billing and model selection.
+
+#### Server & Dashboard Mode
+Runs as a background service with a web UI.
+- **Startup:** `AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=... pnpm run server`
+- **Dashboard:** `pnpm run dashboard:dev`
+- **Benefit:** Multi-project management, auditability, and async execution.
+
+### Operational Tasks
+
+#### Queue Recovery
+If the server crashes, queued and running jobs remain in `.ai-system-server/jobs`.
+- **Restart:** The server will automatically detect existing jobs.
+- **Resume:** Failed jobs can be resumed from their last successful stage via `POST /jobs/:id/resume` or the dashboard "Resume" button.
+
+#### Artifact Cleanup
+Artifacts are stored in `.ai-system-artifacts/` within each project.
+- **Manual Cleanup:** Safe to delete old run directories if history is no longer needed.
+- **Automation:** (Planned for v1.0) Automatic retention policy.
+
+#### Audit Review
+All operator actions are logged.
+- **View:** `GET /audit` or the "Audit Log" tab in the dashboard.
+- **Details:** Includes actor, action, timestamp, and metadata (job IDs, config changes).
+
+#### Lessons Workflow
+Improve system behavior by capturing corrections.
+- **Capture:** After a job, if the AI missed a requirement, create a lesson in the dashboard or via `ai lessons add`.
+- **Effect:** Lessons are injected into future planning phases for the same project.
+
+### Common Failures & Next Actions
+
+| Failure Class | Likely Cause | Next Action |
+| :--- | :--- | :--- |
+| `provider_error` | CLI not logged in or API quota exceeded. | Run `ai setup --check` or verify API credits. |
+| `validation_failed` | AI generated invalid JSON or code. | Check "Fix Iterations" in Job Detail; increase `max_iterations`. |
+| `budget_exceeded` | Task too large or AI stuck in a loop. | Increase budget in config or break task into smaller steps. |
+| `check_failed` | Lint/Typecheck failed and auto-fix failed. | Review the diff and fix manually, or refine the task instructions. |
+| `unauthorized` | Missing or invalid `AI_SYSTEM_SERVER_TOKEN`. | Check `.env` and bearer token header. |
 
 ## Releases
 

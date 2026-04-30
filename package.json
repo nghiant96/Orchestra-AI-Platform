@@ -20,7 +20,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "dashboard:dev": "cd dashboard && pnpm dev",
-    "dashboard:build": "cd dashboard && pnpm build"
+    "dashboard:build": "cd dashboard && pnpm build",
+    "local:dev": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=dev-token node --import tsx ai-system/server.ts & pnpm run dashboard:dev"
   },
   "bin": {
     "ai": "./bin/ai.js",
