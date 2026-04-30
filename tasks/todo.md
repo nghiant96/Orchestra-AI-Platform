@@ -41,7 +41,7 @@ Result:
 
 Recommended next implementation:
 
-- [ ] Phase 8.1: Write internal release notes for completed v0.2-v0.8 capabilities.
+- [x] Phase 8.1: Write internal release notes for completed v0.2-v0.8 capabilities.
 - [ ] Phase 8.2: Add or extend release checks for runtime, provider CLIs, config, allowed workdirs, server token, and dashboard build.
 - [ ] Phase 8.3: Refresh config examples and operator runbook.
 

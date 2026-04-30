@@ -343,7 +343,7 @@ Goal: make the platform installable and operable by an internal user who did not
 
 Tasks:
 
-- [ ] Add a release note for completed v0.2-v0.8 capabilities and migration notes.
+- [x] Add a release note for completed v0.2-v0.8 capabilities and migration notes.
 - [ ] Add a release check command or `ai doctor` extension for Node, pnpm, provider CLIs, config, server token, allowed workdirs, and dashboard build.
 - [ ] Refresh config examples for local CLI, 9router, hybrid, safe-review, and server mode.
 - [ ] Add operator runbook sections for startup, shutdown, queue recovery, artifact cleanup, and common failures.

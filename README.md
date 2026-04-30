@@ -257,6 +257,12 @@ Tool execution workflow:
   - profile scoring and role overrides based on recent provider performance in the same category
 - Use `ai doctor` to see effective providers, budgets, parser mode, prompt overrides, tool commands, sandbox image, execution scope, and working directory
 
+## Releases
+
+For detailed change logs and migration notes, see:
+
+- [v0.9 Release Notes](docs/RELEASE_NOTES_v0.9.md)
+
 Example project tool config in `.ai-system.json`:
 
 ```json

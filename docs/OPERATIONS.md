@@ -182,3 +182,9 @@ Then perform a local server smoke:
 5. Confirm it appears in `GET /jobs?cwd=...`.
 6. If it pauses, approve or reject it from the dashboard and confirm an audit event appears.
 7. Open the dashboard and verify Project Health, Activity Feed, Job Detail, Config, Analytics, and Lessons load for the selected project.
+
+## Releases
+
+For detailed change logs and migration notes, see:
+
+- [v0.9 Release Notes](RELEASE_NOTES_v0.9.md)
