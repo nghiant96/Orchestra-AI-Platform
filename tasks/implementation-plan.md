@@ -334,3 +334,99 @@ Recommended order:
 1. Prepare an internal release note from the completed v0.2-v0.8 roadmap.
 2. Add browser-level dashboard smoke automation if the dashboard becomes a release-critical surface.
 3. Continue reducing the largest core modules when touching them for feature work.
+
+## Phase 8 - v0.9 Release Candidate Packaging
+
+Status: planned
+
+Goal: make the platform installable and operable by an internal user who did not build it.
+
+Tasks:
+
+- [ ] Add a release note for completed v0.2-v0.8 capabilities and migration notes.
+- [ ] Add a release check command or `ai doctor` extension for Node, pnpm, provider CLIs, config, server token, allowed workdirs, and dashboard build.
+- [ ] Refresh config examples for local CLI, 9router, hybrid, safe-review, and server mode.
+- [ ] Add operator runbook sections for startup, shutdown, queue recovery, artifact cleanup, and common failures.
+- [ ] Add a one-command local server/dashboard start path or documented script pair.
+
+Acceptance:
+
+- A fresh internal user can run a dry-run queue job from docs alone.
+- Release checks identify missing runtime/provider/config prerequisites with actionable messages.
+
+## Phase 9 - v1.0 Operator Trust And Observability
+
+Status: planned
+
+Goal: make operations explainable, monitorable, and auditable over time.
+
+Tasks:
+
+- [ ] Add schema versions to run-state, artifact-index, audit events, and public API payloads where missing.
+- [ ] Add migration/normalization helpers for old artifact and failure-class shapes.
+- [ ] Add retention policy for artifacts, audit events, logs, and queue records.
+- [ ] Add health history and queue latency metrics.
+- [ ] Add dashboard/API summaries for retry rate, failure classes, provider degradation, and cost trend.
+
+Acceptance:
+
+- Operators can answer what happened, who approved it, what changed, what it cost, and how to recover.
+- Old artifacts remain readable after schema evolution.
+- Operational data has safe cleanup paths.
+
+## Phase 10 - v1.1 Contract Intelligence
+
+Status: planned
+
+Goal: strengthen task contracts into a modular requirement-verification layer.
+
+Tasks:
+
+- [ ] Split `task-requirements.ts` into domain extractors for UI, API, config, security/dependency, tests, and migrations.
+- [ ] Add contract extractor registration so new domains do not require editing one monolithic file.
+- [ ] Add optional LLM-assisted contract suggestions with deterministic explanation and validation.
+- [ ] Add targeted fixer hints for failed contracts.
+- [ ] Surface contract coverage trends by project and task type.
+
+Acceptance:
+
+- New contract domains can be added independently.
+- Missing requirements fail with useful repair hints before final write.
+
+## Phase 11 - v1.2 Dashboard Automation And UX Confidence
+
+Status: planned
+
+Goal: make dashboard workflows testable enough for release-critical operations.
+
+Tasks:
+
+- [ ] Add browser-level smoke tests for project selection, job creation, approval/reject, retry/resume/cancel visibility, config, analytics, lessons, and job detail.
+- [ ] Add dashboard bundle budgets and route-level loading checks.
+- [ ] Add responsive checks for primary operational screens.
+- [ ] Add accessibility checks for buttons, dialogs, forms, and status indicators.
+- [ ] Continue decomposing Job Detail and Config View when touching those surfaces.
+
+Acceptance:
+
+- Dashboard release confidence does not depend only on manual inspection.
+- Bundle growth and layout regressions are caught by checks.
+
+## Phase 12 - v1.3 Team And Integration Scale
+
+Status: planned
+
+Goal: support broader team operation and external engineering-system integrations.
+
+Tasks:
+
+- [ ] Add identity-provider role mapping for viewer/operator/admin.
+- [ ] Add webhook or event export for job, audit, failure, and cost summaries.
+- [ ] Extend project registry with owner metadata, budgets, default policies, and disabled states.
+- [ ] Document stable API schema versions and error responses.
+- [ ] Add optional CI mode for review/fix/report workflows without dashboard dependency.
+
+Acceptance:
+
+- Multiple teams can operate separate projects without mixing artifacts, queues, budgets, or permissions.
+- External systems can consume stable job and audit events.

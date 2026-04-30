@@ -1,21 +1,21 @@
 # AI Coding System Roadmap
 
-Last updated: 2026-04-29
+Last updated: 2026-04-30
 
 ## Current Business Assessment
 
-The system has moved beyond a simple prototype. It is now an internal automation platform with a real execution lifecycle: planning, context gathering, generation, tool checks, review, fix iterations, artifact storage, resume/retry, queue processing, approval checkpoints, and dashboard visibility.
+The system has completed the original v0.2-v0.8 roadmap and is now an internal release candidate for repeatable engineering automation. It has a real execution lifecycle: planning, context gathering, generation, tool checks, review, fix iterations, artifact storage, resume/retry, queue processing, approval checkpoints, dashboard visibility, policy decisions, multi-project boundaries, audit events, lessons, and smoke coverage.
 
 The strongest business value is that the system can preserve execution state and explain prior runs through artifacts. This makes it suitable for repeatable engineering automation rather than one-off AI code generation.
 
-The main business gaps are:
+The main business gaps have shifted from core capability to release readiness and operational trust:
 
-- Approval behavior needs to become policy-driven instead of manually toggled per workflow.
-- Dashboard views need to guide decisions, not only display job data.
-- Task requirements need to become explicit contracts, so the system can verify user intent deterministically.
-- Quality gates need to vary by risk and affected area.
-- Provider routing, memory, vector context, and costs need clearer product-facing explanations.
-- Multi-project and team controls are still early.
+- Release packaging needs a clean operator path: install, configure, start, verify, and recover.
+- Browser-level dashboard smoke automation is still manual.
+- API and artifact schemas need versioning before external integrations depend on them.
+- Contract extraction is deterministic but not yet learning-rich or domain-extensible.
+- Observability is useful but not yet production-grade for alerts, retention, or incident review.
+- Team readiness has roles and audit foundations, but not full identity provider integration.
 
 ## v0.2 - Green Operations Baseline
 
@@ -168,11 +168,118 @@ Acceptance:
 - The same class of requirement miss does not repeat frequently.
 - Routing and contract quality improve per project over time.
 
+## v0.8 - Stabilization And Release Hardening
+
+Goal: turn the completed internal platform into a maintainable release candidate.
+
+Key outcomes:
+
+- Stale roadmap/review docs are removed.
+- Duplicate dashboard component trees are removed.
+- Operations/API documentation and smoke checklist are available.
+- Automated server smoke coverage exercises health, projects, jobs, stats, lessons, and audit.
+- Newly emitted failure classes are normalized while legacy artifacts remain readable.
+- High-churn server, tool adapter, and dashboard view code is split into smaller modules.
+
+Acceptance:
+
+- Full repository baseline gates are green.
+- A new operator can understand core server/dashboard workflows without reading source code.
+- The active codebase has one canonical dashboard component path.
+
+## v0.9 - Release Candidate Packaging
+
+Goal: make the platform easy to install, run, verify, and roll back for internal users.
+
+Key outcomes:
+
+- One-command local start for server and dashboard with documented environment defaults.
+- `ai doctor` or equivalent release check validates Node, pnpm, provider CLIs, config, allowed workdirs, and dashboard build.
+- Versioned release notes summarize completed capabilities and migration notes from previous configs.
+- Config examples are current for local CLI, 9router, hybrid, safe-review, and server mode.
+- Operator runbook covers startup, shutdown, queue recovery, artifact cleanup, and common failures.
+
+Acceptance:
+
+- A fresh internal user can install and run a dry-run queue job from docs alone.
+- Release checks fail clearly when a required runtime/provider/config item is missing.
+- Rollback and cleanup steps are explicit.
+
+## v1.0 - Operator Trust And Observability
+
+Goal: make production-like operation explainable, monitorable, and auditable.
+
+Key outcomes:
+
+- Dashboard and API expose health history, queue latency, job duration, failure classes, retry rate, and cost trends.
+- Audit events cover file writes, artifact applies, config changes, approvals, queue operations, and lesson changes consistently.
+- Artifact schemas and run-state schemas have explicit versions and migration helpers.
+- Retention policy supports pruning old artifacts, logs, and audit events safely.
+- Alerts or status summaries identify stuck queues, repeated failures, high costs, and provider degradation.
+
+Acceptance:
+
+- Operators can answer what happened, who approved it, what changed, what it cost, and how to recover.
+- Old artifacts remain readable after schema changes.
+- Long-running projects do not accumulate unbounded operational data.
+
+## v1.1 - Contract Intelligence
+
+Goal: improve task contracts from deterministic rules into a stronger requirement-verification layer.
+
+Key outcomes:
+
+- Contract extractors are modular by domain: UI, API, config, dependency/security, tests, data/migrations.
+- LLM-assisted contract suggestions are available behind deterministic validation and user-visible explanations.
+- Contract failures include targeted repair hints and affected files.
+- Repeated contract misses can propose new deterministic extractors or project lessons.
+- Dashboard shows contract coverage trends by project and task type.
+
+Acceptance:
+
+- Common requirement misses become visible before write, not after review.
+- New contract extractors can be added without modifying a monolithic requirements file.
+- Contract quality improves from real project history.
+
+## v1.2 - Dashboard Automation And UX Confidence
+
+Goal: make dashboard workflows testable and reliable enough to be a primary operations surface.
+
+Key outcomes:
+
+- Browser-level smoke tests cover project selection, job creation, approval/reject, retry/resume/cancel visibility, config view, analytics, lessons, and job detail.
+- Dashboard bundle and route loading are measured with budgets.
+- Accessibility and responsive checks cover the primary operational screens.
+- Job Detail and Config View continue decomposing into focused sections when touched.
+
+Acceptance:
+
+- Dashboard release confidence does not depend only on manual inspection.
+- Bundle growth is visible before it becomes a usability issue.
+- Core dashboard workflows work on supported desktop and narrow viewport sizes.
+
+## v1.3 - Team And Integration Scale
+
+Goal: prepare the platform for broader team use and integration with external engineering systems.
+
+Key outcomes:
+
+- Identity provider integration can map users to viewer/operator/admin roles.
+- Webhook or event export sends job, audit, and failure summaries to external systems.
+- Project registry supports owner metadata, budgets, default policies, and disabled states.
+- API clients can rely on stable schema versions and documented error responses.
+- Optional CI mode can run review/fix/report workflows without dashboard dependency.
+
+Acceptance:
+
+- Multiple teams can operate separate projects without mixing artifacts, queues, budgets, or permissions.
+- External integrations can consume stable job and audit events.
+- Admins can disable or isolate unsafe projects.
+
 ## Priority Order
 
-1. Finish v0.2 operational baseline.
-2. Build v0.3 Task Contracts.
-3. Add v0.4 policy-based automation.
-4. Productize dashboard workflows in v0.5.
-5. Expand to team/project readiness in v0.6.
-6. Add learning feedback loops in v0.7.
+1. Package v0.9 as a usable internal release candidate.
+2. Build v1.0 observability, schema versioning, and retention.
+3. Expand v1.1 Contract Intelligence.
+4. Add v1.2 browser-level dashboard automation and UX confidence gates.
+5. Prepare v1.3 team and integration scale.

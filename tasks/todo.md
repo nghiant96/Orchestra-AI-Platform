@@ -33,6 +33,18 @@ Result:
 - [x] Split dashboard Job Detail tabs, prompt, timeline, and model registry into focused components.
 - [x] Run full verification gates after refactor.
 
+## Next Roadmap Planning
+
+- [x] Update `tasks/roadmap.md` with v0.9-v1.3 roadmap.
+- [x] Update `tasks/implementation-plan.md` with concrete planned phases for v0.9-v1.3.
+- [x] Add Gemini CLI implementation guardrail plan for v0.9 work.
+
+Recommended next implementation:
+
+- [ ] Phase 8.1: Write internal release notes for completed v0.2-v0.8 capabilities.
+- [ ] Phase 8.2: Add or extend release checks for runtime, provider CLIs, config, allowed workdirs, server token, and dashboard build.
+- [ ] Phase 8.3: Refresh config examples and operator runbook.
+
 ## Roadmap Reset
 
 - [x] Remove obsolete root review documents.
