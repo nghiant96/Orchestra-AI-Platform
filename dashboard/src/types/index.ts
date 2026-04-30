@@ -72,6 +72,20 @@ export interface TaskContract {
   checkStrategy: 'deterministic' | 'review' | 'tool';
   targetPaths: string[];
   suggestedFix?: string;
+  source?: 'deterministic' | 'llm';
+  explanation?: string;
+}
+
+export interface ReviewIssue {
+  severity: 'high' | 'medium' | 'low';
+  category: string;
+  path: string;
+  line?: number;
+  description: string;
+  risk?: string;
+  suggestedFix: string;
+  verificationCommand?: string;
+  affectedFiles?: string[];
 }
 
 export interface Job {

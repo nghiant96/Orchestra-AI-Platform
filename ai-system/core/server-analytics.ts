@@ -58,7 +58,13 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
     costByDay: {} as Record<string, number>,
     failuresByClass: {} as Record<string, number>,
     avgDurationByStage: {} as Record<string, { total: number; count: number }>,
-    providerPerformance: {} as Record<string, { runs: number; failures: number; durationMs: number; costUnits: number; iterations: number }>
+    providerPerformance: {} as Record<string, { runs: number; failures: number; durationMs: number; costUnits: number; iterations: number }>,
+    contractStats: {
+      totalContracts: 0,
+      passedContracts: 0,
+      failedContracts: 0,
+      byDomain: {} as Record<string, { total: number; passed: number; failed: number }>
+    }
   };
 
   for (const run of recentRuns) {
@@ -84,6 +90,22 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
       current.costUnits += metric.estimatedCostUnits;
       current.iterations += iterations;
       stats.providerPerformance[metric.provider] = current;
+    }
+
+    if (run.contracts) {
+      for (const contract of run.contracts) {
+        stats.contractStats.totalContracts += 1;
+        if (contract.status === "passed") stats.contractStats.passedContracts += 1;
+        if (contract.status === "failed") stats.contractStats.failedContracts += 1;
+
+        // Try to infer domain from ID or metadata
+        const domain = inferContractDomain(contract);
+        const current = stats.contractStats.byDomain[domain] || { total: 0, passed: 0, failed: 0 };
+        current.total += 1;
+        if (contract.status === "passed") current.passed += 1;
+        if (contract.status === "failed") current.failed += 1;
+        stats.contractStats.byDomain[domain] = current;
+      }
     }
 
     if (run.execution?.transitions) {
@@ -124,6 +146,28 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
           degraded: failureRate > 0.3
         };
       })
-      .sort((left, right) => right.runs - left.runs)
+      .sort((left, right) => right.runs - left.runs),
+    contractStats: {
+      total: stats.contractStats.totalContracts,
+      passed: stats.contractStats.passedContracts,
+      failed: stats.contractStats.failedContracts,
+      passRate: stats.contractStats.totalContracts > 0 ? stats.contractStats.passedContracts / stats.contractStats.totalContracts : 0,
+      byDomain: Object.entries(stats.contractStats.byDomain).map(([domain, data]) => ({
+        domain,
+        total: data.total,
+        passed: data.passed,
+        failed: data.failed,
+        passRate: data.total > 0 ? data.passed / data.total : 0
+      }))
+    }
   };
+}
+
+function inferContractDomain(contract: any): string {
+  const id = contract.id || "";
+  if (id.includes("ui") || id.includes("event-feed")) return "ui";
+  if (id.includes("api") || id.includes("schema")) return "api";
+  if (id.includes("security") || id.includes("dependency")) return "security";
+  if (id.includes("test") || id.includes("risky")) return "tests";
+  return "other";
 }

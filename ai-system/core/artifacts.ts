@@ -60,6 +60,7 @@ export interface PersistedRunState {
   externalTask?: import("../types.js").ExternalTaskRef;
   externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   refactorAnalysis?: import("../types.js").RefactorAnalysis;
+  contracts?: import("../types.js").TaskContract[];
 }
 
 export interface RecentRunSummary {
@@ -128,6 +129,7 @@ export interface RunListEntry {
   externalTask?: import("../types.js").ExternalTaskRef;
   externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   refactorAnalysis?: import("../types.js").RefactorAnalysis;
+  contracts?: import("../types.js").TaskContract[];
 }
 
 
@@ -1150,7 +1152,8 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
     lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
     applyEventCount: artifactIndex?.applyEventCount ?? 0,
     externalTask: normalizedState?.externalTask ?? artifactIndex?.externalTask,
-    refactorAnalysis: normalizedState?.refactorAnalysis ?? artifactIndex?.refactorAnalysis
+    refactorAnalysis: normalizedState?.refactorAnalysis ?? artifactIndex?.refactorAnalysis,
+    contracts: normalizedState?.plan?.contracts ?? []
   };
 }
 

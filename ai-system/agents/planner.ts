@@ -19,7 +19,7 @@ export class PlannerAgent {
       examples
     });
 
-    const contractInstructions = "\n\nTask Contracts:\nDefine explicit requirements that must be verified after implementation. Each contract should have an ID, description, severity, and target file paths.";
+    const contractInstructions = "\n\nTask Contracts:\nDefine explicit requirements that must be verified after implementation. Each contract should have an ID, description, severity, target file paths, and an explanation of why it is needed. Use 'checkStrategy' to specify how it should be verified ('deterministic', 'review', or 'tool').";
     const testPlanInstructions = "\n\nPre-Implementation Test Plan:\nDefine the testing strategy to verify the changes. Include commands to run, target test files, and the purpose of each test. Note any residual risk if a test is not practical.";
     const classificationInstructions = "\n\nChange Classification:\nClassify each proposed change as 'mechanical' (refactors, renames, style changes), 'behavioral' (logic changes, new features), or 'mixed'. Provide a brief description and identify downstream impact.";
 
@@ -65,7 +65,10 @@ export const PLAN_SCHEMA: JsonSchema = {
           id: { type: "string" },
           description: { type: "string" },
           severity: { type: "string", enum: ["high", "medium", "low"] },
-          targetPaths: { type: "array", items: { type: "string" } }
+          targetPaths: { type: "array", items: { type: "string" } },
+          explanation: { type: "string" },
+          checkStrategy: { type: "string", enum: ["deterministic", "review", "tool"] },
+          suggestedFix: { type: "string" }
         },
         required: ["id", "description", "severity", "targetPaths"]
       }

@@ -527,6 +527,8 @@ export interface ReviewIssue {
   description: string;
   risk?: string;
   suggestedFix: string;
+  verificationCommand?: string;
+  affectedFiles?: string[];
 }
 
 export interface ReviewResult {
@@ -556,6 +558,8 @@ export interface TaskContract {
   checkStrategy: TaskContractCheckStrategy;
   targetPaths: string[];
   suggestedFix?: string;
+  source?: "deterministic" | "llm";
+  explanation?: string;
 }
 
 export interface TestPlanItem {

@@ -120,6 +120,24 @@ Phase 12 verification note:
 - [x] Comprehensive tests in `tests/refactor-analysis.test.ts` and `tests/risk-policy.test.ts` passed.
 - [x] All baseline gates green: typecheck, lint, tests, dashboard build.
 
+## Phase 13 - v1.4 Contract Intelligence
+
+- [x] Phase 13.1: Split `task-requirements.ts` into specialized domain extractor modules.
+- [x] Phase 13.2: Add `ExtractorRegistry` for modular and extensible contract detection.
+- [x] Phase 13.3: Support optional LLM-assisted contract suggestions behind deterministic validation.
+- [x] Phase 13.4: Provide targeted fixer hints with failed requirements and verification commands.
+- [x] Phase 13.5: Aggregate and expose contract coverage trends by domain and project.
+
+Phase 13 verification note:
+
+- [x] Step 13.1 through 13.5 implemented according to playbook.
+- [x] Monolithic `task-requirements.ts` refactored into domain-specific extractors (UI, API, Security, Tests).
+- [x] Extractor registry implemented and populated with default extractors.
+- [x] Planner schema and instructions updated to support LLM-suggested contracts with explanations.
+- [x] Review issues enhanced with `verificationCommand` and `affectedFiles` for better fixer guidance.
+- [x] Server analytics updated to aggregate and report contract coverage trends by domain.
+- [x] All baseline gates green: typecheck, lint, tests, dashboard build.
+
 ## Roadmap Reset
 
 - [x] Remove obsolete root review documents.

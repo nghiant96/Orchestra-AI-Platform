@@ -433,17 +433,17 @@ Acceptance:
 
 ## Phase 13 - v1.4 Contract Intelligence
 
-Status: planned
+Status: completed
 
 Goal: strengthen task contracts into a modular requirement-verification layer.
 
 Tasks:
 
-- [ ] Split `task-requirements.ts` into domain extractors for UI, API, config, security/dependency, tests, and migrations.
-- [ ] Add contract extractor registration so new domains do not require editing one monolithic file.
-- [ ] Add optional LLM-assisted contract suggestions with deterministic explanation and validation.
-- [ ] Add targeted fixer hints for failed contracts.
-- [ ] Surface contract coverage trends by project and task type.
+- [x] Split `task-requirements.ts` into domain extractors for UI, API, config, security/dependency, tests, and migrations.
+- [x] Add contract extractor registration so new domains do not require editing one monolithic file.
+- [x] Add optional LLM-assisted contract suggestions with deterministic explanation and validation.
+- [x] Add targeted fixer hints for failed contracts.
+- [x] Surface contract coverage trends by project and task type.
 
 Acceptance:
 
