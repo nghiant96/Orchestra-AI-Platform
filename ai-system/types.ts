@@ -357,7 +357,7 @@ export interface ExternalTaskRef {
 
 export interface ExternalTaskUpdatePreview {
   url: string;
-  action: "comment" | "status" | "label" | "close";
+  action: "comment" | "status" | "label" | "close" | "create_pr";
   body?: string;
   payload?: JsonObject;
   approved: boolean;

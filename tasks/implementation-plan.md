@@ -395,17 +395,17 @@ Acceptance:
 
 ## Phase 11 - v1.2 Artifact To PR Workflow
 
-Status: planned
+Status: completed
 
 Goal: convert successful artifact runs into reviewable branches and PRs.
 
 Tasks:
 
-- [ ] Add branch-name generation from task/run metadata.
-- [ ] Add approval-gated artifact apply, stage, and commit workflow.
-- [ ] Generate commit messages from run-state summaries.
-- [ ] Generate PR descriptions with summary, tests, risks, rollback, and artifact links.
-- [ ] Optionally create GitHub PRs after explicit approval.
+- [x] Add branch-name generation from task/run metadata.
+- [x] Add approval-gated artifact apply, stage, and commit workflow.
+- [x] Generate commit messages from run-state summaries.
+- [x] Generate PR descriptions with summary, tests, risks, rollback, and artifact links.
+- [x] Optionally create GitHub PRs after explicit approval.
 
 Acceptance:
 
