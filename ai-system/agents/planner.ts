@@ -21,8 +21,9 @@ export class PlannerAgent {
 
     const contractInstructions = "\n\nTask Contracts:\nDefine explicit requirements that must be verified after implementation. Each contract should have an ID, description, severity, and target file paths.";
     const testPlanInstructions = "\n\nPre-Implementation Test Plan:\nDefine the testing strategy to verify the changes. Include commands to run, target test files, and the purpose of each test. Note any residual risk if a test is not practical.";
+    const classificationInstructions = "\n\nChange Classification:\nClassify each proposed change as 'mechanical' (refactors, renames, style changes), 'behavioral' (logic changes, new features), or 'mixed'. Provide a brief description and identify downstream impact.";
 
-    const finalSystemPrompt = systemPrompt + contractInstructions + testPlanInstructions;
+    const finalSystemPrompt = systemPrompt + contractInstructions + testPlanInstructions + classificationInstructions;
 
     const prompt = [
       `Task: ${task}`,
@@ -89,6 +90,20 @@ export const PLAN_SCHEMA: JsonSchema = {
         }
       },
       required: ["items"]
+    },
+    classifiedChanges: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          path: { type: "string" },
+          type: { type: "string", enum: ["mechanical", "behavioral", "mixed"] },
+          description: { type: "string" },
+          impact: { type: "string" }
+        },
+        required: ["path", "type", "description", "impact"]
+      }
     }
   },
   required: ["prompt", "readFiles", "writeTargets", "notes"]

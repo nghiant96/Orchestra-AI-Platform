@@ -65,10 +65,27 @@ function collectRiskSignals(task: string, targetPaths: string[], context: RiskPo
   }
 
   if ((context.generatedFileCount ?? 0) >= 8 || (context.changedPathCount ?? targetPaths.length) >= 8) {
+    const totalChanged = context.changedPathCount ?? targetPaths.length;
+    if (totalChanged >= 30) {
+      signals.push({
+        name: "repo-wide-rewrite",
+        severity: "blocked",
+        reason: `Task touches ${totalChanged} files, which looks like a repo-wide rewrite. These MUST be broken into smaller PR-sized batches.`
+      });
+    } else {
+      signals.push({
+        name: "broad-file-scope",
+        severity: "medium",
+        reason: "The task touches many files, increasing review and regression risk."
+      });
+    }
+  }
+
+  if (matchesAny(normalizedTask, ["regex", "regexp", "batch replace", "batch-replace", "global replace", "sed -i", "grep | xargs"])) {
     signals.push({
-      name: "broad-file-scope",
-      severity: "medium",
-      reason: "The task touches many files, increasing review and regression risk."
+      name: "unsafe-rewrite-pattern",
+      severity: "blocked",
+      reason: "Task mentions risky rewrite patterns (regex, batch replace). These MUST be explicitly scoped and reviewed in analysis mode first."
     });
   }
 

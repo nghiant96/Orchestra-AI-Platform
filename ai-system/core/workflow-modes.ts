@@ -1,4 +1,4 @@
-export type WorkflowMode = "standard" | "implement" | "review" | "fix";
+export type WorkflowMode = "standard" | "implement" | "review" | "fix" | "refactor";
 
 export interface WorkflowFlags {
   dryRun: boolean;
@@ -46,6 +46,13 @@ export function workflowModeDefaults(mode: WorkflowMode): WorkflowFlags {
         dryRun: false,
         interactive: true,
         pauseAfterPlan: false,
+        pauseAfterGenerate: false
+      };
+    case "refactor":
+      return {
+        dryRun: true,
+        interactive: true,
+        pauseAfterPlan: true,
         pauseAfterGenerate: false
       };
     case "standard":

@@ -42,7 +42,7 @@ export class ReviewerAgent {
       systemPrompt += "\n\nThis is a HIGH-RISK task. You MUST perform a STRICT REVIEW. Explicitly verify all contracts and security requirements defined in the plan. Any deviation from the plan or missing security/dependency checks MUST be flagged as high or medium severity blocking issues.";
     }
 
-    systemPrompt += "\n\nStaff-Level Review Instructions:\n1. Findings First: Lead with concrete technical observations.\n2. Severity/Risk Ordering: Prioritize blocking issues (high/medium) and high-risk behavioral gaps.\n3. File/Line Grounding: Reference specific line numbers when possible.\n4. Behavioral Risk: For each finding, explain the potential behavioral or operational risk.";
+    systemPrompt += "\n\nStaff-Level Review Instructions:\n1. Findings First: Lead with concrete technical observations.\n2. Severity/Risk Ordering: Prioritize blocking issues (high/medium) and high-risk behavioral gaps.\n3. File/Line Grounding: Reference specific line numbers when possible.\n4. Behavioral Risk: For each finding, explain the potential behavioral or operational risk.\n5. Refactor Batching: For refactor tasks, ensure mechanical and behavioral changes are separated. Reject broad 'mixed' batches that combine many unrelated logic changes.";
 
     const prompt = JSON.stringify(
       {

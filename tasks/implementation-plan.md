@@ -414,17 +414,17 @@ Acceptance:
 
 ## Phase 12 - v1.3 Safe Refactor Mode
 
-Status: planned
+Status: completed
 
 Goal: let senior engineers run large refactors through analysis-first, small-batch execution.
 
 Tasks:
 
-- [ ] Add read-only refactor analysis mode with dependency graph and affected file groups.
-- [ ] Separate mechanical changes from behavioral changes in plans.
-- [ ] Split large refactors into PR-sized batches.
-- [ ] Add per-batch verification and rollback notes.
-- [ ] Block broad regex rewrites unless explicitly approved and scoped.
+- [x] Add read-only refactor analysis mode with dependency graph and affected file groups.
+- [x] Separate mechanical changes from behavioral changes in plans.
+- [x] Split large refactors into PR-sized batches.
+- [x] Add per-batch verification and rollback notes.
+- [x] Block broad regex rewrites unless explicitly approved and scoped.
 
 Acceptance:
 

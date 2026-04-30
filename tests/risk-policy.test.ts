@@ -47,3 +47,15 @@ test("approval policy blocks security-sensitive tasks even with skip_approval", 
   assert.equal(decision.approvalMode, "manual");
   assert.equal(decision.interactive, true);
 });
+
+test("approval policy blocks repo-wide rewrites", () => {
+  const decision = resolveApprovalPolicy("Global refactor", {} as any, Array.from({ length: 30 }, (_, i) => `src/file${i}.ts`));
+  assert.equal(decision.riskClass, "blocked");
+  assert.ok(decision.signals.some(s => s.name === "repo-wide-rewrite"));
+});
+
+test("approval policy blocks unsafe rewrite patterns like broad regex", () => {
+  const decision = resolveApprovalPolicy("Use regex to batch-replace imports", {} as any);
+  assert.equal(decision.riskClass, "blocked");
+  assert.ok(decision.signals.some(s => s.name === "unsafe-rewrite-pattern"));
+});

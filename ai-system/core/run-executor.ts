@@ -694,6 +694,7 @@ export async function finalizeSuccessfulRun({
     execution,
     approvalPolicy,
     externalTask: externalTask ?? undefined,
+    refactorAnalysis: plan.refactorAnalysis,
     wroteFiles: !dryRun
   };
 
@@ -827,6 +828,7 @@ export async function finalizeFailedRun({
     execution,
     approvalPolicy,
     externalTask: externalTask ?? undefined,
+    refactorAnalysis: plan.refactorAnalysis,
     wroteFiles: false
   };
 
@@ -926,6 +928,7 @@ export async function finalizeErroredRun({
     execution,
     approvalPolicy,
     externalTask: externalTask ?? undefined,
+    refactorAnalysis: plan.refactorAnalysis,
     wroteFiles: false
   };
 

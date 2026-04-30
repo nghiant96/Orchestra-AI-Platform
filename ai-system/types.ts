@@ -365,6 +365,32 @@ export interface ExternalTaskUpdatePreview {
   approvedAt?: string;
 }
 
+export interface RefactorBatch {
+  id: string;
+  goal: string;
+  files: string[];
+  rationale: string;
+  verification: string;
+  rollback: string;
+  type: "mechanical" | "behavioral" | "mixed";
+}
+
+export interface RefactorAnalysis {
+  goal: string;
+  affectedFiles: string[];
+  dependencyClusters: string[][];
+  riskAreas: Array<{ file: string; reason: string }>;
+  testsToRun: string[];
+  proposedBatches: RefactorBatch[];
+}
+
+export interface ChangeClassification {
+  path: string;
+  type: "mechanical" | "behavioral" | "mixed";
+  description: string;
+  impact: string;
+}
+
 export interface DashboardSnapshot {
   message?: string;
   transition?: ExecutionTransition;
@@ -550,6 +576,8 @@ export interface PlanResult {
   notes: string[];
   contracts?: TaskContract[];
   testPlan?: TestPlan;
+  refactorAnalysis?: RefactorAnalysis;
+  classifiedChanges?: ChangeClassification[];
 }
 
 export interface FileGenerationResult {
@@ -672,6 +700,7 @@ export interface OrchestratorResult {
   approvalPolicy?: ApprovalPolicyDecision | null;
   externalTask?: ExternalTaskRef;
   externalUpdatePreviews?: ExternalTaskUpdatePreview[];
+  refactorAnalysis?: RefactorAnalysis;
 }
 
 export interface MemoryMatch {

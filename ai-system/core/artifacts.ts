@@ -59,6 +59,7 @@ export interface PersistedRunState {
   executionTransitions?: ExecutionTransition[];
   externalTask?: import("../types.js").ExternalTaskRef;
   externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
+  refactorAnalysis?: import("../types.js").RefactorAnalysis;
 }
 
 export interface RecentRunSummary {
@@ -99,6 +100,7 @@ export interface RecentRunSummary {
     applyEventCount?: number;
     externalTask?: import("../types.js").ExternalTaskRef;
     externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
+    refactorAnalysis?: import("../types.js").RefactorAnalysis;
   } | null;
   routing: {
     planning: RoutingDecision | null;
@@ -125,6 +127,7 @@ export interface RunListEntry {
   applyEventCount: number;
   externalTask?: import("../types.js").ExternalTaskRef;
   externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
+  refactorAnalysis?: import("../types.js").RefactorAnalysis;
 }
 
 
@@ -272,6 +275,7 @@ export async function persistPlanArtifacts(
     provider: string;
     durationMs?: number;
     externalTask?: import("../types.js").ExternalTaskRef;
+    refactorAnalysis?: import("../types.js").RefactorAnalysis;
   },
   logger?: Logger
 ): Promise<string | null> {
@@ -289,7 +293,8 @@ export async function persistPlanArtifacts(
     normalizedPlan: payload.plan,
     vectorMatches: payload.vectorMatches ?? [],
     rankedCandidates: payload.rankedCandidates ?? [],
-    externalTask: payload.externalTask
+    externalTask: payload.externalTask,
+    refactorAnalysis: payload.refactorAnalysis
   };
   await fs.writeFile(path.join(stepPath, "plan.json"), JSON.stringify(manifest, null, 2), "utf8");
   state.stepPaths.plan = stepPath;
@@ -551,6 +556,7 @@ export async function persistRunState(
     executionTransitions?: ExecutionTransition[];
     externalTask?: import("../types.js").ExternalTaskRef;
     externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
+    refactorAnalysis?: import("../types.js").RefactorAnalysis;
   },
   logger?: Logger
 ): Promise<string | null> {
@@ -623,6 +629,7 @@ export async function persistRunState(
     approvalPolicy: payload.approvalPolicy ?? null,
     externalTask: payload.externalTask,
     externalUpdatePreviews: payload.externalUpdatePreviews,
+    refactorAnalysis: payload.refactorAnalysis,
     execution:
       payload.execution ??
       buildExecutionSummary({
@@ -991,6 +998,7 @@ async function writeArtifactIndex(
     approvalPolicy?: ApprovalPolicyDecision | null;
     externalTask?: import("../types.js").ExternalTaskRef;
     externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
+    refactorAnalysis?: import("../types.js").RefactorAnalysis;
   }
 ): Promise<void> {
   if (!state.enabled || !state.runDir) {
@@ -1023,6 +1031,7 @@ async function writeArtifactIndex(
     approvalPolicy: payload.approvalPolicy ?? existingIndex?.approvalPolicy ?? null,
     externalTask: payload.externalTask ?? existingIndex?.externalTask ?? null,
     externalUpdatePreviews: payload.externalUpdatePreviews ?? existingIndex?.externalUpdatePreviews ?? [],
+    refactorAnalysis: payload.refactorAnalysis ?? existingIndex?.refactorAnalysis ?? null,
     iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
     stepPaths: state.stepPaths
   };
@@ -1140,7 +1149,8 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
     latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
     lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
     applyEventCount: artifactIndex?.applyEventCount ?? 0,
-    externalTask: normalizedState?.externalTask ?? artifactIndex?.externalTask
+    externalTask: normalizedState?.externalTask ?? artifactIndex?.externalTask,
+    refactorAnalysis: normalizedState?.refactorAnalysis ?? artifactIndex?.refactorAnalysis
   };
 }
 

@@ -5,6 +5,8 @@ import {
   filterSafeWriteTargets
 } from "./context.js";
 import { hasBlockingIssues } from "./reviewer.js";
+import { performRefactorAnalysis } from "./refactor-analysis.js";
+import { DependencyGraph } from "./dependency-graph.js";
 import { loadEnvironment } from "../utils/api.js";
 import { estimateRunCostFromPlan } from "../utils/cost-calculator.js";
 import type {
@@ -213,6 +215,24 @@ export class Orchestrator {
       ]
     };
     plan = enhancePlanForTaskRequirements(task, plan);
+
+    let refactorAnalysis: import("../types.js").RefactorAnalysis | undefined;
+    if (workflowMode === "refactor") {
+      this.logger.step("Performing refactor analysis (read-only)");
+      const dependencyGraph = new DependencyGraph(repoRoot);
+      await dependencyGraph.buildGraph([...plan.readFiles, ...plan.writeTargets]);
+      
+      refactorAnalysis = await performRefactorAnalysis({
+        repoRoot,
+        goal: task,
+        changedFiles: plan.writeTargets,
+        dependencyGraph
+      });
+      plan.refactorAnalysis = refactorAnalysis;
+      
+      this.logger.info(`Refactor analysis complete. Identified ${refactorAnalysis.proposedBatches.length} batch(es).`);
+    }
+
     if (!approvalPolicy) {
       effectiveApprovalPolicy = resolveApprovalPolicy(task, rules, plan.writeTargets, {
         workflowMode,
@@ -232,7 +252,8 @@ export class Orchestrator {
         vectorMatches: contextExpansion.vectorMatches,
         rankedCandidates: contextExpansion.rankedCandidates,
         provider: runtime.plannerProvider.id,
-        durationMs: plannerStep.durationMs
+        durationMs: plannerStep.durationMs,
+        refactorAnalysis
       },
       this.logger
     );

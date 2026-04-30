@@ -102,6 +102,24 @@ Phase 11 verification note:
 - [x] Comprehensive tests in `tests/git-workflow.test.ts` passed.
 - [x] All baseline gates green: typecheck, lint, tests, dashboard build.
 
+## Phase 12 - v1.3 Safe Refactor Mode
+
+- [x] Phase 12.1: Add read-only refactor analysis mode with dependency graph and affected file groups.
+- [x] Phase 12.2: Separate mechanical from behavioral changes in plans.
+- [x] Phase 12.3: Split large refactors into PR-sized batches.
+- [x] Phase 12.4: Add per-batch verification and rollback notes.
+- [x] Phase 12.5: Block broad regex rewrites unless explicitly approved and scoped.
+
+Phase 12 verification note:
+
+- [x] Step 12.1 through 12.5 implemented according to playbook.
+- [x] Read-only refactor analysis implemented in `ai-system/core/refactor-analysis.ts`.
+- [x] Dependency clusters and PR-sized batches generated with specific verification/rollback notes.
+- [x] Plan Result extended to classify mechanical vs behavioral changes.
+- [x] Risk policy updated to block repo-wide rewrites (>= 30 files) and unsafe regex patterns.
+- [x] Comprehensive tests in `tests/refactor-analysis.test.ts` and `tests/risk-policy.test.ts` passed.
+- [x] All baseline gates green: typecheck, lint, tests, dashboard build.
+
 ## Roadmap Reset
 
 - [x] Remove obsolete root review documents.
