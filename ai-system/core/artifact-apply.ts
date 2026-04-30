@@ -54,6 +54,7 @@ export async function applyArtifactCandidate({
   const applyEventPath = await persistApplyEvent(
     artifact.runPath,
     {
+      version: 1,
       task: artifact.task,
       dryRun,
       force,

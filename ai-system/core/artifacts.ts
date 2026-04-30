@@ -37,6 +37,7 @@ export interface ArtifactState {
 }
 
 export interface PersistedRunState {
+  version: number;
   status?: string;
   task?: string;
   dryRun?: boolean;
@@ -119,6 +120,7 @@ export interface RunListEntry {
 }
 
 export interface ApplyEventRecord {
+  version: number;
   savedAt: string;
   task: string;
   dryRun: boolean;
@@ -734,7 +736,8 @@ export async function loadRecentRunSummary(repoRoot: string, rules: RulesConfig,
     resumeTarget === "last"
       ? await resolveLatestRunStatePath(repoRoot, rules, "No runs found")
       : await resolveResumeStatePath(repoRoot, rules, resumeTarget);
-  const runState = JSON.parse(await fs.readFile(statePath, "utf8")) as RecentRunSummary["runState"];
+  const runStateRaw = JSON.parse(await fs.readFile(statePath, "utf8"));
+  const runState = normalizePersistedRunState(runStateRaw);
   const runDir = path.dirname(statePath);
   const indexPath = path.join(runDir, "artifact-index.json");
   const planningRoutingPath = path.join(runDir, "00-routing", "planning.json");
@@ -810,9 +813,10 @@ export async function persistApplyEvent(
   const indexPath = path.join(runDir, "artifact-index.json");
   const existingIndex = (await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath)) ?? null;
   const record: ApplyEventRecord = {
+    ...payload,
+    version: 1,
     savedAt: timestamp,
-    runPath: runDir,
-    ...payload
+    runPath: runDir
   };
 
   await fs.mkdir(eventsDir, { recursive: true });
@@ -977,6 +981,7 @@ async function writeArtifactIndex(
   const existingIndex = (await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath)) ?? null;
 
   const index = {
+    version: 1,
     updatedAt: new Date().toISOString(),
     runPath: state.runDir,
     latestIterationPath: state.latestIterationPath,
@@ -1060,21 +1065,23 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
   const statePath = path.join(runDir, "run-state.json");
   const indexPath = path.join(runDir, "artifact-index.json");
 
-  const runState = await readJsonIfExists<RecentRunSummary["runState"]>(statePath);
+  const runStateRaw = await readJsonIfExists<any>(statePath);
   const artifactIndex = await readJsonIfExists<RecentRunSummary["artifactIndex"]>(indexPath);
 
-  if (!runState && !artifactIndex) {
+  if (!runStateRaw && !artifactIndex) {
     return null;
   }
 
+  const normalizedState = runStateRaw ? normalizePersistedRunState(runStateRaw) : null;
+
   // Integrity Check: ensure critical fields exist if the file is present
-  if (runState && (!runState.task || !runState.status)) {
+  if (normalizedState && (!normalizedState.task || !normalizedState.status)) {
     return null;
   }
 
   // Try to load diff summaries from the latest iteration manifest
   let diffSummaries: import("../types.js").DiffSummary[] | undefined = undefined;
-  const latestIterationPath = artifactIndex?.latestIterationPath || runState?.artifacts?.latestIterationPath;
+  const latestIterationPath = artifactIndex?.latestIterationPath || normalizedState?.artifacts?.latestIterationPath;
   if (latestIterationPath) {
     try {
       const manifestPath = path.isAbsolute(latestIterationPath)
@@ -1093,18 +1100,85 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
     statePath,
     runPath: runDir,
     runName: path.basename(runDir),
-    status: runState?.status ?? artifactIndex?.latestStatus ?? "running",
-    task: runState?.task ?? artifactIndex?.latestTask ?? "",
-    dryRun: runState?.dryRun ?? false,
+    status: normalizedState?.status ?? artifactIndex?.latestStatus ?? "running",
+    task: normalizedState?.task ?? artifactIndex?.latestTask ?? "",
+    dryRun: normalizedState?.dryRun ?? false,
     updatedAt: artifactIndex?.updatedAt ?? null,
-    iterationCount: artifactIndex?.iterationCount ?? runState?.iterations?.length ?? 0,
-    latestFiles: runState?.result?.files?.map((file) => file.path) ?? artifactIndex?.latestFiles ?? [],
+    iterationCount: artifactIndex?.iterationCount ?? normalizedState?.iterations?.length ?? 0,
+    latestFiles: normalizedState?.result?.files?.map((file) => file.path) ?? artifactIndex?.latestFiles ?? [],
     diffSummaries,
-    latestToolResults: runState?.latestToolResults ?? artifactIndex?.latestToolResults ?? [],
-    execution: runState?.execution ?? artifactIndex?.execution ?? null,
-    approvalPolicy: runState?.approvalPolicy ?? artifactIndex?.approvalPolicy ?? null,
+    latestToolResults: normalizedState?.latestToolResults ?? artifactIndex?.latestToolResults ?? [],
+    execution: normalizedState?.execution ?? artifactIndex?.execution ?? null,
+    approvalPolicy: normalizedState?.approvalPolicy ?? artifactIndex?.approvalPolicy ?? null,
     latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
     lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
     applyEventCount: artifactIndex?.applyEventCount ?? 0
   };
+}
+
+export async function runArtifactRetentionCleanup(repoRoot: string, rules: RulesConfig, logger?: Logger): Promise<number> {
+  const days = rules.retention?.artifacts_days;
+  if (!days || days <= 0) {
+    return 0;
+  }
+
+  const artifactsDir = path.join(repoRoot, rules.artifacts?.data_dir ?? ".ai-system-artifacts");
+  let entries: Awaited<ReturnType<typeof fs.readdir>> | Array<{ isDirectory(): boolean; name: string }>;
+  try {
+    entries = await fs.readdir(artifactsDir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  const now = Date.now();
+  const maxAgeMs = days * 24 * 60 * 60 * 1000;
+  let deletedCount = 0;
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("run-")) {
+      continue;
+    }
+
+    const runDir = path.join(artifactsDir, entry.name);
+    try {
+      const stat = await fs.stat(runDir);
+      if (now - stat.mtimeMs > maxAgeMs) {
+        await fs.rm(runDir, { recursive: true, force: true });
+        deletedCount += 1;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (deletedCount > 0) {
+    logger?.info(`Deleted ${deletedCount} old run artifact(s) based on retention policy (${days} days).`);
+  }
+
+  return deletedCount;
+}
+
+function normalizePersistedRunState(raw: any): PersistedRunState {
+  const state = { ...raw } as PersistedRunState;
+  if (!state.version) {
+    state.version = 1;
+  }
+  if (state.execution?.failure) {
+    state.execution.failure.class = normalizeFailureClass(state.execution.failure.class);
+  }
+  return state;
+}
+
+function normalizeFailureClass(failureClass: string): any {
+  const mapping: Record<string, string> = {
+    provider_timeout: "provider-timeout",
+    provider_error: "provider-error",
+    tool_execution_failed: "tool-execution-failed",
+    context_overflow: "context-overflow",
+    budget_exceeded: "cost-budget-exceeded",
+    validation_failed: "validation-failed",
+    user_cancelled: "user-cancelled",
+    internal_error: "internal-error"
+  };
+  return mapping[failureClass] ?? failureClass;
 }

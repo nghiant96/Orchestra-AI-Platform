@@ -354,27 +354,84 @@ Acceptance:
 - A fresh internal user can run a dry-run queue job from docs alone.
 - Release checks identify missing runtime/provider/config prerequisites with actionable messages.
 
-## Phase 9 - v1.0 Operator Trust And Observability
+## Phase 9 - v1.0 Senior Workflow Integration
 
 Status: planned
 
-Goal: make operations explainable, monitorable, and auditable over time.
+Goal: integrate GitHub Issue/PR workflows while keeping senior engineers in control.
 
 Tasks:
 
-- [ ] Add schema versions to run-state, artifact-index, audit events, and public API payloads where missing.
-- [ ] Add migration/normalization helpers for old artifact and failure-class shapes.
-- [ ] Add retention policy for artifacts, audit events, logs, and queue records.
-- [ ] Add health history and queue latency metrics.
-- [ ] Add dashboard/API summaries for retry rate, failure classes, provider degradation, and cost trend.
+- [ ] Add an external task model for GitHub issues and PRs with source metadata, title, body, comments, labels, repo, base branch, and acceptance hints.
+- [ ] Add manual GitHub Issue URL intake that normalizes an issue into an internal task without writing files.
+- [ ] Add manual GitHub PR URL intake that loads diff metadata and produces staff-level review output.
+- [ ] Persist external task metadata into run-state and artifact-index.
+- [ ] Add approval-gated external updates so comments/status/PR actions never happen implicitly.
 
 Acceptance:
 
-- Operators can answer what happened, who approved it, what changed, what it cost, and how to recover.
-- Old artifacts remain readable after schema evolution.
-- Operational data has safe cleanup paths.
+- A senior engineer can run issue planning or PR review from a URL without copying context manually.
+- No external comment, branch, commit, or PR is created without explicit approval.
+- Existing baseline gates remain green.
 
-## Phase 10 - v1.1 Contract Intelligence
+## Phase 10 - v1.1 Staff-Level Review And Test Planning
+
+Status: planned
+
+Goal: make reviews and test plans useful to senior engineers.
+
+Tasks:
+
+- [ ] Add blast-radius review context from changed files, write targets, dependencies, and tests.
+- [ ] Add review output format optimized for PR findings: severity, file/line, risk, and suggested fix.
+- [ ] Add missing-test detection and required/optional test recommendations.
+- [ ] Add pre-implementation test plan generation for issue mode.
+- [ ] Reconcile test plan with actual checks after implementation.
+
+Acceptance:
+
+- Review mode prioritizes bugs, regressions, behavioral risk, and missing tests.
+- Risky changes have an explicit test strategy or documented residual risk.
+
+## Phase 11 - v1.2 Artifact To PR Workflow
+
+Status: planned
+
+Goal: convert successful artifact runs into reviewable branches and PRs.
+
+Tasks:
+
+- [ ] Add branch-name generation from task/run metadata.
+- [ ] Add approval-gated artifact apply, stage, and commit workflow.
+- [ ] Generate commit messages from run-state summaries.
+- [ ] Generate PR descriptions with summary, tests, risks, rollback, and artifact links.
+- [ ] Optionally create GitHub PRs after explicit approval.
+
+Acceptance:
+
+- The system never pushes directly to a protected branch by default.
+- PR descriptions are grounded in verified run data.
+
+## Phase 12 - v1.3 Safe Refactor Mode
+
+Status: planned
+
+Goal: let senior engineers run large refactors through analysis-first, small-batch execution.
+
+Tasks:
+
+- [ ] Add read-only refactor analysis mode with dependency graph and affected file groups.
+- [ ] Separate mechanical changes from behavioral changes in plans.
+- [ ] Split large refactors into PR-sized batches.
+- [ ] Add per-batch verification and rollback notes.
+- [ ] Block broad regex rewrites unless explicitly approved and scoped.
+
+Acceptance:
+
+- Refactor mode can produce a safe staged plan without writing files.
+- Each implementation batch remains reviewable by a senior engineer.
+
+## Phase 13 - v1.4 Contract Intelligence
 
 Status: planned
 
@@ -393,40 +450,23 @@ Acceptance:
 - New contract domains can be added independently.
 - Missing requirements fail with useful repair hints before final write.
 
-## Phase 11 - v1.2 Dashboard Automation And UX Confidence
+## Phase 14 - v1.5 Operator Trust And Team Scale
 
 Status: planned
 
-Goal: make dashboard workflows testable enough for release-critical operations.
+Goal: mature observability, schema versioning, retention, dashboard automation, and integrations.
 
 Tasks:
 
-- [ ] Add browser-level smoke tests for project selection, job creation, approval/reject, retry/resume/cancel visibility, config, analytics, lessons, and job detail.
-- [ ] Add dashboard bundle budgets and route-level loading checks.
-- [ ] Add responsive checks for primary operational screens.
-- [ ] Add accessibility checks for buttons, dialogs, forms, and status indicators.
-- [ ] Continue decomposing Job Detail and Config View when touching those surfaces.
+- [ ] Add schema versions to run-state, artifact-index, audit events, and public API payloads where missing.
+- [ ] Add migration/normalization helpers for old artifact and failure-class shapes.
+- [ ] Add retention policy for artifacts, audit events, logs, and queue records.
+- [ ] Add health history, queue latency, retry rate, failure-class, provider degradation, and cost metrics.
+- [ ] Add browser-level dashboard smoke tests for release-critical workflows.
+- [ ] Add identity-provider role mapping and webhook/event export.
 
 Acceptance:
 
-- Dashboard release confidence does not depend only on manual inspection.
-- Bundle growth and layout regressions are caught by checks.
-
-## Phase 12 - v1.3 Team And Integration Scale
-
-Status: planned
-
-Goal: support broader team operation and external engineering-system integrations.
-
-Tasks:
-
-- [ ] Add identity-provider role mapping for viewer/operator/admin.
-- [ ] Add webhook or event export for job, audit, failure, and cost summaries.
-- [ ] Extend project registry with owner metadata, budgets, default policies, and disabled states.
-- [ ] Document stable API schema versions and error responses.
-- [ ] Add optional CI mode for review/fix/report workflows without dashboard dependency.
-
-Acceptance:
-
+- Operators can answer what happened, who approved it, what changed, what it cost, and how to recover.
+- Old artifacts remain readable after schema evolution.
 - Multiple teams can operate separate projects without mixing artifacts, queues, budgets, or permissions.
-- External systems can consume stable job and audit events.

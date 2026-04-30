@@ -9,6 +9,7 @@ export interface AuditActor {
 }
 
 export interface AuditEvent {
+  version: number;
   id: string;
   timestamp: string;
   action: string;
@@ -21,8 +22,9 @@ export interface AuditEvent {
 export class FileAuditLog {
   constructor(private readonly filePath: string) {}
 
-  async append(event: Omit<AuditEvent, "id" | "timestamp">): Promise<AuditEvent> {
+  async append(event: Omit<AuditEvent, "id" | "timestamp" | "version">): Promise<AuditEvent> {
     const record: AuditEvent = {
+      version: 1,
       id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
       ...event
@@ -43,6 +45,30 @@ export class FileAuditLog {
         .slice(0, limit);
     } catch {
       return [];
+    }
+  }
+
+  async runRetentionCleanup(days: number): Promise<number> {
+    if (days <= 0) return 0;
+    try {
+      const events = await this.list(10000);
+      const now = Date.now();
+      const maxAgeMs = days * 24 * 60 * 60 * 1000;
+      const filtered = events.filter((e) => now - new Date(e.timestamp).getTime() <= maxAgeMs);
+
+      if (filtered.length === events.length) {
+        return 0;
+      }
+
+      const content = filtered
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+        .map((e) => JSON.stringify(e))
+        .join("\n") + (filtered.length > 0 ? "\n" : "");
+
+      await fs.writeFile(this.filePath, content, "utf8");
+      return events.length - filtered.length;
+    } catch {
+      return 0;
     }
   }
 }

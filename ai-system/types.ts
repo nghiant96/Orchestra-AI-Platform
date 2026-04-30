@@ -388,6 +388,12 @@ export interface RulesConfig {
     data_dir?: string;
     [key: string]: unknown;
   };
+  retention?: {
+    artifacts_days?: number;
+    audit_days?: number;
+    queue_days?: number;
+    logs_days?: number;
+  };
   memory: MemoryConfig;
   vector_search?: VectorSearchConfig;
   providers: ProviderConfigMap;

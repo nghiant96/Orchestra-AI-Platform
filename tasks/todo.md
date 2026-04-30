@@ -50,6 +50,21 @@ Result:
 - Phase 8 (v0.9 Release Candidate Packaging) is complete.
 - Release notes, doctor checks, operator runbook, and convenience scripts are ready.
 
+## Phase 9 - v1.0 Senior Workflow Integration
+
+- [ ] Phase 9.1: Add external task model for GitHub issues and PRs.
+- [ ] Phase 9.2: Add manual GitHub Issue URL intake and normalize it into an internal task.
+- [ ] Phase 9.3: Add manual GitHub PR URL intake for staff-level review output.
+- [ ] Phase 9.4: Persist external task metadata into run-state and artifact-index.
+- [ ] Phase 9.5: Add approval-gated external updates so comments/status/PR actions never happen implicitly.
+
+Phase 9 verification note:
+
+- [x] Investigated the Gemini hang in `pnpm run typecheck && pnpm run lint && pnpm test`.
+- [x] Removed stale Gemini/Codex processes left from previous runs.
+- [x] Fixed the server maintenance interval lifecycle so tests can close `createAiSystemServer()` cleanly.
+- [x] Re-ran `pnpm run typecheck && pnpm run lint && pnpm test`; all 160 tests passed.
+
 ## Roadmap Reset
 
 - [x] Remove obsolete root review documents.

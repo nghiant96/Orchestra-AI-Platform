@@ -7,7 +7,11 @@ import { resolveApprovalPolicy } from "./core/risk-policy.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath, roleCan } from "./core/audit-log.js";
 import { buildProjectRegistry } from "./core/project-registry.js";
 import { appendProjectLesson, proposeLessonsFromRuns, readProjectLessons } from "./core/lessons.js";
-import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
+import {
+  listRecentRunSummaries,
+  loadRunSummary,
+  runArtifactRetentionCleanup
+} from "./core/artifacts.js";
 import { aggregateProjectStats, classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
@@ -123,6 +127,39 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     concurrency: options.queueConcurrency,
     logger: options.logger
   });
+  let maintenanceTimer: NodeJS.Timeout | null = null;
+  let isClosed = false;
+
+  // Load rules once for global server maintenance tasks
+  void loadRules(defaultCwd).then(({ rules }) => {
+    if (isClosed) {
+      return;
+    }
+
+    const runMaintenance = async () => {
+      options.logger.info("Running system maintenance and retention cleanup...");
+      for (const root of allowedRoots) {
+        try {
+          const { rules: projectRules } = await loadRules(root);
+          await runArtifactRetentionCleanup(root, projectRules, options.logger);
+        } catch {
+          // Fallback to global rules for cleanup if project rules fail
+          await runArtifactRetentionCleanup(root, rules, options.logger);
+        }
+      }
+      await auditLog.runRetentionCleanup(rules.retention?.audit_days ?? 30);
+    };
+
+    // Run initial retention cleanup
+    void runMaintenance();
+
+    // Set up periodic cleanup (every 24 hours)
+    maintenanceTimer = setInterval(() => {
+      void runMaintenance();
+    }, 24 * 60 * 60 * 1000);
+    maintenanceTimer.unref?.();
+  });
+
   queue.start();
 
   const server = http.createServer(async (req, res) => {
@@ -195,12 +232,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (url.pathname === "/projects" && req.method === "GET") {
         const projects = await buildProjectRegistry(options.allowedWorkdirs || [defaultCwd], async (cwd) => await loadRules(cwd));
-        return respondJson(res, 200, { ok: true, projects });
+        return respondJson(res, 200, { ok: true, version: 1, projects });
       }
 
       if (url.pathname === "/audit" && req.method === "GET") {
         const limit = Number(url.searchParams.get("limit") || 100);
-        return respondJson(res, 200, { ok: true, events: await auditLog.list(limit) });
+        return respondJson(res, 200, { ok: true, version: 1, events: await auditLog.list(limit) });
       }
 
       if (url.pathname === "/lessons" && req.method === "GET") {
@@ -211,6 +248,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         );
         return respondJson(res, 200, {
           ok: true,
+          version: 1,
           lessons: await readProjectLessons(cwd),
           proposals: proposeLessonsFromRuns(runs)
         });
@@ -454,6 +492,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           if (safeRules.memory?.api_key) safeRules.memory.api_key = "********";
 
           return respondJson(res, 200, {
+            version: 1,
             rules: safeRules,
             profile,
             globalProfile,
@@ -472,7 +511,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         try {
           const { rules } = await loadRules(filterCwd);
           const stats = await aggregateProjectStats(filterCwd, rules);
-          return respondJson(res, 200, { ok: true, ...stats });
+          return respondJson(res, 200, { ok: true, ...stats, version: 1 });
         } catch (err) {
           return respondJson(res, 500, { ok: false, error: (err as Error).message });
         }
@@ -505,12 +544,14 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           );
 
           return respondJson(res, 200, {
+            version: 1,
             jobs: merged.slice(0, 50)
           });
-        } catch {
+          } catch {
           // If artifacts can't be loaded, just return queue jobs
-          return respondJson(res, 200, { jobs: filteredQueueJobs });
-        }
+          return respondJson(res, 200, { version: 1, jobs: filteredQueueJobs });
+          }
+
       }
 
       const approvalMatch = /^\/jobs\/([^/]+)\/(approve|reject)$/.exec(url.pathname);
@@ -561,6 +602,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
             const summary = await loadRunSummary(requestedCwd, rules, jobId);
             if (summary && summary.runState) {
               job = {
+                version: 1,
                 jobId: jobId,
                 status: normalizeRunStatus(summary.runState.status || "completed"),
                 task: summary.runState.task || "",
@@ -653,6 +695,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     }
   });
   server.on("close", () => {
+    isClosed = true;
+    if (maintenanceTimer) {
+      clearInterval(maintenanceTimer);
+      maintenanceTimer = null;
+    }
     void queue.stop();
   });
   return server;
@@ -712,6 +759,7 @@ export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: 
 
 export function mapRunSummaryToQueueJob(run: Awaited<ReturnType<typeof listRecentRunSummaries>>[number], defaultCwd: string): QueueJob {
   return {
+    version: 1,
     jobId: run.runName,
     status: normalizeRunStatus(run.status),
     task: run.task,

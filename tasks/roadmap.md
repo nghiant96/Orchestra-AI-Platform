@@ -8,14 +8,14 @@ The system has completed the original v0.2-v0.8 roadmap and is now an internal r
 
 The strongest business value is that the system can preserve execution state and explain prior runs through artifacts. This makes it suitable for repeatable engineering automation rather than one-off AI code generation.
 
-The main business gaps have shifted from core capability to release readiness and operational trust:
+The main business gaps have shifted from core capability to senior-engineer workflow leverage:
 
-- Release packaging needs a clean operator path: install, configure, start, verify, and recover.
-- Browser-level dashboard smoke automation is still manual.
-- API and artifact schemas need versioning before external integrations depend on them.
+- Issue and PR workflows are not yet integrated with the developer's normal review loop.
+- Review intelligence needs to behave more like a staff-level reviewer: blast radius, missing tests, behavioral risk, and acceptance mismatch.
+- Artifacts need a direct path to branches, commits, and PR descriptions.
+- Test planning should explain what proves the change, not only run configured checks.
 - Contract extraction is deterministic but not yet learning-rich or domain-extensible.
-- Observability is useful but not yet production-grade for alerts, retention, or incident review.
-- Team readiness has roles and audit foundations, but not full identity provider integration.
+- Dashboard automation and team-scale integrations remain later priorities.
 
 ## v0.2 - Green Operations Baseline
 
@@ -205,25 +205,76 @@ Acceptance:
 - Release checks fail clearly when a required runtime/provider/config item is missing.
 - Rollback and cleanup steps are explicit.
 
-## v1.0 - Operator Trust And Observability
+## v1.0 - Senior Workflow Integration
 
-Goal: make production-like operation explainable, monitorable, and auditable.
+Goal: integrate the system into a senior engineer's normal issue, PR, and review workflow without removing human control.
 
 Key outcomes:
 
-- Dashboard and API expose health history, queue latency, job duration, failure classes, retry rate, and cost trends.
-- Audit events cover file writes, artifact applies, config changes, approvals, queue operations, and lesson changes consistently.
-- Artifact schemas and run-state schemas have explicit versions and migration helpers.
-- Retention policy supports pruning old artifacts, logs, and audit events safely.
-- Alerts or status summaries identify stuck queues, repeated failures, high costs, and provider degradation.
+- GitHub Issue and PR URLs can be ingested into a normalized internal task/review model.
+- Issue mode creates a plan, risk summary, expected files, and test plan before implementation.
+- PR mode performs staff-level review: blast radius, missing tests, behavioral risks, and contract/acceptance mismatch.
+- Manual approval remains required before writes, commits, PR creation, or external comments.
+- External source metadata is persisted into run-state and artifacts.
 
 Acceptance:
 
-- Operators can answer what happened, who approved it, what changed, what it cost, and how to recover.
-- Old artifacts remain readable after schema changes.
-- Long-running projects do not accumulate unbounded operational data.
+- A senior engineer can review a GitHub issue or PR from this system without copying context manually.
+- The system never comments, pushes, or opens a PR without explicit operator approval.
+- Review output is useful as a PR review note and avoids style-only noise.
 
-## v1.1 - Contract Intelligence
+## v1.1 - Staff-Level Review And Test Planning
+
+Goal: make review and test planning stronger than generic lint/test pass/fail signals.
+
+Key outcomes:
+
+- Blast radius analysis maps changed files to affected flows, contracts, and tests.
+- Review findings are ranked by severity and include exact file/line references where possible.
+- Missing tests are reported with required vs optional test recommendations.
+- Test plans are generated before implementation and reconciled after checks run.
+- PR-ready summaries include risks, tests run, residual gaps, and rollback notes.
+
+Acceptance:
+
+- Senior review mode prioritizes bugs, regressions, and missing tests over style preferences.
+- Every risky change has an explicit test strategy or documented residual risk.
+
+## v1.2 - Artifact To PR Workflow
+
+Goal: turn successful artifacts into clean branch, commit, and PR handoff while preserving review control.
+
+Key outcomes:
+
+- Create branches from successful artifact runs using a safe naming convention.
+- Apply artifacts, stage changes, and generate commit messages from run-state.
+- Generate PR descriptions with summary, implementation notes, tests, risks, rollback, and artifact links.
+- Optional GitHub PR creation is approval-gated.
+- Audit events capture branch, commit, and PR actions.
+
+Acceptance:
+
+- No direct pushes to protected branches are performed by default.
+- PR descriptions are generated from verified run data, not invented claims.
+
+## v1.3 - Safe Refactor Mode
+
+Goal: support senior-led refactors through analysis-first, small-batch execution.
+
+Key outcomes:
+
+- Read-only refactor analysis produces dependency graph, affected files, proposed batches, and test strategy.
+- Mechanical changes are separated from behavioral changes.
+- Large refactors are split into small PR-sized tasks.
+- Each batch has explicit rollback and verification commands.
+- Broad regex rewrites remain blocked unless explicitly approved and scoped.
+
+Acceptance:
+
+- Refactor mode can produce a safe staged plan without writing files.
+- Implementation batches remain reviewable by a senior engineer.
+
+## v1.4 - Contract Intelligence
 
 Goal: improve task contracts from deterministic rules into a stronger requirement-verification layer.
 
@@ -241,45 +292,31 @@ Acceptance:
 - New contract extractors can be added without modifying a monolithic requirements file.
 - Contract quality improves from real project history.
 
-## v1.2 - Dashboard Automation And UX Confidence
+## v1.5 - Operator Trust And Team Scale
 
-Goal: make dashboard workflows testable and reliable enough to be a primary operations surface.
-
-Key outcomes:
-
-- Browser-level smoke tests cover project selection, job creation, approval/reject, retry/resume/cancel visibility, config view, analytics, lessons, and job detail.
-- Dashboard bundle and route loading are measured with budgets.
-- Accessibility and responsive checks cover the primary operational screens.
-- Job Detail and Config View continue decomposing into focused sections when touched.
-
-Acceptance:
-
-- Dashboard release confidence does not depend only on manual inspection.
-- Bundle growth is visible before it becomes a usability issue.
-- Core dashboard workflows work on supported desktop and narrow viewport sizes.
-
-## v1.3 - Team And Integration Scale
-
-Goal: prepare the platform for broader team use and integration with external engineering systems.
+Goal: mature observability, schemas, retention, and team integrations after senior workflow loops are valuable.
 
 Key outcomes:
 
+- Dashboard and API expose health history, queue latency, job duration, failure classes, retry rate, and cost trends.
+- Artifact schemas and run-state schemas have explicit versions and migration helpers.
+- Retention policy supports pruning old artifacts, logs, and audit events safely.
+- Browser-level dashboard smoke tests cover release-critical workflows.
 - Identity provider integration can map users to viewer/operator/admin roles.
 - Webhook or event export sends job, audit, and failure summaries to external systems.
-- Project registry supports owner metadata, budgets, default policies, and disabled states.
-- API clients can rely on stable schema versions and documented error responses.
-- Optional CI mode can run review/fix/report workflows without dashboard dependency.
 
 Acceptance:
 
+- Operators can answer what happened, who approved it, what changed, what it cost, and how to recover.
+- Old artifacts remain readable after schema changes.
 - Multiple teams can operate separate projects without mixing artifacts, queues, budgets, or permissions.
-- External integrations can consume stable job and audit events.
-- Admins can disable or isolate unsafe projects.
 
 ## Priority Order
 
 1. Package v0.9 as a usable internal release candidate.
-2. Build v1.0 observability, schema versioning, and retention.
-3. Expand v1.1 Contract Intelligence.
-4. Add v1.2 browser-level dashboard automation and UX confidence gates.
-5. Prepare v1.3 team and integration scale.
+2. Build v1.0 GitHub Issue/PR controlled workflow.
+3. Build v1.1 staff-level review and test planning.
+4. Add v1.2 artifact-to-PR handoff.
+5. Add v1.3 safe refactor mode.
+6. Expand v1.4 Contract Intelligence.
+7. Mature v1.5 observability, dashboard automation, and team scale.

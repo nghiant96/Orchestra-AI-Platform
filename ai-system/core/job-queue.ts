@@ -7,6 +7,7 @@ export type QueueJobStatus = "queued" | "running" | "waiting_for_approval" | "co
 export type QueueApprovalMode = "manual" | "auto";
 
 export interface QueueJob {
+  version: number;
   jobId: string;
   status: QueueJobStatus;
   task: string;
@@ -19,6 +20,8 @@ export interface QueueJob {
   updatedAt: string;
   startedAt?: string;
   finishedAt?: string;
+  waitTimeMs?: number;
+  executionTimeMs?: number;
   artifactPath?: string | null;
   resultSummary?: string | null;
   error?: string | null;
@@ -63,6 +66,7 @@ export class FileBackedJobQueue {
     private readonly options: {
       concurrency?: number;
       logger?: Logger;
+      retentionDays?: number;
     } = {}
   ) {}
 
@@ -80,6 +84,7 @@ export class FileBackedJobQueue {
   async enqueue(input: Omit<JobQueueRunInput, "jobId">): Promise<QueueJob> {
     const now = new Date().toISOString();
     const job: QueueJob = {
+      version: 1,
       jobId: createJobId(),
       status: "queued",
       task: input.task,
@@ -248,9 +253,13 @@ export class FileBackedJobQueue {
     const controller = new AbortController();
     this.controllers.set(job.jobId, controller);
 
+    const startedAt = new Date();
+    const waitTimeMs = startedAt.getTime() - new Date(latest.createdAt).getTime();
+
     const running = await this.updateJob(latest, {
       status: "running",
-      startedAt: new Date().toISOString(),
+      startedAt: startedAt.toISOString(),
+      waitTimeMs,
       error: null
     });
 
@@ -266,9 +275,12 @@ export class FileBackedJobQueue {
 
       // Check if it was cancelled during execution
       if (controller.signal.aborted) {
+        const finishedAt = new Date().toISOString();
+        const executionTimeMs = new Date(finishedAt).getTime() - startedAt.getTime();
         await this.updateJob(running, {
           status: "cancelled",
-          finishedAt: new Date().toISOString(),
+          finishedAt,
+          executionTimeMs,
           resultSummary: "Job was aborted."
         });
         return;
@@ -276,10 +288,13 @@ export class FileBackedJobQueue {
 
       const current = (await this.get(running.jobId)) ?? running;
       const status: QueueJobStatus = result.ok ? "completed" : "failed";
+      const finishedAt = new Date().toISOString();
+      const executionTimeMs = new Date(finishedAt).getTime() - startedAt.getTime();
 
       await this.updateJob(current, {
         status,
-        finishedAt: new Date().toISOString(),
+        finishedAt,
+        executionTimeMs,
         artifactPath: result.artifacts?.runPath ?? null,
         resultSummary: summarizeOrchestratorResult(result),
         error: result.ok ? null : (result.execution?.failure?.reason ?? "Run failed."),
@@ -299,9 +314,12 @@ export class FileBackedJobQueue {
       });
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError";
+      const finishedAt = new Date().toISOString();
+      const executionTimeMs = new Date(finishedAt).getTime() - startedAt.getTime();
       await this.updateJob(running, {
         status: isAbort ? "cancelled" : "failed",
-        finishedAt: new Date().toISOString(),
+        finishedAt,
+        executionTimeMs,
         error: (error as Error).message,
         resultSummary: isAbort ? "Job aborted." : "Job failed before producing a run result."
       });
@@ -333,6 +351,26 @@ export class FileBackedJobQueue {
   private async cleanupOldJobs(): Promise<void> {
     try {
       const all = await this.list(500);
+      const retentionDays = this.options.retentionDays;
+
+      if (retentionDays && retentionDays > 0) {
+        const now = Date.now();
+        const maxAgeMs = retentionDays * 24 * 60 * 60 * 1000;
+        const toDelete = all.filter((job) => now - new Date(job.createdAt).getTime() > maxAgeMs);
+
+        for (const job of toDelete) {
+          try {
+            await fs.unlink(this.jobPath(job.jobId));
+          } catch {
+            /* ignore */
+          }
+        }
+        if (toDelete.length > 0) {
+          this.options.logger?.info(`Cleaned up ${toDelete.length} old job record(s) based on retention policy (${retentionDays} days).`);
+        }
+        return;
+      }
+
       if (all.length <= 100) return;
 
       const toDelete = all.slice(100);

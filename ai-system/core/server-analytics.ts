@@ -53,17 +53,23 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
 
   const stats = {
     totalProjectCost: 0,
+    totalRuns: 0,
+    totalIterations: 0,
     costByDay: {} as Record<string, number>,
     failuresByClass: {} as Record<string, number>,
     avgDurationByStage: {} as Record<string, { total: number; count: number }>,
-    providerPerformance: {} as Record<string, { runs: number; failures: number; durationMs: number; costUnits: number }>
+    providerPerformance: {} as Record<string, { runs: number; failures: number; durationMs: number; costUnits: number; iterations: number }>
   };
 
   for (const run of recentRuns) {
+    stats.totalRuns += 1;
     const date = (run.updatedAt || new Date().toISOString()).split("T")[0]!;
     const cost = run.execution?.budget?.totalCostUnits || 0;
     stats.totalProjectCost += cost;
     stats.costByDay[date] = (stats.costByDay[date] || 0) + cost;
+
+    const iterations = run.iterationCount || 0;
+    stats.totalIterations += iterations;
 
     if (run.status === "failed") {
       const error = classifyServerError(run.execution?.failure?.reason);
@@ -71,11 +77,12 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
     }
 
     for (const metric of run.execution?.providerMetrics ?? []) {
-      const current = stats.providerPerformance[metric.provider] || { runs: 0, failures: 0, durationMs: 0, costUnits: 0 };
+      const current = stats.providerPerformance[metric.provider] || { runs: 0, failures: 0, durationMs: 0, costUnits: 0, iterations: 0 };
       current.runs += 1;
       current.failures += run.status === "failed" ? 1 : 0;
       current.durationMs += metric.totalDurationMs;
       current.costUnits += metric.estimatedCostUnits;
+      current.iterations += iterations;
       stats.providerPerformance[metric.provider] = current;
     }
 
@@ -92,7 +99,10 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
   }
 
   return {
+    version: 1,
     totalProjectCost: stats.totalProjectCost,
+    totalRuns: stats.totalRuns,
+    avgIterations: stats.totalRuns > 0 ? stats.totalIterations / stats.totalRuns : 0,
     costByDay: Object.entries(stats.costByDay)
       .map(([date, cost]) => ({ date, cost }))
       .sort((a, b) => a.date.localeCompare(b.date)),
@@ -102,13 +112,18 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
       avgMs: Math.round(data.total / data.count)
     })),
     providerPerformance: Object.entries(stats.providerPerformance)
-      .map(([provider, data]) => ({
-        provider,
-        runs: data.runs,
-        failureRate: data.runs > 0 ? data.failures / data.runs : 0,
-        avgDurationMs: data.runs > 0 ? Math.round(data.durationMs / data.runs) : 0,
-        totalCostUnits: data.costUnits
-      }))
+      .map(([provider, data]) => {
+        const failureRate = data.runs > 0 ? data.failures / data.runs : 0;
+        return {
+          provider,
+          runs: data.runs,
+          failureRate,
+          avgDurationMs: data.runs > 0 ? Math.round(data.durationMs / data.runs) : 0,
+          avgIterations: data.runs > 0 ? data.iterations / data.runs : 0,
+          totalCostUnits: data.costUnits,
+          degraded: failureRate > 0.3
+        };
+      })
       .sort((left, right) => right.runs - left.runs)
   };
 }
