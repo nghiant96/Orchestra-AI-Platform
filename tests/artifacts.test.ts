@@ -253,6 +253,80 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
   }
 });
 
+test("external task metadata is persisted and backward compatible", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-external-task-persistence-"));
+  const rules = createRules();
+  const state = createArtifactState(tempDir, rules);
+  const externalTask: import("../ai-system/types.js").ExternalTaskRef = {
+    provider: "github",
+    kind: "issue",
+    url: "https://github.com/owner/repo/issues/1",
+    owner: "owner",
+    repo: "repo",
+    number: 1,
+    title: "Test Issue"
+  };
+
+  try {
+    // 1. Test persistence
+    const plan: PlanResult = { prompt: "Test task", readFiles: [], writeTargets: [], notes: [] };
+    await persistPlanArtifacts(state, {
+      task: "Test task",
+      rawPlan: {},
+      plan,
+      provider: "test",
+      externalTask
+    });
+
+    const statePath = await persistRunState(state, {
+      status: "completed",
+      task: "Test task",
+      dryRun: true,
+      repoRoot: tempDir,
+      configPath: null,
+      plan,
+      result: { summary: "done", files: [] },
+      providers: { planner: "test", reviewer: "test", generator: "test", fixer: "test" },
+      memory: { backend: "test", planningMatches: 0, implementationMatches: 0, stored: false },
+      artifacts: null,
+      wroteFiles: false,
+      externalTask
+    });
+
+    // Verify run-state.json
+    const savedState = JSON.parse(await fs.readFile(statePath as string, "utf8"));
+    assert.deepEqual(savedState.externalTask, externalTask);
+
+    // Verify artifact-index.json
+    const index = JSON.parse(await fs.readFile(path.join(state.runDir as string, "artifact-index.json"), "utf8"));
+    assert.deepEqual(index.externalTask, externalTask);
+
+    // 2. Test backward compatibility (loading old run without externalTask)
+    const oldRunDir = path.join(tempDir, rules.artifacts?.data_dir ?? ".ai-system-artifacts", "run-old");
+    await fs.mkdir(oldRunDir, { recursive: true });
+    await fs.writeFile(path.join(oldRunDir, "run-state.json"), JSON.stringify({
+      version: 1,
+      status: "completed",
+      task: "Old task",
+      plan: { prompt: "Old prompt", readFiles: [], writeTargets: [], notes: [] }
+    }));
+    await fs.writeFile(path.join(oldRunDir, "artifact-index.json"), JSON.stringify({
+      updatedAt: new Date().toISOString(),
+      runPath: oldRunDir,
+      latestStatus: "completed",
+      latestTask: "Old task"
+    }));
+
+    const summary = await loadRunSummary(tempDir, rules, "run-old");
+    assert.equal(summary.runState.task, "Old task");
+    assert.equal(summary.runState.externalTask, undefined);
+    assert.equal(summary.artifactIndex?.externalTask, undefined);
+
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("resolveResumeStatePath('last') returns the newest resumable run", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-resume-last-"));
   const rules = createRules();

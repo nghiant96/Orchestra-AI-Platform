@@ -19,7 +19,10 @@ import type {
   ApprovalPolicyDecision,
   PlanResult,
   RetryHint,
-  ReviewIssue
+  ReviewIssue,
+  WorkflowMode,
+  ExternalTaskRef,
+  ExternalTaskUpdatePreview
 } from "../types.js";
 import {
   buildStoppedResult,
@@ -83,6 +86,8 @@ export class Orchestrator {
       pauseAfterPlan = false,
       pauseAfterGenerate = false,
       approvalPolicy = null,
+      externalTask = null,
+      workflowMode = "standard",
       signal
     }: {
       dryRun?: boolean;
@@ -90,6 +95,9 @@ export class Orchestrator {
       pauseAfterPlan?: boolean;
       pauseAfterGenerate?: boolean;
       approvalPolicy?: ApprovalPolicyDecision | null;
+      externalTask?: ExternalTaskRef | null;
+      workflowMode?: WorkflowMode;
+      externalUpdatePreviews?: ExternalTaskUpdatePreview[];
       signal?: AbortSignal;
     } = {}
   ): Promise<OrchestratorResult> {
@@ -111,7 +119,7 @@ export class Orchestrator {
       stored: false
     };
     const artifactState = createArtifactState(repoRoot, rules);
-    let effectiveApprovalPolicy = approvalPolicy ?? resolveApprovalPolicy(task, rules);
+    let effectiveApprovalPolicy = approvalPolicy ?? resolveApprovalPolicy(task, rules, [], { workflowMode });
     let effectiveInteractive = interactive;
     let effectivePauseAfterPlan = pauseAfterPlan;
     let effectivePauseAfterGenerate = pauseAfterGenerate;
@@ -205,8 +213,9 @@ export class Orchestrator {
       ]
     };
     plan = enhancePlanForTaskRequirements(task, plan);
-    if (approvalPolicy) {
+    if (!approvalPolicy) {
       effectiveApprovalPolicy = resolveApprovalPolicy(task, rules, plan.writeTargets, {
+        workflowMode,
         changedPathCount: plan.writeTargets.length,
         generatedFileCount: plan.writeTargets.length
       });
@@ -291,7 +300,8 @@ export class Orchestrator {
           executionTransitions: executionMachine.getTransitions(),
           budgetConfig: rules.execution?.budgets,
           usageMetrics: collectProviderUsageMetrics(runRuntime),
-          approvalPolicy: effectiveApprovalPolicy
+          approvalPolicy: effectiveApprovalPolicy,
+          externalTask: externalTask ?? undefined
         });
         await persistRunState(
           artifactState,
@@ -475,6 +485,8 @@ export class Orchestrator {
             budgetConfig: rules.execution?.budgets,
             additionalUsageMetrics: costEstimate.usageMetrics,
             approvalPolicy: effectiveApprovalPolicy,
+            externalTask,
+            externalUpdatePreviews: [],
             logger: this.logger
           });
         }
@@ -503,6 +515,8 @@ export class Orchestrator {
         successPersistedStatus: "completed",
         budgetConfig: rules.execution?.budgets,
         approvalPolicy: effectiveApprovalPolicy,
+        externalTask,
+        externalUpdatePreviews: [],
         signal
       });
       workingState = loopExecution.state;
@@ -550,6 +564,7 @@ export class Orchestrator {
         retryHint: createRetryHintFromState(workingState, normalized),
         budgetConfig: rules.execution?.budgets,
         approvalPolicy: effectiveApprovalPolicy,
+        externalTask,
         logger: this.logger
       });
     }
@@ -591,6 +606,8 @@ export class Orchestrator {
     let acceptedIssues: ReviewIssue[] = Array.isArray(saved.finalIssues) ? saved.finalIssues : [];
     let latestReviewSummary = typeof saved.latestReviewSummary === "string" ? saved.latestReviewSummary : "";
     const pauseAfterGenerate = saved.pauseAfterGenerate === true;
+    const externalTask = saved.externalTask ?? null;
+    const externalUpdatePreviews = saved.externalUpdatePreviews ?? [];
     const artifactState = restoreArtifactState(repoRoot, rules, saved.artifacts, statePath);
     const executionMachine = createExecutionStateMachine(artifactState, saved.execution ?? null, this.logger);
     if (saved.status === "paused_after_plan") {
@@ -702,6 +719,8 @@ export class Orchestrator {
         persistedStatus: "resumed_completed",
         budgetConfig: rules.execution?.budgets,
         approvalPolicy: savedApprovalPolicy,
+        externalTask,
+        externalUpdatePreviews,
         logger: this.logger
       });
     }
@@ -740,6 +759,8 @@ export class Orchestrator {
         persistedStatus: "failed",
         budgetConfig: rules.execution?.budgets,
         approvalPolicy: savedApprovalPolicy,
+        externalTask,
+        externalUpdatePreviews,
         logger: this.logger
       });
     }
@@ -779,6 +800,8 @@ export class Orchestrator {
       successPersistedStatus: "resumed_completed",
       budgetConfig: rules.execution?.budgets,
       approvalPolicy: savedApprovalPolicy,
+      externalTask,
+      externalUpdatePreviews,
       signal
       });
     if (loopExecution.result) {

@@ -1,9 +1,11 @@
 import type { ApprovalPolicyDecision, RiskClass, RiskSignal, RulesConfig } from "../types.js";
+import type { WorkflowMode } from "./workflow-modes.js";
 
 export interface RiskPolicyContext {
   changedPathCount?: number;
   generatedFileCount?: number;
   diffLineEstimate?: number;
+  workflowMode?: WorkflowMode;
 }
 
 export function resolveApprovalPolicy(

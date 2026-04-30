@@ -52,18 +52,20 @@ Result:
 
 ## Phase 9 - v1.0 Senior Workflow Integration
 
-- [ ] Phase 9.1: Add external task model for GitHub issues and PRs.
-- [ ] Phase 9.2: Add manual GitHub Issue URL intake and normalize it into an internal task.
-- [ ] Phase 9.3: Add manual GitHub PR URL intake for staff-level review output.
-- [ ] Phase 9.4: Persist external task metadata into run-state and artifact-index.
-- [ ] Phase 9.5: Add approval-gated external updates so comments/status/PR actions never happen implicitly.
+- [x] Phase 9.1: Add external task model for GitHub issues and PRs.
+- [x] Phase 9.2: Add manual GitHub Issue URL intake and normalize it into an internal task.
+- [x] Phase 9.3: Add manual GitHub PR URL intake for staff-level review output.
+- [x] Phase 9.4: Persist external task metadata into run-state and artifact-index.
+- [x] Phase 9.5: Add approval-gated external updates so comments/status/PR actions never happen implicitly.
 
 Phase 9 verification note:
 
-- [x] Investigated the Gemini hang in `pnpm run typecheck && pnpm run lint && pnpm test`.
-- [x] Removed stale Gemini/Codex processes left from previous runs.
-- [x] Fixed the server maintenance interval lifecycle so tests can close `createAiSystemServer()` cleanly.
-- [x] Re-ran `pnpm run typecheck && pnpm run lint && pnpm test`; all 160 tests passed.
+- [x] Phase 9.1 through 9.5 implemented according to playbook.
+- [x] Comprehensive parser for GitHub Issue/PR URLs added and tested.
+- [x] Manual intake for Issues and PRs supported in server and CLI.
+- [x] PR intake defaults to review mode with staff-level review prompt.
+- [x] External task metadata and update previews persisted in artifacts.
+- [x] All baseline gates green: typecheck, lint, tests, dashboard build.
 
 ## Roadmap Reset
 

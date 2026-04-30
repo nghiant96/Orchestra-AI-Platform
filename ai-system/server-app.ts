@@ -2,6 +2,7 @@ import http from "node:http";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { Orchestrator } from "./core/orchestrator.js";
+import { parseExternalTask, normalizeExternalTaskToPrompt } from "./core/external-task.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath, roleCan } from "./core/audit-log.js";
@@ -56,7 +57,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
   const runner: JobRunner =
     options.runner ??
-    (async ({ jobId, task, cwd, dryRun, resume, signal }) => {
+    (async ({ jobId, task, cwd, dryRun, resume, externalTask, signal }) => {
       const confirmationHandler: import("./types.js").ConfirmationHandler = {
         confirmPlan: async (plan) => {
           return new Promise((resolve) => {
@@ -119,6 +120,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         pauseAfterPlan: approvalMode.pauseAfterPlan,
         pauseAfterGenerate: approvalMode.pauseAfterGenerate,
         approvalPolicy: approvalMode,
+        externalTask: externalTask ?? null,
         signal
       });
     });
@@ -270,14 +272,15 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
       if (url.pathname === "/run" && req.method === "POST") {
         const payload = await readJsonBody(req);
-        if (!payload?.task || typeof payload.task !== "string") {
+        const task = typeof payload?.task === "string" ? payload.task : "";
+        if (!task) {
           return respondJson(res, 400, {
             ok: false,
             error: "Missing task"
           });
         }
 
-        const cwd = resolveRequestedCwd(payload.cwd, defaultCwd, allowedRoots);
+        const cwd = resolveRequestedCwd(payload?.cwd, defaultCwd, allowedRoots);
         if (!cwd) {
           return respondJson(res, 403, {
             ok: false,
@@ -287,10 +290,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
         const result = await runner({
           jobId: `run-${Date.now().toString(36)}`,
-          task: payload.task,
+          task,
           cwd,
-          dryRun: payload.dryRun !== false
+          dryRun: payload?.dryRun !== false
         });
+
 
         return respondJson(res, result.ok ? 200 : 422, result);
       }
@@ -300,13 +304,34 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         const payload = await readJsonBody(req);
-        if (!payload?.task || typeof payload.task !== "string") {
+        const task = typeof payload?.task === "string" ? payload.task : "";
+        const externalUrl = typeof payload?.externalUrl === "string" ? payload.externalUrl : "";
+
+        let effectiveTask = task;
+        let externalTask: import("./types.js").ExternalTaskRef | undefined;
+        let effectiveWorkflowMode = typeof payload?.workflowMode === "string" ? payload.workflowMode : "standard";
+
+        if (externalUrl) {
+          const parsed = parseExternalTask(externalUrl);
+          if (parsed) {
+            externalTask = parsed;
+            if (!effectiveTask) effectiveTask = normalizeExternalTaskToPrompt(parsed);
+            if (parsed.kind === "pull_request" && !payload?.workflowMode) {
+              effectiveWorkflowMode = "review";
+            }
+          } else {
+             return respondJson(res, 400, { ok: false, error: "Invalid external task URL" });
+          }
+        }
+
+        if (!effectiveTask) {
           return respondJson(res, 400, {
             ok: false,
             error: "Missing task"
           });
         }
-        const cwd = resolveRequestedCwd(payload.cwd, defaultCwd, allowedRoots);
+        const cwd = resolveRequestedCwd(payload?.cwd, defaultCwd, allowedRoots);
+
         if (!cwd) {
           return respondJson(res, 403, {
             ok: false,
@@ -318,7 +343,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         let approvalMode: ReturnType<typeof resolveApprovalPolicy> | null = null;
         try {
           const { rules } = await loadRules(cwd);
-          approvalMode = resolveApprovalPolicy(payload.task, rules);
+          approvalMode = resolveApprovalPolicy(effectiveTask, rules, [], { workflowMode: effectiveWorkflowMode as any });
           const maxDaily = rules.execution?.budgets?.max_daily_cost_units;
           if (maxDaily && maxDaily > 0) {
             // Self-call stats to get usage
@@ -338,11 +363,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
 
         const job = await queue.enqueue({
-          task: payload.task,
+          task: effectiveTask,
           cwd,
-          dryRun: payload.dryRun !== false,
+          dryRun: payload?.dryRun !== false,
           approvalMode: approvalMode?.approvalMode ?? "manual",
-          approvalPolicy: approvalMode ?? undefined
+          approvalPolicy: approvalMode ?? undefined,
+          externalTask
         });
         await auditLog.append({
           actor,
@@ -524,7 +550,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
         const jobs = await queue.list();
 
-        // Lọc queue jobs theo filterCwd nếu có
+        // Filter queue jobs by filterCwd if present
         const filteredQueueJobs = jobs.filter((j) => isPathWithinRoot(filterCwd, j.cwd));
 
         options.logger.info(`GET /jobs - Found ${filteredQueueJobs.length} jobs in queue${filterCwd ? ` for ${filterCwd}` : ""}`);

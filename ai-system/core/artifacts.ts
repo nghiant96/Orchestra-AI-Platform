@@ -57,6 +57,8 @@ export interface PersistedRunState {
   execution?: ExecutionSummary | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
   executionTransitions?: ExecutionTransition[];
+  externalTask?: import("../types.js").ExternalTaskRef;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
 }
 
 export interface RecentRunSummary {
@@ -72,6 +74,8 @@ export interface RecentRunSummary {
     execution?: ExecutionSummary | null;
     approvalPolicy?: ApprovalPolicyDecision | null;
     executionTransitions?: ExecutionTransition[];
+    externalTask?: import("../types.js").ExternalTaskRef;
+    externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   };
   artifactIndex: {
     updatedAt?: string;
@@ -93,6 +97,8 @@ export interface RecentRunSummary {
     latestApplyEventPath?: string | null;
     lastAppliedAt?: string | null;
     applyEventCount?: number;
+    externalTask?: import("../types.js").ExternalTaskRef;
+    externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   } | null;
   routing: {
     planning: RoutingDecision | null;
@@ -116,8 +122,11 @@ export interface RunListEntry {
   approvalPolicy?: ApprovalPolicyDecision | null;
   latestApplyEventPath?: string | null;
   lastAppliedAt?: string | null;
-  applyEventCount?: number;
+  applyEventCount: number;
+  externalTask?: import("../types.js").ExternalTaskRef;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
 }
+
 
 export interface ApplyEventRecord {
   version: number;
@@ -154,7 +163,9 @@ export function buildStoppedResult({
   executionTransitions = [],
   budgetConfig = null,
   usageMetrics = [],
-  approvalPolicy = null
+  approvalPolicy = null,
+  externalTask = null,
+  externalUpdatePreviews = []
 }: {
   status: Extract<RunStatus, "paused_after_plan" | "paused_after_generate">;
   dryRun: boolean;
@@ -176,6 +187,8 @@ export function buildStoppedResult({
   budgetConfig?: ExecutionBudgetConfig | null;
   usageMetrics?: ProviderUsageMetric[];
   approvalPolicy?: ApprovalPolicyDecision | null;
+  externalTask?: import("../types.js").ExternalTaskRef | null;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
 }): OrchestratorResult {
   const execution = buildExecutionSummary({
     status,
@@ -214,6 +227,8 @@ export function buildStoppedResult({
     latestToolResults,
     execution,
     approvalPolicy,
+    externalTask: externalTask ?? undefined,
+    externalUpdatePreviews,
     wroteFiles: false
   };
 }
@@ -256,6 +271,7 @@ export async function persistPlanArtifacts(
     rankedCandidates?: ContextSelectionCandidate[];
     provider: string;
     durationMs?: number;
+    externalTask?: import("../types.js").ExternalTaskRef;
   },
   logger?: Logger
 ): Promise<string | null> {
@@ -272,7 +288,8 @@ export async function persistPlanArtifacts(
     rawPlan: payload.rawPlan,
     normalizedPlan: payload.plan,
     vectorMatches: payload.vectorMatches ?? [],
-    rankedCandidates: payload.rankedCandidates ?? []
+    rankedCandidates: payload.rankedCandidates ?? [],
+    externalTask: payload.externalTask
   };
   await fs.writeFile(path.join(stepPath, "plan.json"), JSON.stringify(manifest, null, 2), "utf8");
   state.stepPaths.plan = stepPath;
@@ -290,7 +307,8 @@ export async function persistPlanArtifacts(
     latestTask: payload.task,
     latestProvider: payload.provider,
     latestVectorMatches: payload.vectorMatches ?? [],
-    latestContextRanking: payload.rankedCandidates ?? []
+    latestContextRanking: payload.rankedCandidates ?? [],
+    externalTask: payload.externalTask
   });
   logger?.info(`Saved planner checkpoint at ${stepPath}`);
   return stepPath;
@@ -531,6 +549,8 @@ export async function persistRunState(
     approvalPolicy?: ApprovalPolicyDecision | null;
     executionSteps?: ExecutionStepSummary[];
     executionTransitions?: ExecutionTransition[];
+    externalTask?: import("../types.js").ExternalTaskRef;
+    externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   },
   logger?: Logger
 ): Promise<string | null> {
@@ -601,6 +621,8 @@ export async function persistRunState(
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
     approvalPolicy: payload.approvalPolicy ?? null,
+    externalTask: payload.externalTask,
+    externalUpdatePreviews: payload.externalUpdatePreviews,
     execution:
       payload.execution ??
       buildExecutionSummary({
@@ -654,7 +676,8 @@ export async function persistRunState(
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
     execution: serializable.execution ?? null,
-    approvalPolicy: serializable.approvalPolicy
+    approvalPolicy: serializable.approvalPolicy,
+    externalTask: serializable.externalTask
   });
   logger?.info(`Saved resumable run state at ${statePath}`);
   return statePath;
@@ -966,6 +989,8 @@ async function writeArtifactIndex(
     latestContextRanking?: ContextSelectionCandidate[];
     execution?: ExecutionSummary | null;
     approvalPolicy?: ApprovalPolicyDecision | null;
+    externalTask?: import("../types.js").ExternalTaskRef;
+    externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   }
 ): Promise<void> {
   if (!state.enabled || !state.runDir) {
@@ -996,6 +1021,8 @@ async function writeArtifactIndex(
     latestContextRanking: payload.latestContextRanking ?? existingIndex?.latestContextRanking ?? [],
     execution: payload.execution ?? null,
     approvalPolicy: payload.approvalPolicy ?? existingIndex?.approvalPolicy ?? null,
+    externalTask: payload.externalTask ?? existingIndex?.externalTask ?? null,
+    externalUpdatePreviews: payload.externalUpdatePreviews ?? existingIndex?.externalUpdatePreviews ?? [],
     iterationCount: Object.keys(state.stepPaths).filter((key) => key.startsWith("iteration-")).length,
     stepPaths: state.stepPaths
   };
@@ -1112,7 +1139,8 @@ async function loadRunSummaryFromDirectory(runDir: string): Promise<RunListEntry
     approvalPolicy: normalizedState?.approvalPolicy ?? artifactIndex?.approvalPolicy ?? null,
     latestApplyEventPath: artifactIndex?.latestApplyEventPath ?? null,
     lastAppliedAt: artifactIndex?.lastAppliedAt ?? null,
-    applyEventCount: artifactIndex?.applyEventCount ?? 0
+    applyEventCount: artifactIndex?.applyEventCount ?? 0,
+    externalTask: normalizedState?.externalTask ?? artifactIndex?.externalTask
   };
 }
 

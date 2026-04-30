@@ -177,6 +177,8 @@ export async function executeGenerationLoop({
   successPersistedStatus,
   budgetConfig,
   approvalPolicy = null,
+  externalTask = null,
+  externalUpdatePreviews = [],
   signal
 }: {
   startIteration: number;
@@ -202,6 +204,8 @@ export async function executeGenerationLoop({
   successPersistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
+  externalTask?: import("../types.js").ExternalTaskRef | null;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   signal?: AbortSignal;
 }): Promise<{ result: OrchestratorResult | null; state: LoopExecutionState }> {
   if (signal?.aborted) throw new Error('AbortError');
@@ -236,6 +240,8 @@ export async function executeGenerationLoop({
         persistedStatus: "failed",
         budgetConfig,
         approvalPolicy,
+        externalTask,
+        externalUpdatePreviews,
         logger
       });
       return { result, state };
@@ -418,6 +424,8 @@ export async function executeGenerationLoop({
         persistedStatus: "failed",
         budgetConfig,
         approvalPolicy,
+        externalTask,
+        externalUpdatePreviews,
         logger
       });
       return { result, state };
@@ -453,7 +461,9 @@ export async function executeGenerationLoop({
           executionTransitions: state.executionMachine.getTransitions(),
           budgetConfig,
           usageMetrics: collectProviderUsageMetrics(runtime),
-          approvalPolicy
+          approvalPolicy,
+          externalTask: externalTask ?? undefined,
+          externalUpdatePreviews
         });
         await persistRunState(
           artifactState,
@@ -516,6 +526,8 @@ export async function executeGenerationLoop({
         persistedStatus: successPersistedStatus,
         budgetConfig,
         approvalPolicy,
+        externalTask,
+        externalUpdatePreviews,
         logger
       });
       return { result, state };
@@ -549,6 +561,8 @@ export async function finalizeSuccessfulRun({
   persistedStatus,
   budgetConfig,
   approvalPolicy = null,
+  externalTask = null,
+  externalUpdatePreviews: _externalUpdatePreviews = [],
   logger
 }: {
   task: string;
@@ -568,6 +582,8 @@ export async function finalizeSuccessfulRun({
   persistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
+  externalTask?: import("../types.js").ExternalTaskRef | null;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   logger: Logger;
 }): Promise<OrchestratorResult> {
   if (!state.currentResult) {
@@ -650,6 +666,7 @@ export async function finalizeSuccessfulRun({
     latestToolResults: state.latestToolResults,
     execution,
     approvalPolicy,
+    externalTask: externalTask ?? undefined,
     wroteFiles: !dryRun
   };
 
@@ -692,6 +709,7 @@ export async function finalizeFailedRun({
   persistedStatus,
   budgetConfig,
   approvalPolicy = null,
+  externalTask = null,
   additionalUsageMetrics = [],
   logger
 }: {
@@ -713,6 +731,8 @@ export async function finalizeFailedRun({
   persistedStatus: RunStatus;
   budgetConfig?: ExecutionBudgetConfig | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
+  externalTask?: import("../types.js").ExternalTaskRef | null;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   additionalUsageMetrics?: ProviderUsageMetric[];
   logger: Logger;
 }): Promise<OrchestratorResult> {
@@ -775,6 +795,7 @@ export async function finalizeFailedRun({
     latestToolResults: state.latestToolResults,
     execution,
     approvalPolicy,
+    externalTask: externalTask ?? undefined,
     wroteFiles: false
   };
 
@@ -814,6 +835,8 @@ export async function finalizeErroredRun({
   retryHint,
   budgetConfig,
   approvalPolicy = null,
+  externalTask = null,
+  externalUpdatePreviews: _externalUpdatePreviews = [],
   logger
 }: {
   task: string;
@@ -831,6 +854,8 @@ export async function finalizeErroredRun({
   retryHint: RetryHint;
   budgetConfig?: ExecutionBudgetConfig | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
+  externalTask?: import("../types.js").ExternalTaskRef | null;
+  externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
   logger: Logger;
 }): Promise<OrchestratorResult> {
   const execution = buildExecutionSummary({
@@ -865,6 +890,7 @@ export async function finalizeErroredRun({
     latestToolResults: state.latestToolResults,
     execution,
     approvalPolicy,
+    externalTask: externalTask ?? undefined,
     wroteFiles: false
   };
 

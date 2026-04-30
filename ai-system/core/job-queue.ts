@@ -36,6 +36,7 @@ export interface QueueJob {
     pendingPlan?: PlanResult;
     retryHint?: RetryHint | null;
   };
+  externalTask?: import("../types.js").ExternalTaskRef;
 }
 
 export interface JobQueueRunInput {
@@ -46,6 +47,7 @@ export interface JobQueueRunInput {
   resume?: boolean;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
+  externalTask?: import("../types.js").ExternalTaskRef;
   signal?: AbortSignal;
 }
 

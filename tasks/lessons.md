@@ -34,3 +34,13 @@ required `attempt_completion`, causing an automated retry request.
 
 **Rule**: When work is complete in this environment, finish with `attempt_completion` and include
 the final task checklist there instead of replying conversationally.
+
+## 2026-04-30: Server background resources must not outlive tests
+
+**Mistake**: Added a maintenance `setInterval` inside `createAiSystemServer()` without clearing it
+when tests called `server.close()`. The Node test runner finished assertions but stayed alive because
+the interval kept the event loop open.
+
+**Rule**: Any timer, interval, watcher, socket, or background worker created by server setup must be
+disposed in the server close lifecycle. Use `unref()` for long-lived maintenance timers when appropriate,
+and inspect active handles/processes before weakening tests that appear to hang after passing assertions.

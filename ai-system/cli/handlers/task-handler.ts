@@ -3,6 +3,7 @@ import { applyProviderPreset } from "../presets.js";
 import { handleInteractiveCommand, buildPrompt } from "../interactive.js";
 import { createCliLogger } from "../../utils/logger.js";
 import { printResult, printInteractiveBanner } from "../formatters.js";
+import { parseExternalTask, normalizeExternalTaskToPrompt } from "../../core/external-task.js";
 import type { OrchestratorResult } from "../../types.js";
 import type { TaskRunOptions } from "../types.js";
 
@@ -16,6 +17,7 @@ export async function runTask({
   providerPreset,
   resumeTarget,
   retryStage,
+  workflowMode,
   outputJson = false,
   task
 }: TaskRunOptions & { outputJson?: boolean }): Promise<OrchestratorResult> {
@@ -28,16 +30,32 @@ export async function runTask({
     logger: loggerHandle.logger,
     configPath
   });
+  
+  let effectiveTask = task;
+  let externalTask = null;
+  let effectiveWorkflowMode = workflowMode;
+  
+  const parsed = parseExternalTask(task);
+  if (parsed) {
+    externalTask = parsed;
+    effectiveTask = normalizeExternalTaskToPrompt(parsed);
+    if (parsed.kind === "pull_request" && !workflowMode) {
+      effectiveWorkflowMode = "review";
+    }
+  }
+
   try {
     if (resumeTarget) {
       return (await orchestrator.resume(resumeTarget, { stage: retryStage })) as OrchestratorResult;
     }
 
-    return (await orchestrator.run(task, {
+    return (await orchestrator.run(effectiveTask, {
       dryRun,
       interactive,
       pauseAfterPlan,
-      pauseAfterGenerate
+      pauseAfterGenerate,
+      externalTask,
+      workflowMode: effectiveWorkflowMode
     })) as OrchestratorResult;
   } finally {
     loggerHandle.dispose();

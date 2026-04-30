@@ -1,3 +1,4 @@
+export type { WorkflowMode } from "./core/workflow-modes.js";
 export type JsonSchema =
   | {
       type?: string;
@@ -339,6 +340,31 @@ export interface ExecutionSummary {
   budget?: ExecutionBudgetSummary | null;
 }
 
+export type ExternalTaskProvider = "github";
+export type ExternalTaskKind = "issue" | "pull_request";
+
+export interface ExternalTaskRef {
+  provider: ExternalTaskProvider;
+  kind: ExternalTaskKind;
+  url: string;
+  owner: string;
+  repo: string;
+  number: number;
+  sourceText?: string;
+  title?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExternalTaskUpdatePreview {
+  url: string;
+  action: "comment" | "status" | "label" | "close";
+  body?: string;
+  payload?: JsonObject;
+  approved: boolean;
+  approvedBy?: string;
+  approvedAt?: string;
+}
+
 export interface DashboardSnapshot {
   message?: string;
   transition?: ExecutionTransition;
@@ -618,6 +644,8 @@ export interface OrchestratorResult {
   latestToolResults?: ToolExecutionResult[];
   execution?: ExecutionSummary | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
+  externalTask?: ExternalTaskRef;
+  externalUpdatePreviews?: ExternalTaskUpdatePreview[];
 }
 
 export interface MemoryMatch {
