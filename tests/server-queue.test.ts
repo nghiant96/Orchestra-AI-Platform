@@ -176,6 +176,78 @@ test("project registry and audit log expose multi-project operations", async () 
   }
 });
 
+test("server smoke covers health projects jobs stats lessons and audit", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-smoke-"));
+  await fs.writeFile(path.join(repoRoot, ".ai-system.json"), JSON.stringify({ skip_approval: true }), "utf8");
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const encodedCwd = encodeURIComponent(repoRoot);
+
+    const health = await requestJson(baseUrl, "GET", "/health");
+    assert.equal(health.ok, true);
+    assert.equal(health.cwd, repoRoot);
+
+    const projects = await requestJson(baseUrl, "GET", "/projects");
+    assert.equal(projects.ok, true);
+    assert.ok(projects.projects.some((project: any) => project.cwd === repoRoot));
+
+    const created = await requestJson(
+      baseUrl,
+      "POST",
+      "/jobs",
+      { task: "smoke dry-run job", cwd: repoRoot, dryRun: true },
+      undefined,
+      {
+        "x-ai-system-role": "operator",
+        "x-ai-system-actor": "smoke"
+      }
+    );
+    assert.equal(created.approvalMode, "auto");
+    await waitForJob(baseUrl, String(created.jobId), "completed");
+
+    const jobs = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodedCwd}`);
+    assert.ok(jobs.jobs.some((job: any) => job.jobId === created.jobId));
+
+    const stats = await requestJson(baseUrl, "GET", `/stats?cwd=${encodedCwd}`);
+    assert.equal(stats.ok, true);
+    assert.ok(Array.isArray(stats.costByDay));
+    assert.ok(Array.isArray(stats.failuresByClass));
+    assert.ok(Array.isArray(stats.providerPerformance));
+
+    const lessonsBefore = await requestJson(baseUrl, "GET", `/lessons?cwd=${encodedCwd}`);
+    assert.equal(lessonsBefore.ok, true);
+    assert.ok(Array.isArray(lessonsBefore.lessons));
+
+    await requestJson(
+      baseUrl,
+      "POST",
+      "/lessons",
+      { cwd: repoRoot, title: "Smoke lesson", body: "Smoke tests must cover operator-visible server workflows." },
+      201,
+      {
+        "x-ai-system-role": "operator",
+        "x-ai-system-actor": "smoke"
+      }
+    );
+    const lessonsAfter = await requestJson(baseUrl, "GET", `/lessons?cwd=${encodedCwd}`);
+    assert.ok(lessonsAfter.lessons.some((lesson: any) => lesson.title === "Smoke lesson"));
+
+    const audit = await requestJson(baseUrl, "GET", "/audit");
+    assert.ok(audit.events.some((event: any) => event.action === "job.create" && event.actor.id === "smoke"));
+    assert.ok(audit.events.some((event: any) => event.action === "lesson.create" && event.actor.id === "smoke"));
+  } finally {
+    await closeServer(server);
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("jobs API filters queue records by requested project cwd", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-project-a-"));
   const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-project-b-"));

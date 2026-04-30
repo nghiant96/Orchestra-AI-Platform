@@ -240,6 +240,14 @@ export type FailureClass =
   | "iteration-limit"
   | "review-blocking-issues"
   | "unknown"
+  | "provider-timeout"
+  | "provider-error"
+  | "tool-execution-failed"
+  | "context-overflow"
+  | "user-cancelled"
+  | "internal-error";
+
+export type LegacyFailureClass =
   | "provider_timeout"
   | "provider_error"
   | "tool_execution_failed"
@@ -267,7 +275,7 @@ export interface ExecutionTransition {
 }
 
 export interface FailureSummary {
-  class: FailureClass;
+  class: FailureClass | LegacyFailureClass;
   reason: string;
 }
 
@@ -311,7 +319,7 @@ export interface ExecutionProviderMetric {
 }
 
 export interface FailureMetadata {
-  class: FailureClass;
+  class: FailureClass | LegacyFailureClass;
   message: string;
   detail?: string;
   step?: string;

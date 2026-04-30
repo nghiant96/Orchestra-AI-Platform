@@ -1,6 +1,37 @@
 # Current Project Tasks
 
-Last updated: 2026-04-29
+Last updated: 2026-04-30
+
+## Roadmap Completion Review
+
+- [x] Compare `tasks/roadmap.md` and `tasks/implementation-plan.md` against current code structure.
+- [x] Run baseline verification gates.
+- [x] Inspect failed checks, if any, and identify whether they block roadmap completion.
+- [x] Recommend the next implementation step from the roadmap.
+
+Result:
+
+- Root baseline gates passed on 2026-04-30: `pnpm run typecheck`, `pnpm run lint`, `pnpm test`, `pnpm run dashboard:build`, `pnpm audit --audit-level high --registry https://registry.npmjs.org`, and `git diff --check`.
+- Dashboard unit tests passed: `pnpm --dir dashboard test`.
+- Roadmap phases v0.2 through v0.7 have corresponding implementation and regression coverage in the current tree.
+- Recommended next step: create a v0.8 stabilization/release-hardening milestone focused on removing stale duplicate dashboard components, reconciling roadmap docs with completed work, adding API/operations docs, and exercising end-to-end server/dashboard flows against real artifacts.
+
+## v0.8 Stabilization Cleanup
+
+- [x] Remove stale roadmap assessment documents that conflict with current baseline results.
+- [x] Remove unused duplicate dashboard component trees.
+- [x] Update the roadmap implementation plan so the next sprint reflects completed v0.2-v0.7 work.
+- [x] Add operations/API documentation and release smoke checklist.
+- [x] Run full baseline gates after cleanup.
+
+## Technical Debt Refactor Pass
+
+- [x] Normalize newly emitted failure classes to kebab-case while keeping legacy artifact compatibility.
+- [x] Add automated server smoke coverage for health, projects, jobs, stats, lessons, and audit.
+- [x] Extract server analytics and failure classification out of `server-app.ts`.
+- [x] Extract built-in tool adapter definitions out of `tool-executor.ts`.
+- [x] Split dashboard Job Detail tabs, prompt, timeline, and model registry into focused components.
+- [x] Run full verification gates after refactor.
 
 ## Roadmap Reset
 

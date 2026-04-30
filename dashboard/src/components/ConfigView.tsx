@@ -18,9 +18,7 @@ import {
   Unlock,
   Gauge,
   Activity,
-  Trash2
 } from 'lucide-react';
-import { toast } from 'sonner';
 import { cn } from '../utils/cn';
 import type { SystemConfig, ConfigFormData } from '../types';
 import { StatCard } from './StatCard';
@@ -34,6 +32,8 @@ import {
   ToolPolicyPanel
 } from './ConfigPolicyPanels';
 import { LessonsPanel } from './LessonsPanel';
+import { ModelRegistryPanel } from './ModelRegistryPanel';
+import { loadModelAliases } from '../utils/modelAliases';
 
 interface ConfigViewProps {
   config: SystemConfig | null;
@@ -64,39 +64,12 @@ export const ConfigView = ({ config, onUpdate, health, onRefreshHealth, currentP
   const [saving, setSaving] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
 
-  // Custom model aliases persisted in localStorage to stay up-to-date without hardcoding
-  const [modelAliases, setModelAliases] = useState<string[]>(() => {
-    const saved = localStorage.getItem('orchestra_model_aliases');
-    if (saved) return JSON.parse(saved);
-    return [
-      'gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-3.1-flash-lite',
-      'claude-4-7-opus-latest', 'claude-4-6-sonnet-latest', 'claude-4-5-haiku-latest',
-      'gpt-5.5', 'gpt-5.4-thinking', 'gpt-5.3-codex', 'gpt-5.4-mini'
-    ];
-  });
-
-  const [newAlias, setNewAlias] = useState('');
+  const [modelAliases, setModelAliases] = useState<string[]>(loadModelAliases);
 
   const [formData, setFormData] = useState<ConfigFormData>({
     profile: '',
     providers: {}
   });
-
-  const addAlias = () => {
-    if (newAlias && !modelAliases.includes(newAlias)) {
-      const updated = [newAlias, ...modelAliases];
-      setModelAliases(updated);
-      localStorage.setItem('orchestra_model_aliases', JSON.stringify(updated));
-      setNewAlias('');
-      toast.success(`Added model: ${newAlias}`);
-    }
-  };
-
-  const removeAlias = (alias: string) => {
-    const updated = modelAliases.filter(a => a !== alias);
-    setModelAliases(updated);
-    localStorage.setItem('orchestra_model_aliases', JSON.stringify(updated));
-  };
 
   if (!config) {
     return (
@@ -390,43 +363,7 @@ export const ConfigView = ({ config, onUpdate, health, onRefreshHealth, currentP
 
         <ApprovalPolicyPanel config={config} editing={editing} formData={formData} setFormData={setFormData} />
 
-        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-          <h2 className="text-xl font-black mb-6 flex items-center gap-3">
-            <Layers className="text-indigo-500" />
-            Model Registry
-          </h2>
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newAlias}
-                onChange={(e) => setNewAlias(e.target.value)}
-                placeholder="Add new model name..."
-                className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none focus:border-indigo-500 transition-all"
-                onKeyDown={(e) => e.key === 'Enter' && addAlias()}
-              />
-              <button
-                onClick={addAlias}
-                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all"
-              >
-                Add
-              </button>
-            </div>
-            <div className="max-h-[200px] overflow-y-auto pr-2 custom-scrollbar space-y-2">
-              {modelAliases.map(alias => (
-                <div key={alias} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group">
-                  <span className="text-[11px] font-mono font-bold text-slate-600">{alias}</span>
-                  <button
-                    onClick={() => removeAlias(alias)}
-                    className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
+        <ModelRegistryPanel modelAliases={modelAliases} setModelAliases={setModelAliases} />
 
         <BudgetPolicyPanel config={config} editing={editing} formData={formData} setFormData={setFormData} />
         <RoutingPolicyPanel config={config} />

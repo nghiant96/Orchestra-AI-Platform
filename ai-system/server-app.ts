@@ -8,6 +8,7 @@ import { FileAuditLog, parseAuditActor, resolveAuditLogPath, roleCan } from "./c
 import { buildProjectRegistry } from "./core/project-registry.js";
 import { appendProjectLesson, proposeLessonsFromRuns, readProjectLessons } from "./core/lessons.js";
 import { listRecentRunSummaries, loadRunSummary } from "./core/artifacts.js";
+import { aggregateProjectStats, classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
 import type { Logger, RulesConfig, RunStatus } from "./types.js";
@@ -283,7 +284,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           const maxDaily = rules.execution?.budgets?.max_daily_cost_units;
           if (maxDaily && maxDaily > 0) {
             // Self-call stats to get usage
-            const stats = await aggregateStats(cwd, rules);
+            const stats = await aggregateProjectStats(cwd, rules);
             const todayStr = new Date().toISOString().split("T")[0];
             const todayCost = stats.costByDay.find((d) => d.date === todayStr)?.cost || 0;
 
@@ -470,7 +471,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
         try {
           const { rules } = await loadRules(filterCwd);
-          const stats = await aggregateStats(filterCwd, rules);
+          const stats = await aggregateProjectStats(filterCwd, rules);
           return respondJson(res, 200, { ok: true, ...stats });
         } catch (err) {
           return respondJson(res, 500, { ok: false, error: (err as Error).message });
@@ -724,7 +725,7 @@ export function mapRunSummaryToQueueJob(run: Awaited<ReturnType<typeof listRecen
     updatedAt: run.updatedAt || new Date().toISOString(),
     artifactPath: run.runPath,
     resultSummary: run.execution?.failure?.reason || run.status,
-    failure: run.status === "failed" ? classifyError(run.execution?.failure?.reason) : undefined,
+    failure: run.status === "failed" ? classifyServerError(run.execution?.failure?.reason) : undefined,
     diffSummaries: run.diffSummaries,
     latestToolResults: run.latestToolResults,
     execution: run.execution
@@ -756,53 +757,6 @@ function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
   }
 }
 
-function classifyError(error: any): import("./types.js").FailureMetadata {
-  const msg = error?.message || String(error);
-
-  if (msg.includes("timeout") || msg.includes("ETIMEDOUT")) {
-    return {
-      class: "provider_timeout",
-      message: "AI Provider request timed out",
-      retryable: true,
-      suggestion: "Check your internet connection or try a faster model."
-    };
-  }
-  if (msg.includes("rate limit") || msg.includes("429")) {
-    return {
-      class: "provider_error",
-      message: "AI Provider rate limit exceeded",
-      retryable: true,
-      suggestion: "Wait a few minutes or switch to another provider."
-    };
-  }
-  if (msg.includes("context length") || msg.includes("token limit")) {
-    return {
-      class: "context_overflow",
-      message: "File context is too large",
-      retryable: false,
-      suggestion: "Try to reduce the number of files in context or use a model with larger context window."
-    };
-  }
-  if (msg.includes("budget exceeded") || msg.includes("max cost")) {
-    return {
-      class: "budget_exceeded",
-      message: "Execution budget reached",
-      retryable: false,
-      suggestion: "Increase max_cost_units in system configuration."
-    };
-  }
-  if (msg.includes("Command failed")) {
-    return {
-      class: "tool_execution_failed",
-      message: "Build or test tool failed",
-      retryable: true,
-      suggestion: "Fix the syntax errors in your code and run again."
-    };
-  }
-
-  return { class: "internal_error", message: msg, retryable: true, suggestion: "Check server logs for more details." };
-}
-
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
@@ -814,69 +768,4 @@ async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, u
   }
 
   return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-}
-
-async function aggregateStats(cwd: string, rules: any) {
-  const recentRuns = await listRecentRunSummaries(cwd, rules, 50);
-
-  const stats = {
-    totalProjectCost: 0,
-    costByDay: {} as Record<string, number>,
-    failuresByClass: {} as Record<string, number>,
-    avgDurationByStage: {} as Record<string, { total: number; count: number }>,
-    providerPerformance: {} as Record<string, { runs: number; failures: number; durationMs: number; costUnits: number }>
-  };
-
-  for (const run of recentRuns) {
-    const date = (run.updatedAt || new Date().toISOString()).split("T")[0]!;
-    const cost = run.execution?.budget?.totalCostUnits || 0;
-    stats.totalProjectCost += cost;
-    stats.costByDay[date] = (stats.costByDay[date] || 0) + cost;
-
-    if (run.status === "failed") {
-      const error = classifyError(run.execution?.failure?.reason);
-      stats.failuresByClass[error.class] = (stats.failuresByClass[error.class] || 0) + 1;
-    }
-
-    for (const metric of run.execution?.providerMetrics ?? []) {
-      const current = stats.providerPerformance[metric.provider] || { runs: 0, failures: 0, durationMs: 0, costUnits: 0 };
-      current.runs += 1;
-      current.failures += run.status === "failed" ? 1 : 0;
-      current.durationMs += metric.totalDurationMs;
-      current.costUnits += metric.estimatedCostUnits;
-      stats.providerPerformance[metric.provider] = current;
-    }
-
-    if (run.execution?.transitions) {
-      for (const t of run.execution.transitions) {
-        if (t.status === "completed" && t.durationMs) {
-          const current = stats.avgDurationByStage[t.stage] || { total: 0, count: 0 };
-          current.total += t.durationMs;
-          current.count += 1;
-          stats.avgDurationByStage[t.stage] = current;
-        }
-      }
-    }
-  }
-
-  return {
-    totalProjectCost: stats.totalProjectCost,
-    costByDay: Object.entries(stats.costByDay)
-      .map(([date, cost]) => ({ date, cost }))
-      .sort((a, b) => a.date.localeCompare(b.date)),
-    failuresByClass: Object.entries(stats.failuresByClass).map(([name, count]) => ({ name, count })),
-    avgDurationByStage: Object.entries(stats.avgDurationByStage).map(([stage, data]) => ({
-      stage,
-      avgMs: Math.round(data.total / data.count)
-    })),
-    providerPerformance: Object.entries(stats.providerPerformance)
-      .map(([provider, data]) => ({
-        provider,
-        runs: data.runs,
-        failureRate: data.runs > 0 ? data.failures / data.runs : 0,
-        avgDurationMs: data.runs > 0 ? Math.round(data.durationMs / data.runs) : 0,
-        totalCostUnits: data.costUnits
-      }))
-      .sort((left, right) => right.runs - left.runs)
-  };
 }
