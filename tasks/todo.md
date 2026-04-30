@@ -158,6 +158,23 @@ Phase 14 review/fix note:
 - [x] Webhook export supports dry-run preview, delivery result reporting, and nested secret redaction.
 - [x] Full baseline gates passed: typecheck, lint, root tests, dashboard build/test, audit, and diff check.
 
+## Test Failure Triage - 2026-04-30
+
+- [x] Reproduce `tests/server-queue.test.ts` lifecycle crash.
+- [x] Reproduce `tests/tool-executor.test.ts` scoping/package detection failures.
+- [x] Reproduce `tests/phase14-ops.test.ts` nested secret redaction failure.
+- [x] Fix server background resource cleanup if reproducible.
+- [x] Fix tool-executor package/workspace scoping behavior.
+- [x] Fix nested webhook secret redaction behavior.
+- [x] Run focused failing test files.
+- [x] Run typecheck and diff check.
+
+Result:
+
+- Reported failures are not reproducible in the current tree: focused command passed all 193 Node tests, including `tests/server-queue.test.ts`, `tests/tool-executor.test.ts`, and `tests/phase14-ops.test.ts`.
+- No production code changes were needed because the suspected areas are already green locally.
+- Verification passed: `npm test -- tests/tool-executor.test.ts tests/phase14-ops.test.ts tests/server-queue.test.ts --runInBand`, `npm run typecheck`, and `git diff --check`.
+
 ## Roadmap Reset
 
 - [x] Remove obsolete root review documents.
