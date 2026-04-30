@@ -356,17 +356,17 @@ Acceptance:
 
 ## Phase 9 - v1.0 Senior Workflow Integration
 
-Status: planned
+Status: completed
 
 Goal: integrate GitHub Issue/PR workflows while keeping senior engineers in control.
 
 Tasks:
 
-- [ ] Add an external task model for GitHub issues and PRs with source metadata, title, body, comments, labels, repo, base branch, and acceptance hints.
-- [ ] Add manual GitHub Issue URL intake that normalizes an issue into an internal task without writing files.
-- [ ] Add manual GitHub PR URL intake that loads diff metadata and produces staff-level review output.
-- [ ] Persist external task metadata into run-state and artifact-index.
-- [ ] Add approval-gated external updates so comments/status/PR actions never happen implicitly.
+- [x] Add an external task model for GitHub issues and PRs with source metadata, title, body, comments, labels, repo, base branch, and acceptance hints.
+- [x] Add manual GitHub Issue URL intake that normalizes an issue into an internal task without writing files.
+- [x] Add manual GitHub PR URL intake that loads diff metadata and produces staff-level review output.
+- [x] Persist external task metadata into run-state and artifact-index.
+- [x] Add approval-gated external updates so comments/status/PR actions never happen implicitly.
 
 Acceptance:
 
@@ -376,17 +376,17 @@ Acceptance:
 
 ## Phase 10 - v1.1 Staff-Level Review And Test Planning
 
-Status: planned
+Status: completed
 
 Goal: make reviews and test plans useful to senior engineers.
 
 Tasks:
 
-- [ ] Add blast-radius review context from changed files, write targets, dependencies, and tests.
-- [ ] Add review output format optimized for PR findings: severity, file/line, risk, and suggested fix.
-- [ ] Add missing-test detection and required/optional test recommendations.
-- [ ] Add pre-implementation test plan generation for issue mode.
-- [ ] Reconcile test plan with actual checks after implementation.
+- [x] Add blast-radius review context from changed files, write targets, dependencies, and tests.
+- [x] Add review output format optimized for PR findings: severity, file/line, risk, and suggested fix.
+- [x] Add missing-test detection and required/optional test recommendations.
+- [x] Add pre-implementation test plan generation for issue mode.
+- [x] Reconcile test plan with actual checks after implementation.
 
 Acceptance:
 

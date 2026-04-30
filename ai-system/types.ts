@@ -497,13 +497,25 @@ export interface ReviewIssue {
   severity: "high" | "medium" | "low";
   category: string;
   path: string;
+  line?: number;
   description: string;
+  risk?: string;
   suggestedFix: string;
 }
 
 export interface ReviewResult {
   summary: string;
   issues: ReviewIssue[];
+  missingTests?: TestRequirement[];
+}
+
+export interface TestRequirement {
+  name: string;
+  description: string;
+  severity: "required" | "optional";
+  status: "passed" | "failed" | "skipped" | "not_run";
+  targetPath?: string;
+  command?: string;
 }
 
 export type TaskContractSeverity = "high" | "medium" | "low";
@@ -520,12 +532,24 @@ export interface TaskContract {
   suggestedFix?: string;
 }
 
+export interface TestPlanItem {
+  command: string;
+  testFile?: string;
+  purpose: string;
+  residualRisk?: string;
+}
+
+export interface TestPlan {
+  items: TestPlanItem[];
+}
+
 export interface PlanResult {
   prompt: string;
   readFiles: string[];
   writeTargets: string[];
   notes: string[];
   contracts?: TaskContract[];
+  testPlan?: TestPlan;
 }
 
 export interface FileGenerationResult {
@@ -538,6 +562,7 @@ export interface IterationResult {
   summary: string;
   issues: ReviewIssue[];
   toolResults?: ToolExecutionResult[];
+  missingTests?: TestRequirement[];
   durationMs?: number;
   artifactPath?: string | null;
 }
@@ -642,6 +667,7 @@ export interface OrchestratorResult {
   wroteFiles: boolean;
   diffSummaries?: DiffSummary[];
   latestToolResults?: ToolExecutionResult[];
+  missingTests?: TestRequirement[];
   execution?: ExecutionSummary | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
   externalTask?: ExternalTaskRef;

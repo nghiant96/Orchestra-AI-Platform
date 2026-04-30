@@ -3,6 +3,10 @@ import { PlannerAgent } from "../agents/planner.js";
 import { GeneratorAgent } from "../agents/generator.js";
 import { FixerAgent } from "../agents/fixer.js";
 import { ReviewerAgent } from "../agents/reviewer.js";
+import { buildBlastRadiusContext } from "./blast-radius.js";
+import { detectMissingTests } from "./test-heuristics.js";
+import { reconcileTestPlan } from "./test-reconciliation.js";
+import { DependencyGraph } from "./dependency-graph.js";
 import { createProvider } from "../providers/registry.js";
 import { createMemoryAdapter } from "../memory/registry.js";
 import type {
@@ -219,6 +223,9 @@ export async function executeGenerationLoop({
   };
   let pendingResumeStage = resumeFromStage;
 
+  const dependencyGraph = new DependencyGraph(repoRoot);
+  await dependencyGraph.buildGraph([...plan.readFiles, ...plan.writeTargets]);
+
   for (let iteration = startIteration; iteration <= rules.max_iterations; iteration += 1) {
     const preIterationBudget = getExecutionBudgetSummary(state, runtime, budgetConfig);
     if (preIterationBudget?.exceeded) {
@@ -334,6 +341,14 @@ export async function executeGenerationLoop({
     state.latestToolResults = toolExecution.result.results;
     const preReviewIssues = mergeIssues(toolExecution.result.issues, validationIssues);
 
+    const blastRadius = await buildBlastRadiusContext({
+      repoRoot,
+      changedFiles: state.currentResult!.files.map((f) => f.path),
+      dependencyGraph,
+      contracts: plan.contracts,
+      toolResults: state.latestToolResults
+    });
+
     logger.step(`Reviewing generated files with ${runtime.reviewerProvider.id}`);
     const reviewStage = await state.executionMachine.runStage(
       "iteration-review",
@@ -348,7 +363,8 @@ export async function executeGenerationLoop({
             preReviewIssues,
             state.diffSummaries!,
             repoRoot,
-            implementationMemoryContext
+            implementationMemoryContext,
+            blastRadius
           )
         ),
       {
@@ -357,6 +373,12 @@ export async function executeGenerationLoop({
       }
     );
     const review = reviewStage.result;
+    const missingTests = detectMissingTests({
+      changedFiles: state.currentResult!.files.map((f) => f.path),
+      blastRadius,
+      toolResults: toolExecution.result.results
+    });
+    review.missingTests = missingTests;
 
     state.latestReviewSummary = review.summary;
     state.acceptedIssues = mergeIssues(review.issues, preReviewIssues);
@@ -400,6 +422,7 @@ export async function executeGenerationLoop({
       summary: review.summary,
       issues: state.acceptedIssues,
       toolResults: toolExecution.result.results,
+      missingTests: review.missingTests,
       durationMs: iterationDurationMs,
       artifactPath: artifactInfo?.iterationPath ?? null
     });
@@ -664,6 +687,10 @@ export async function finalizeSuccessfulRun({
     artifacts: finalizeArtifactState(artifactState, state.currentResult, true, state.latestToolResults, [], [], execution),
     diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
+    missingTests: [
+      ...reconcileTestPlan(plan.testPlan, state.latestToolResults),
+      ...(state.iterationResults.at(-1)?.missingTests ?? [])
+    ],
     execution,
     approvalPolicy,
     externalTask: externalTask ?? undefined,
@@ -793,6 +820,10 @@ export async function finalizeFailedRun({
     artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, [], [], execution),
     diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
+    missingTests: [
+      ...reconcileTestPlan(plan.testPlan, state.latestToolResults),
+      ...(state.iterationResults.at(-1)?.missingTests ?? [])
+    ],
     execution,
     approvalPolicy,
     externalTask: externalTask ?? undefined,
@@ -888,6 +919,10 @@ export async function finalizeErroredRun({
     artifacts: finalizeArtifactState(artifactState, state.currentResult, false, state.latestToolResults, [], [], execution),
     diffSummaries: state.diffSummaries,
     latestToolResults: state.latestToolResults,
+    missingTests: [
+      ...reconcileTestPlan(plan.testPlan, state.latestToolResults),
+      ...(state.iterationResults.at(-1)?.missingTests ?? [])
+    ],
     execution,
     approvalPolicy,
     externalTask: externalTask ?? undefined,

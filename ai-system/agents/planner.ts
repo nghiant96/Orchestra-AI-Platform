@@ -19,6 +19,11 @@ export class PlannerAgent {
       examples
     });
 
+    const contractInstructions = "\n\nTask Contracts:\nDefine explicit requirements that must be verified after implementation. Each contract should have an ID, description, severity, and target file paths.";
+    const testPlanInstructions = "\n\nPre-Implementation Test Plan:\nDefine the testing strategy to verify the changes. Include commands to run, target test files, and the purpose of each test. Note any residual risk if a test is not practical.";
+
+    const finalSystemPrompt = systemPrompt + contractInstructions + testPlanInstructions;
+
     const prompt = [
       `Task: ${task}`,
       memoryContext ? `\n${memoryContext}` : "",
@@ -32,7 +37,7 @@ export class PlannerAgent {
     return this.provider.runJson({
       cwd,
       label: "planner output",
-      systemPrompt,
+      systemPrompt: finalSystemPrompt,
       prompt,
       schema: PLAN_SCHEMA,
       timeoutMs: this.rules.request_timeout_ms,
@@ -49,7 +54,42 @@ export const PLAN_SCHEMA: JsonSchema = {
     prompt: { type: "string" },
     readFiles: { type: "array", items: { type: "string" } },
     writeTargets: { type: "array", items: { type: "string" } },
-    notes: { type: "array", items: { type: "string" } }
+    notes: { type: "array", items: { type: "string" } },
+    contracts: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          id: { type: "string" },
+          description: { type: "string" },
+          severity: { type: "string", enum: ["high", "medium", "low"] },
+          targetPaths: { type: "array", items: { type: "string" } }
+        },
+        required: ["id", "description", "severity", "targetPaths"]
+      }
+    },
+    testPlan: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              command: { type: "string" },
+              testFile: { type: "string" },
+              purpose: { type: "string" },
+              residualRisk: { type: "string" }
+            },
+            required: ["command", "purpose"]
+          }
+        }
+      },
+      required: ["items"]
+    }
   },
   required: ["prompt", "readFiles", "writeTargets", "notes"]
 };
