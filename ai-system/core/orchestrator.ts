@@ -366,6 +366,7 @@ export class Orchestrator {
           iterations: []
         });
         return {
+          version: 1,
           ok: false,
           status: "cancelled",
           dryRun,

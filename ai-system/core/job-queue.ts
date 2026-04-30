@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { normalizeQueueJob } from "./normalizers.js";
+import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 
 export type QueueJobStatus = "queued" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled";
@@ -14,6 +16,7 @@ export interface QueueJob {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  workflowMode?: WorkflowMode;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
   createdAt: string;
@@ -45,6 +48,7 @@ export interface JobQueueRunInput {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  workflowMode?: WorkflowMode;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
   externalTask?: import("../types.js").ExternalTaskRef;
@@ -83,6 +87,10 @@ export class FileBackedJobQueue {
     return this.isPaused;
   }
 
+  setRetentionDays(days: number | undefined): void {
+    this.options.retentionDays = days;
+  }
+
   async enqueue(input: Omit<JobQueueRunInput, "jobId">): Promise<QueueJob> {
     const now = new Date().toISOString();
     const job: QueueJob = {
@@ -93,8 +101,10 @@ export class FileBackedJobQueue {
       cwd: input.cwd,
       dryRun: input.dryRun,
       resume: input.resume,
+      workflowMode: input.workflowMode,
       approvalMode: input.approvalMode,
       approvalPolicy: input.approvalPolicy,
+      externalTask: input.externalTask,
       createdAt: now,
       updatedAt: now,
       artifactPath: null,
@@ -113,7 +123,7 @@ export class FileBackedJobQueue {
     }
     try {
       const raw = await fs.readFile(this.jobPath(jobId), "utf8");
-      return JSON.parse(raw) as QueueJob;
+      return normalizeQueueJob(JSON.parse(raw));
     } catch {
       return null;
     }
@@ -178,6 +188,10 @@ export class FileBackedJobQueue {
     } catch {
       return false;
     }
+  }
+
+  async runRetentionCleanup(): Promise<void> {
+    await this.cleanupOldJobs();
   }
 
   start(): void {
@@ -272,6 +286,7 @@ export class FileBackedJobQueue {
         cwd: running.cwd,
         dryRun: running.dryRun,
         resume: running.resume,
+        workflowMode: running.workflowMode,
         signal: controller.signal
       });
 

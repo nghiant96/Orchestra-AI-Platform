@@ -144,7 +144,7 @@ function createBatch(index: number, files: string[], moduleName?: string): Refac
     files: files.sort(),
     rationale: `This batch contains ${files.length} related files${moduleName ? " in " + moduleName : ""}.`,
     verification: `${verificationCmd} (Verify direct importers and core logic)`,
-    rollback: `git checkout HEAD -- ${files.join(" ")}`,
+    rollback: `Do not auto-revert. Inspect with git diff -- ${files.join(" ")} and prepare a reviewed reverse patch if rollback is approved.`,
     type: isLarge ? "behavioral" : "mechanical"
   };
 }

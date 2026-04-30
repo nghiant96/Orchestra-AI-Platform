@@ -138,6 +138,26 @@ Phase 13 verification note:
 - [x] Server analytics updated to aggregate and report contract coverage trends by domain.
 - [x] All baseline gates green: typecheck, lint, tests, dashboard build.
 
+## Phase 14 - v1.5 Operator Trust And Team Scale
+
+- [x] Phase 14.1: Add schema versions and normalization helpers for persisted/public payloads.
+- [x] Phase 14.2: Add retention cleanup for artifacts, audit events, queue records, and lifecycle-safe maintenance timers.
+- [x] Phase 14.3: Add queue latency, job duration, retry-rate, failure-class, provider degradation, cost, and contract metrics.
+- [x] Phase 14.4: Add dashboard smoke tests for release-critical dashboard/config loading.
+- [x] Phase 14.5: Add identity role mapping while preserving local token/header mode.
+- [x] Phase 14.6: Add webhook/event export with dry-run previews and secret redaction.
+
+Phase 14 review/fix note:
+
+- [x] Tightened GitHub Issue/PR URL parsing so partial numeric IDs and extra path segments are rejected.
+- [x] Server job intake now treats a pasted GitHub Issue/PR URL in `task` as external task input.
+- [x] PR URL jobs preserve `workflowMode: "review"` through queue execution.
+- [x] Refactor rollback notes no longer suggest destructive `git checkout` commands.
+- [x] PR description generation avoids non-ASCII status icons.
+- [x] `/stats` now derives queue latency and retry-rate metrics from queue records.
+- [x] Webhook export supports dry-run preview, delivery result reporting, and nested secret redaction.
+- [x] Full baseline gates passed: typecheck, lint, root tests, dashboard build/test, audit, and diff check.
+
 ## Roadmap Reset
 
 - [x] Remove obsolete root review documents.

@@ -26,6 +26,7 @@ import type {
 } from "../types.js";
 import { buildExecutionSummary } from "./execution-summary.js";
 import { summarizeIssueCounts } from "./reviewer.js";
+import { normalizePersistedRunState } from "./normalizers.js";
 
 export interface ArtifactState {
   enabled: boolean;
@@ -207,6 +208,7 @@ export function buildStoppedResult({
     usageMetrics
   });
   return {
+    version: 1,
     ok: false,
     status,
     dryRun,
@@ -1197,29 +1199,4 @@ export async function runArtifactRetentionCleanup(repoRoot: string, rules: Rules
   }
 
   return deletedCount;
-}
-
-function normalizePersistedRunState(raw: any): PersistedRunState {
-  const state = { ...raw } as PersistedRunState;
-  if (!state.version) {
-    state.version = 1;
-  }
-  if (state.execution?.failure) {
-    state.execution.failure.class = normalizeFailureClass(state.execution.failure.class);
-  }
-  return state;
-}
-
-function normalizeFailureClass(failureClass: string): any {
-  const mapping: Record<string, string> = {
-    provider_timeout: "provider-timeout",
-    provider_error: "provider-error",
-    tool_execution_failed: "tool-execution-failed",
-    context_overflow: "context-overflow",
-    budget_exceeded: "cost-budget-exceeded",
-    validation_failed: "validation-failed",
-    user_cancelled: "user-cancelled",
-    internal_error: "internal-error"
-  };
-  return mapping[failureClass] ?? failureClass;
 }

@@ -671,6 +671,7 @@ export async function finalizeSuccessfulRun({
   });
 
   const result: OrchestratorResult = {
+    version: 1,
     ok: true,
     ...(resultStatus ? { status: resultStatus } : {}),
     dryRun,
@@ -805,6 +806,7 @@ export async function finalizeFailedRun({
   });
 
   const result: OrchestratorResult = {
+    version: 1,
     ok: false,
     ...(resultStatus ? { status: resultStatus } : {}),
     dryRun,
@@ -905,6 +907,7 @@ export async function finalizeErroredRun({
   });
 
   const result: OrchestratorResult = {
+    version: 1,
     ok: false,
     status: "failed",
     dryRun,

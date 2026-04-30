@@ -452,18 +452,18 @@ Acceptance:
 
 ## Phase 14 - v1.5 Operator Trust And Team Scale
 
-Status: planned
+Status: completed
 
 Goal: mature observability, schema versioning, retention, dashboard automation, and integrations.
 
 Tasks:
 
-- [ ] Add schema versions to run-state, artifact-index, audit events, and public API payloads where missing.
-- [ ] Add migration/normalization helpers for old artifact and failure-class shapes.
-- [ ] Add retention policy for artifacts, audit events, logs, and queue records.
-- [ ] Add health history, queue latency, retry rate, failure-class, provider degradation, and cost metrics.
-- [ ] Add browser-level dashboard smoke tests for release-critical workflows.
-- [ ] Add identity-provider role mapping and webhook/event export.
+- [x] Add schema versions to run-state, artifact-index, audit events, and public API payloads where missing.
+- [x] Add migration/normalization helpers for old artifact and failure-class shapes.
+- [x] Add retention policy for artifacts, audit events, logs, and queue records.
+- [x] Add health history, queue latency, retry rate, failure-class, provider degradation, and cost metrics.
+- [x] Add browser-level dashboard smoke tests for release-critical workflows.
+- [x] Add identity-provider role mapping and webhook/event export.
 
 Acceptance:
 

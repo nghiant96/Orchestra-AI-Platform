@@ -31,6 +31,8 @@ test("performRefactorAnalysis builds dependency clusters and batches", async () 
   const batch1 = result.proposedBatches.find(b => b.files.includes("src/a.ts"));
   assert.ok(batch1?.files.includes("src/b.ts"));
   assert.strictEqual(batch1?.type, "mechanical"); // small cluster
+  assert.match(batch1?.rollback ?? "", /Do not auto-revert/);
+  assert.doesNotMatch(batch1?.rollback ?? "", /git checkout/);
 });
 
 test("performRefactorAnalysis identifies risk areas", async () => {

@@ -446,6 +446,16 @@ export interface RulesConfig {
     queue_days?: number;
     logs_days?: number;
   };
+  auth?: {
+    role_mapping?: Record<string, "viewer" | "operator" | "admin">;
+  };
+  webhooks?: Array<{
+    url: string;
+    events: string[]; // e.g. ["job.create", "job.complete", "job.failed"]
+    secret?: string;
+    enabled: boolean;
+    dry_run?: boolean;
+  }>;
   memory: MemoryConfig;
   vector_search?: VectorSearchConfig;
   providers: ProviderConfigMap;
@@ -682,6 +692,7 @@ export type RunStatus =
   | "resumed_completed";
 
 export interface OrchestratorResult {
+  version: number;
   ok: boolean;
   status?: RunStatus;
   dryRun: boolean;

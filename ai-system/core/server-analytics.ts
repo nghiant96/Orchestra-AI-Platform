@@ -1,4 +1,8 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { listRecentRunSummaries } from "./artifacts.js";
+import { normalizeQueueJob } from "./normalizers.js";
+import { resolveJobQueueDirectory } from "./job-queue.js";
 import type { FailureMetadata, RulesConfig } from "../types.js";
 
 export function classifyServerError(error: unknown): FailureMetadata {
@@ -50,11 +54,14 @@ export function classifyServerError(error: unknown): FailureMetadata {
 
 export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
   const recentRuns = await listRecentRunSummaries(cwd, rules, 50);
+  const queueJobs = await loadQueueJobsForStats(cwd);
 
   const stats = {
     totalProjectCost: 0,
     totalRuns: 0,
     totalIterations: 0,
+    totalWaitTimeMs: 0,
+    totalExecutionTimeMs: 0,
     costByDay: {} as Record<string, number>,
     failuresByClass: {} as Record<string, number>,
     avgDurationByStage: {} as Record<string, { total: number; count: number }>,
@@ -70,6 +77,12 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
   for (const run of recentRuns) {
     stats.totalRuns += 1;
     const date = (run.updatedAt || new Date().toISOString()).split("T")[0]!;
+
+    const waitTime = (run as any).waitTimeMs || 0;
+    const executionTime = (run as any).executionTimeMs || 0;
+    stats.totalWaitTimeMs += waitTime;
+    stats.totalExecutionTimeMs += executionTime;
+
     const cost = run.execution?.budget?.totalCostUnits || 0;
     stats.totalProjectCost += cost;
     stats.costByDay[date] = (stats.costByDay[date] || 0) + cost;
@@ -120,10 +133,16 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
     }
   }
 
+  const queueTiming = summarizeQueueTiming(queueJobs);
+
   return {
     version: 1,
     totalProjectCost: stats.totalProjectCost,
     totalRuns: stats.totalRuns,
+    avgWaitTimeMs: queueTiming.avgWaitTimeMs || (stats.totalRuns > 0 ? Math.round(stats.totalWaitTimeMs / stats.totalRuns) : 0),
+    avgExecutionTimeMs:
+      queueTiming.avgExecutionTimeMs || (stats.totalRuns > 0 ? Math.round(stats.totalExecutionTimeMs / stats.totalRuns) : 0),
+    queueLatency: queueTiming,
     avgIterations: stats.totalRuns > 0 ? stats.totalIterations / stats.totalRuns : 0,
     costByDay: Object.entries(stats.costByDay)
       .map(([date, cost]) => ({ date, cost }))
@@ -161,6 +180,47 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
       }))
     }
   };
+}
+
+async function loadQueueJobsForStats(cwd: string) {
+  const jobsDir = resolveJobQueueDirectory(cwd);
+  try {
+    const entries = await fs.readdir(jobsDir);
+    const jobs = await Promise.all(
+      entries
+        .filter((entry) => entry.endsWith(".json"))
+        .map(async (entry) => {
+          try {
+            const raw = JSON.parse(await fs.readFile(path.join(jobsDir, entry), "utf8"));
+            return normalizeQueueJob(raw);
+          } catch {
+            return null;
+          }
+        })
+    );
+    return jobs.filter((job): job is NonNullable<(typeof jobs)[number]> => job !== null);
+  } catch {
+    return [];
+  }
+}
+
+function summarizeQueueTiming(jobs: Awaited<ReturnType<typeof loadQueueJobsForStats>>) {
+  const waitTimes = jobs.map((job) => job.waitTimeMs).filter((value): value is number => typeof value === "number");
+  const executionTimes = jobs
+    .map((job) => job.executionTimeMs)
+    .filter((value): value is number => typeof value === "number");
+  const retryCount = jobs.filter((job) => job.resume).length;
+
+  return {
+    totalQueueRecords: jobs.length,
+    avgWaitTimeMs: average(waitTimes),
+    avgExecutionTimeMs: average(executionTimes),
+    retryRate: jobs.length > 0 ? retryCount / jobs.length : 0
+  };
+}
+
+function average(values: number[]): number {
+  return values.length > 0 ? Math.round(values.reduce((total, value) => total + value, 0) / values.length) : 0;
 }
 
 function inferContractDomain(contract: any): string {

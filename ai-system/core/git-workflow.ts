@@ -181,7 +181,7 @@ export function generatePRDescription(
   sections.push("## Verification Results");
   if (runResult.latestToolResults && runResult.latestToolResults.length > 0) {
     for (const tool of runResult.latestToolResults) {
-      const icon = tool.ok ? "✅" : "❌";
+      const icon = tool.ok ? "PASS" : "FAIL";
       sections.push(`${icon} **${tool.name}**: ${tool.summary}`);
     }
   } else {
@@ -191,7 +191,7 @@ export function generatePRDescription(
   if (runResult.missingTests && runResult.missingTests.length > 0) {
     sections.push("\n### Missing or Planned Tests");
     for (const test of runResult.missingTests) {
-      const statusIcon = test.status === "passed" ? "✅" : test.status === "failed" ? "❌" : "⏳";
+      const statusIcon = test.status === "passed" ? "PASS" : test.status === "failed" ? "FAIL" : "PENDING";
       sections.push(`- [${statusIcon}] **${test.name}**: ${test.description}`);
     }
   }

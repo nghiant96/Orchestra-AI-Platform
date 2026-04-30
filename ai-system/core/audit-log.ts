@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { normalizeAuditEvent } from "./normalizers.js";
 
 export type AuditRole = "viewer" | "operator" | "admin";
 
@@ -20,7 +21,13 @@ export interface AuditEvent {
 }
 
 export class FileAuditLog {
+  private onEventCallback?: (event: AuditEvent) => void;
+
   constructor(private readonly filePath: string) {}
+
+  setOnEvent(callback: (event: AuditEvent) => void): void {
+    this.onEventCallback = callback;
+  }
 
   async append(event: Omit<AuditEvent, "id" | "timestamp" | "version">): Promise<AuditEvent> {
     const record: AuditEvent = {
@@ -31,6 +38,11 @@ export class FileAuditLog {
     };
     await fs.mkdir(path.dirname(this.filePath), { recursive: true });
     await fs.appendFile(this.filePath, `${JSON.stringify(record)}\n`, "utf8");
+
+    if (this.onEventCallback) {
+      this.onEventCallback(record);
+    }
+
     return record;
   }
 
@@ -40,7 +52,7 @@ export class FileAuditLog {
       return raw
         .split("\n")
         .filter(Boolean)
-        .map((line) => JSON.parse(line) as AuditEvent)
+        .map((line) => normalizeAuditEvent(JSON.parse(line)))
         .sort((left, right) => right.timestamp.localeCompare(left.timestamp))
         .slice(0, limit);
     } catch {
@@ -77,13 +89,25 @@ export function resolveAuditLogPath(defaultCwd: string): string {
   return path.join(defaultCwd, ".ai-system-server", "audit.jsonl");
 }
 
-export function parseAuditActor(headers: { [key: string]: string | string[] | undefined }): AuditActor {
+export function parseAuditActor(
+  headers: { [key: string]: string | string[] | undefined },
+  rules?: import("../types.js").RulesConfig
+): AuditActor {
+  const actorId = firstHeader(headers["x-ai-system-actor"]) || "dashboard";
   const roleHeader = firstHeader(headers["x-ai-system-role"]);
+
+  // 1. Check for explicit mapping in rules
+  if (rules?.auth?.role_mapping?.[actorId]) {
+    return { id: actorId, role: rules.auth.role_mapping[actorId] };
+  }
+
+  // 2. Fallback to header or default
   const role: AuditRole = roleHeader === "viewer" || roleHeader === "operator" || roleHeader === "admin"
     ? roleHeader
     : "admin";
+
   return {
-    id: firstHeader(headers["x-ai-system-actor"]) || "dashboard",
+    id: actorId,
     role
   };
 }

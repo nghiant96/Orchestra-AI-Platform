@@ -15,8 +15,10 @@ import {
 } from "./core/artifacts.js";
 import { aggregateProjectStats, classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
+import { WebhookManager } from "./core/webhooks.js";
 import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
 import type { Logger, RulesConfig, RunStatus } from "./types.js";
+import type { WorkflowMode } from "./core/workflow-modes.js";
 
 export interface ServerAppOptions {
   defaultCwd: string;
@@ -57,7 +59,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
   const runner: JobRunner =
     options.runner ??
-    (async ({ jobId, task, cwd, dryRun, resume, externalTask, signal }) => {
+    (async ({ jobId, task, cwd, dryRun, resume, workflowMode, externalTask, signal }) => {
       const confirmationHandler: import("./types.js").ConfirmationHandler = {
         confirmPlan: async (plan) => {
           return new Promise((resolve) => {
@@ -121,6 +123,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         pauseAfterGenerate: approvalMode.pauseAfterGenerate,
         approvalPolicy: approvalMode,
         externalTask: externalTask ?? null,
+        workflowMode: workflowMode ?? "standard",
         signal
       });
     });
@@ -131,9 +134,18 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   });
   let maintenanceTimer: NodeJS.Timeout | null = null;
   let isClosed = false;
+  let currentGlobalRules: RulesConfig | null = null;
+  const globalRulesPromise = loadRules(defaultCwd);
 
   // Load rules once for global server maintenance tasks
-  void loadRules(defaultCwd).then(({ rules }) => {
+  void globalRulesPromise.then(({ rules }) => {
+    currentGlobalRules = rules;
+
+    const webhookManager = new WebhookManager(rules);
+    auditLog.setOnEvent((event) => {
+      void webhookManager.dispatch(event);
+    });
+
     if (isClosed) {
       return;
     }
@@ -150,6 +162,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
       }
       await auditLog.runRetentionCleanup(rules.retention?.audit_days ?? 30);
+      queue.setRetentionDays(rules.retention?.queue_days);
+      await queue.runRetentionCleanup();
     };
 
     // Run initial retention cleanup
@@ -230,7 +244,8 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         });
       }
 
-      const actor = parseAuditActor(req.headers);
+      const actorRules = currentGlobalRules ?? (await globalRulesPromise).rules;
+      const actor = parseAuditActor(req.headers, actorRules);
 
       if (url.pathname === "/projects" && req.method === "GET") {
         const projects = await buildProjectRegistry(options.allowedWorkdirs || [defaultCwd], async (cwd) => await loadRules(cwd));
@@ -304,22 +319,22 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         const payload = await readJsonBody(req);
-        const task = typeof payload?.task === "string" ? payload.task : "";
+        const task = typeof payload?.task === "string" ? payload.task.trim() : "";
         const externalUrl = typeof payload?.externalUrl === "string" ? payload.externalUrl : "";
 
         let effectiveTask = task;
         let externalTask: import("./types.js").ExternalTaskRef | undefined;
-        let effectiveWorkflowMode = typeof payload?.workflowMode === "string" ? payload.workflowMode : "standard";
+        let effectiveWorkflowMode = parseWorkflowMode(payload?.workflowMode) ?? "standard";
 
-        if (externalUrl) {
-          const parsed = parseExternalTask(externalUrl);
+        if (externalUrl || task) {
+          const parsed = parseExternalTask(externalUrl || task);
           if (parsed) {
             externalTask = parsed;
-            if (!effectiveTask) effectiveTask = normalizeExternalTaskToPrompt(parsed);
+            if (!effectiveTask || effectiveTask === parsed.url) effectiveTask = normalizeExternalTaskToPrompt(parsed);
             if (parsed.kind === "pull_request" && !payload?.workflowMode) {
               effectiveWorkflowMode = "review";
             }
-          } else {
+          } else if (externalUrl) {
              return respondJson(res, 400, { ok: false, error: "Invalid external task URL" });
           }
         }
@@ -366,6 +381,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           task: effectiveTask,
           cwd,
           dryRun: payload?.dryRun !== false,
+          workflowMode: effectiveWorkflowMode,
           approvalMode: approvalMode?.approvalMode ?? "manual",
           approvalPolicy: approvalMode ?? undefined,
           externalTask
@@ -748,6 +764,12 @@ function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: s
 
 function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {
   return resolveRequestedCwd(typeof value === "string" && value.trim() ? value : undefined, defaultCwd, allowedRoots);
+}
+
+function parseWorkflowMode(value: unknown): WorkflowMode | null {
+  return value === "standard" || value === "implement" || value === "review" || value === "fix" || value === "refactor"
+    ? value
+    : null;
 }
 
 function isPathWithinRoot(root: string, candidate: string): boolean {

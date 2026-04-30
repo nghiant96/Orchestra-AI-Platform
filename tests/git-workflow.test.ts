@@ -94,7 +94,7 @@ test("generatePRDescription generates detailed description", () => {
   assert.ok(desc.includes("## Implementation Notes"));
   assert.ok(desc.includes("- Note 1"));
   assert.ok(desc.includes("## Verification Results"));
-  assert.ok(desc.includes("✅ **lint**: passed"));
+  assert.ok(desc.includes("PASS **lint**: passed"));
   assert.ok(desc.includes("## Artifacts"));
 });
 

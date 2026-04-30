@@ -9,35 +9,39 @@ import type { ExternalTaskRef, ExternalTaskKind } from "../types.js";
  */
 export function parseExternalTask(input: string): ExternalTaskRef | null {
   try {
-    const url = new URL(input);
+    const trimmed = input.trim();
+    const url = new URL(trimmed);
     if (url.hostname !== "github.com") {
       return null;
     }
 
     const parts = url.pathname.split("/").filter(Boolean);
     // Expected: [owner, repo, "issues" | "pull", number]
-    if (parts.length < 4) {
+    if (parts.length !== 4) {
       return null;
     }
 
     const [owner, repo, type, numberStr] = parts;
+    if (!owner || !repo || !numberStr) {
+      return null;
+    }
     
     // Reject unsupported paths
     if (type !== "issues" && type !== "pull") {
       return null;
     }
 
-    const number = parseInt(numberStr, 10);
-    if (isNaN(number)) {
+    if (!/^[1-9]\d*$/.test(numberStr)) {
       return null;
     }
+    const number = Number(numberStr);
 
     const kind: ExternalTaskKind = type === "issues" ? "issue" : "pull_request";
 
     return {
       provider: "github",
       kind,
-      url: input,
+      url: trimmed,
       owner,
       repo,
       number,

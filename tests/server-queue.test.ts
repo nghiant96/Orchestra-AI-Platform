@@ -220,6 +220,9 @@ test("server smoke covers health projects jobs stats lessons and audit", async (
     assert.ok(Array.isArray(stats.costByDay));
     assert.ok(Array.isArray(stats.failuresByClass));
     assert.ok(Array.isArray(stats.providerPerformance));
+    assert.equal(typeof stats.queueLatency.avgWaitTimeMs, "number");
+    assert.equal(typeof stats.queueLatency.avgExecutionTimeMs, "number");
+    assert.equal(stats.queueLatency.totalQueueRecords >= 1, true);
 
     const lessonsBefore = await requestJson(baseUrl, "GET", `/lessons?cwd=${encodedCwd}`);
     assert.equal(lessonsBefore.ok, true);
@@ -283,6 +286,30 @@ test("jobs API filters queue records by requested project cwd", async () => {
     await closeServer(server);
     await fs.rm(repoRoot, { recursive: true, force: true });
     await fs.rm(otherRoot, { recursive: true, force: true });
+  }
+});
+
+test("jobs API accepts a GitHub URL directly as task input", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-external-task-"));
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const created = await requestJson(baseUrl, "POST", "/jobs", {
+      task: "https://github.com/owner/repo/pull/456"
+    });
+
+    assert.equal(created.externalTask.kind, "pull_request");
+    assert.equal(created.externalTask.number, 456);
+    assert.match(created.task, /staff-level review/);
+    assert.equal(created.workflowMode, "review");
+  } finally {
+    await closeServer(server);
+    await fs.rm(repoRoot, { recursive: true, force: true });
   }
 });
 
@@ -396,6 +423,7 @@ async function waitForJob(baseUrl: string, jobId: string, status: string): Promi
 
 function createResult({ task, cwd, dryRun, ok }: { task: string; cwd: string; dryRun: boolean; ok: boolean }): OrchestratorResult {
   return {
+    version: 1,
     ok,
     status: ok ? "completed" : "failed",
     dryRun,

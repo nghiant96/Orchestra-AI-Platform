@@ -37,13 +37,18 @@ test("parseExternalTask rejects unsupported GitHub paths", () => {
 });
 
 test("parseExternalTask rejects invalid numbers", () => {
-  const url = "https://github.com/owner/repo/issues/abc";
-  const result = parseExternalTask(url);
-  assert.strictEqual(result, null);
+  assert.strictEqual(parseExternalTask("https://github.com/owner/repo/issues/abc"), null);
+  assert.strictEqual(parseExternalTask("https://github.com/owner/repo/issues/123abc"), null);
+  assert.strictEqual(parseExternalTask("https://github.com/owner/repo/issues/0"), null);
 });
 
 test("parseExternalTask rejects incomplete URLs", () => {
   assert.strictEqual(parseExternalTask("https://github.com/owner/repo/issues"), null);
   assert.strictEqual(parseExternalTask("https://github.com/owner/repo"), null);
   assert.strictEqual(parseExternalTask("https://github.com/owner"), null);
+});
+
+test("parseExternalTask rejects extra path segments", () => {
+  assert.strictEqual(parseExternalTask("https://github.com/owner/repo/issues/123/comments"), null);
+  assert.strictEqual(parseExternalTask("https://github.com/owner/repo/pull/456/files"), null);
 });
