@@ -2,14 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 
-export type QueueJobStatus =
-  | "queued"
-  | "running"
-  | "waiting_for_approval"
-  | "completed"
-  | "failed"
-  | "cancel_requested"
-  | "cancelled";
+export type QueueJobStatus = "queued" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled";
 
 export type QueueApprovalMode = "manual" | "auto";
 
@@ -128,9 +121,7 @@ export class FileBackedJobQueue {
       return [];
     }
     const jobs = await Promise.all(
-      entries
-        .filter((entry) => entry.endsWith(".json"))
-        .map((entry) => this.get(entry.replace(/\.json$/, "")))
+      entries.filter((entry) => entry.endsWith(".json")).map((entry) => this.get(entry.replace(/\.json$/, "")))
     );
     return jobs
       .filter((job): job is QueueJob => job !== null)
@@ -170,6 +161,18 @@ export class FileBackedJobQueue {
     return job;
   }
 
+  async delete(jobId: string): Promise<boolean> {
+    if (!isSafeJobId(jobId)) {
+      return false;
+    }
+    try {
+      await fs.unlink(this.jobPath(jobId));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   start(): void {
     this.isStopped = false;
     this.scheduleDrain();
@@ -188,12 +191,12 @@ export class FileBackedJobQueue {
   private async cleanupHungJobs(): Promise<void> {
     // Mark jobs that were 'running' when the server stopped as 'failed'
     const jobs = await this.list(100);
-    const hungJobs = jobs.filter(j => j.status === 'running' || j.status === 'cancel_requested');
+    const hungJobs = jobs.filter((j) => j.status === "running" || j.status === "cancel_requested");
     for (const job of hungJobs) {
       this.options.logger?.warn(`Cleaning up hung job ${job.jobId} from previous session.`);
-      await this.updateJob(job, { 
-        status: 'failed', 
-        error: 'Job was interrupted by server restart.',
+      await this.updateJob(job, {
+        status: "failed",
+        error: "Job was interrupted by server restart.",
         finishedAt: new Date().toISOString()
       });
     }
@@ -219,9 +222,7 @@ export class FileBackedJobQueue {
     const concurrency = Math.max(1, Number(this.options.concurrency || 1));
     while (this.activeJobs < concurrency) {
       const all = await this.list(100);
-      const next = [...all].reverse().find((job) => 
-        job.status === "queued" && !this.activeWorkspaces.has(job.cwd)
-      );
+      const next = [...all].reverse().find((job) => job.status === "queued" && !this.activeWorkspaces.has(job.cwd));
       if (!next) {
         break;
       }
@@ -265,44 +266,46 @@ export class FileBackedJobQueue {
 
       // Check if it was cancelled during execution
       if (controller.signal.aborted) {
-         await this.updateJob(running, {
-           status: "cancelled",
-           finishedAt: new Date().toISOString(),
-           resultSummary: "Job was aborted."
-         });
-         return;
+        await this.updateJob(running, {
+          status: "cancelled",
+          finishedAt: new Date().toISOString(),
+          resultSummary: "Job was aborted."
+        });
+        return;
       }
 
       const current = (await this.get(running.jobId)) ?? running;
       const status: QueueJobStatus = result.ok ? "completed" : "failed";
-      
+
       await this.updateJob(current, {
         status,
         finishedAt: new Date().toISOString(),
         artifactPath: result.artifacts?.runPath ?? null,
         resultSummary: summarizeOrchestratorResult(result),
-        error: result.ok ? null : result.execution?.failure?.reason ?? "Run failed.",
+        error: result.ok ? null : (result.execution?.failure?.reason ?? "Run failed."),
         approvalPolicy: result.approvalPolicy ?? current.approvalPolicy,
         approvalMode: result.approvalPolicy?.approvalMode ?? current.approvalMode,
         diffSummaries: result.diffSummaries,
         latestToolResults: result.latestToolResults,
-        execution: result.execution ? { 
-          transitions: result.execution.transitions,
-          providerMetrics: result.execution.providerMetrics,
-          budget: result.execution.budget,
-          totalDurationMs: result.execution.totalDurationMs,
-          retryHint: result.execution.retryHint ?? null
-        } : undefined
+        execution: result.execution
+          ? {
+              transitions: result.execution.transitions,
+              providerMetrics: result.execution.providerMetrics,
+              budget: result.execution.budget,
+              totalDurationMs: result.execution.totalDurationMs,
+              retryHint: result.execution.retryHint ?? null
+            }
+          : undefined
       });
     } catch (error) {
-      const isAbort = error instanceof Error && error.name === 'AbortError';
+      const isAbort = error instanceof Error && error.name === "AbortError";
       await this.updateJob(running, {
         status: isAbort ? "cancelled" : "failed",
         finishedAt: new Date().toISOString(),
         error: (error as Error).message,
         resultSummary: isAbort ? "Job aborted." : "Job failed before producing a run result."
       });
-      this.options.logger?.error(`Queued job ${running.jobId} ${isAbort ? 'aborted' : 'failed'}: ${(error as Error).message}`);
+      this.options.logger?.error(`Queued job ${running.jobId} ${isAbort ? "aborted" : "failed"}: ${(error as Error).message}`);
     } finally {
       this.controllers.delete(job.jobId);
     }
@@ -336,7 +339,9 @@ export class FileBackedJobQueue {
       for (const job of toDelete) {
         try {
           await fs.unlink(this.jobPath(job.jobId));
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
       this.options.logger?.info(`Cleaned up ${toDelete.length} old job records.`);
     } catch (err) {

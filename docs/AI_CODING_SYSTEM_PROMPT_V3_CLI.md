@@ -184,7 +184,7 @@ Generator rules:
 
 Reviewer contract
 
-`reviewCode(task, originalFiles, candidateFiles, validationIssues, diffSummaries)` must return:
+`reviewCode(task, plan, isStrict, originalFiles, candidateFiles, validationIssues, diffSummaries, cwd, memoryContext?)` must return:
 
 ```json
 {

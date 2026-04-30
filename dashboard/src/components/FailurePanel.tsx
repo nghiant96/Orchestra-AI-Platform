@@ -9,8 +9,11 @@ interface FailurePanelProps {
 export const FailurePanel = ({ failure, retryHint }: FailurePanelProps) => {
   const getIcon = (cls: string) => {
     switch (cls) {
-      case 'budget_exceeded': return <XCircle className="text-rose-500" size={20} />;
-      case 'provider_timeout': return <RefreshCw className="text-amber-500" size={20} />;
+      case 'budget_exceeded':
+      case 'cost-budget-exceeded':
+      case 'duration-budget-exceeded': return <XCircle className="text-rose-500" size={20} />;
+      case 'provider_timeout':
+      case 'provider-timeout': return <RefreshCw className="text-amber-500" size={20} />;
       default: return <AlertCircle className="text-rose-500" size={20} />;
     }
   };
@@ -27,7 +30,7 @@ export const FailurePanel = ({ failure, retryHint }: FailurePanelProps) => {
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">{failure.class.replace(/_/g, ' ')}</span>
+            <span className="text-[10px] font-black text-rose-400 uppercase tracking-widest">{failure.class.replace(/[_-]/g, ' ')}</span>
             {failure.retryable && (
               <span className="bg-emerald-100 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Retryable</span>
             )}

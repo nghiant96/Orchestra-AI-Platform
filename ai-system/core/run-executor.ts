@@ -335,6 +335,8 @@ export async function executeGenerationLoop({
         normalizeReviewResult(
           await runtime.reviewer.reviewCode(
             task,
+            plan,
+            shouldUseStrictReview(approvalPolicy),
             originalFiles,
             state.currentResult!.files,
             preReviewIssues,
@@ -523,6 +525,10 @@ export async function executeGenerationLoop({
   }
 
   return { result: null, state };
+}
+
+export function shouldUseStrictReview(approvalPolicy?: ApprovalPolicyDecision | null): boolean {
+  return approvalPolicy?.riskClass === "high";
 }
 
 export async function finalizeSuccessfulRun({

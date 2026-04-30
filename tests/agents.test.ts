@@ -135,6 +135,8 @@ describe("Agents Core", () => {
     const reviewer = new ReviewerAgent({ provider: mockProvider, rules });
     const result = await reviewer.reviewCode(
       "review candidate",
+      null,
+      false,
       [{ path: "src/index.ts", content: "before" }],
       [{ path: "src/index.ts", content: "after" }],
       [],
@@ -147,5 +149,55 @@ describe("Agents Core", () => {
     assert.equal(result.issues[1]?.severity, "low");
     assert.equal(result.issues[1]?.category, "validation");
     assert.match(result.issues[1]?.description ?? "", /src\/outside\.ts/);
+  });
+
+  it("ReviewerAgent sends plan context and strict review instructions for high-risk reviews", async () => {
+    const mockProvider: any = {
+      runJson: mock.fn(async () => ({
+        summary: "Strict review passed",
+        issues: []
+      }))
+    };
+    const rules: any = {
+      request_timeout_ms: 5000,
+      request_retries: 2,
+      retry_base_delay_ms: 100
+    };
+
+    const reviewer = new ReviewerAgent({ provider: mockProvider, rules });
+    const plan = {
+      prompt: "update auth flow",
+      readFiles: ["src/auth.ts"],
+      writeTargets: ["src/auth.ts"],
+      notes: ["Preserve security checks"],
+      contracts: [
+        {
+          id: "security-auth-tests",
+          description: "Security-sensitive auth changes require tests.",
+          severity: "high",
+          check: "test-required",
+          status: "unknown"
+        }
+      ]
+    };
+
+    await reviewer.reviewCode(
+      "review high-risk candidate",
+      plan as any,
+      true,
+      [{ path: "src/auth.ts", content: "before" }],
+      [{ path: "src/auth.ts", content: "after" }],
+      [],
+      [],
+      "/mock"
+    );
+
+    const callArgs = mockProvider.runJson.mock.calls[0].arguments[0];
+    assert.match(callArgs.systemPrompt, /HIGH-RISK task/);
+    assert.match(callArgs.systemPrompt, /STRICT REVIEW/);
+
+    const payload = JSON.parse(callArgs.prompt);
+    assert.equal(payload.isStrict, true);
+    assert.deepEqual(payload.plan, plan);
   });
 });

@@ -34,5 +34,6 @@
     "fixer": {
       "model": ""
     }
-  }
+  },
+  "skip_approval": true
 }

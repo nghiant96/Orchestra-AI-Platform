@@ -1,9 +1,10 @@
 import { describe, it, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { 
+import {
   createExecutionStateMachine,
   loadImplementationMemoryContext,
-  sanitizeGeneratedFiles
+  sanitizeGeneratedFiles,
+  shouldUseStrictReview
 } from "../ai-system/core/run-executor.js";
 
 import { createLogger } from "../ai-system/utils/logger.js";
@@ -31,17 +32,17 @@ describe("Run Executor Core", () => {
   it("loadImplementationMemoryContext formats memory matches", async () => {
     const memoryMock: any = {
       searchRelevant: async () => [{ content: "match 1" }, { content: "match 2" }],
-      formatForPrompt: (matches: any[]) => matches.map(m => m.content).join("\n")
+      formatForPrompt: (matches: any[]) => matches.map((m) => m.content).join("\n")
     };
-    
+
     const loggerMock: any = createLogger({ verbose: false });
 
     const stats = { readFiles: 0, readBytes: 0, implementationMatches: 0 };
     const result = await loadImplementationMemoryContext(
-      memoryMock, 
-      "fix bug", 
-      { prompt: "fix bug", readFiles: [], writeTargets: [], notes: [] }, 
-      stats as any, 
+      memoryMock,
+      "fix bug",
+      { prompt: "fix bug", readFiles: [], writeTargets: [], notes: [] },
+      stats as any,
       loggerMock
     );
 
@@ -63,6 +64,27 @@ describe("Run Executor Core", () => {
 
     const result = sanitizeGeneratedFiles(files, plan, { max_write_files: 8 } as any, process.cwd());
 
-    assert.deepEqual(result.map((file) => file.path), ["dashboard/src/App.tsx"]);
+    assert.deepEqual(
+      result.map((file) => file.path),
+      ["dashboard/src/App.tsx"]
+    );
+  });
+
+  it("shouldUseStrictReview only enables strict review for high-risk policy decisions", () => {
+    const basePolicy = {
+      riskScore: 0,
+      signals: [],
+      approvalMode: "manual" as const,
+      interactive: true,
+      pauseAfterPlan: false,
+      pauseAfterGenerate: false,
+      reason: "test policy"
+    };
+
+    assert.equal(shouldUseStrictReview(null), false);
+    assert.equal(shouldUseStrictReview({ ...basePolicy, riskClass: "low" }), false);
+    assert.equal(shouldUseStrictReview({ ...basePolicy, riskClass: "medium" }), false);
+    assert.equal(shouldUseStrictReview({ ...basePolicy, riskClass: "high" }), true);
+    assert.equal(shouldUseStrictReview({ ...basePolicy, riskClass: "blocked" }), false);
   });
 });

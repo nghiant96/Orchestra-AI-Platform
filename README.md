@@ -210,6 +210,7 @@ Recommended config workflow:
 - Each `ai apply --from-artifact` invocation now persists an audit event under the run artifacts and surfaces the latest apply event in `ai runs latest/show`
 - Use `ai fix --from-run <target>` to continue from a previous run, resuming directly when the run is retryable or building a focused follow-up repair task when it is not
 - Interactive TTY runs now open a live `blessed` dashboard for status and recent activity; set `AI_SYSTEM_DISABLE_TUI=true` when you want plain console logging instead
+- For HTTP server, dashboard, queue, approval, artifact, audit, and release smoke workflows, see `docs/OPERATIONS.md`
 
 Tool execution workflow:
 

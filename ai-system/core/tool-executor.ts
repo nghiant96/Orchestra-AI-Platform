@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { runCommandWithRetry } from "../utils/api.js";
 import { truncate } from "../utils/string.js";
+import { buildBuiltinToolAdapters } from "./builtin-tool-adapters.js";
 import { resolveSandboxImage, resolveToolSandbox } from "./tool-sandbox.js";
 import type {
   CliCommandError,
@@ -1205,7 +1206,7 @@ async function detectToolAdapterContexts(
   const projectType = String(tools.project_type ?? "auto");
   const adapters = [
     ...buildConfiguredToolAdapters(tools.adapters ?? {}),
-    ...buildBuiltinToolAdapters(projectType)
+    ...buildBuiltinToolAdapters(projectType, DEFAULT_TOOL_TIMEOUT_MS)
   ];
   const contexts: ToolAdapterContext[] = [];
 
@@ -1251,73 +1252,6 @@ async function detectToolAdapterContexts(
 
 function buildConfiguredToolAdapters(adapters: Record<string, ToolAdapterConfig>): Array<ToolAdapterConfig & { name: string }> {
   return Object.entries(adapters).map(([name, adapter]) => ({ name, ...adapter }));
-}
-
-function buildBuiltinToolAdapters(projectType: string): Array<ToolAdapterConfig & { name: string }> {
-  if (projectType === "node") {
-    return [];
-  }
-
-  const adapters: Array<ToolAdapterConfig & { name: string }> = [
-    {
-      name: "python",
-      detect_files: ["pyproject.toml", "pytest.ini", "requirements.txt"],
-      changed_file_extensions: [".py"],
-      commands: {
-        test: {
-          command: "pytest",
-          args: [],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.test
-        }
-      }
-    },
-    {
-      name: "go",
-      detect_files: ["go.mod"],
-      changed_file_extensions: [".go"],
-      commands: {
-        lint: {
-          command: "golangci-lint",
-          args: ["run", "./..."],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.lint
-        },
-        typecheck: {
-          command: "go",
-          args: ["vet", "./..."],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.typecheck
-        },
-        test: {
-          command: "go",
-          args: ["test", "./..."],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.test
-        }
-      }
-    },
-    {
-      name: "rust",
-      detect_files: ["Cargo.toml"],
-      changed_file_extensions: [".rs"],
-      commands: {
-        lint: {
-          command: "cargo",
-          args: ["clippy", "--", "-D", "warnings"],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.lint
-        },
-        typecheck: {
-          command: "cargo",
-          args: ["check"],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.typecheck
-        },
-        test: {
-          command: "cargo",
-          args: ["test"],
-          timeout_ms: DEFAULT_TOOL_TIMEOUT_MS.test
-        }
-      }
-    }
-  ];
-
-  return projectType === "auto" ? adapters : adapters.filter((adapter) => adapter.name === projectType);
 }
 
 function shouldConsiderAdapter(adapterName: string, projectType: string): boolean {
