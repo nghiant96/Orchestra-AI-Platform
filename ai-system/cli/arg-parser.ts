@@ -218,7 +218,12 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
         const next = args[index + 2];
         const target = args[index + 3];
         if (next !== "create" || !target) {
-          throw new Error("Use `ai work worktree create <id>`.");
+          if (next === "remove" && target) {
+            command = { kind: "work-worktree-remove", target };
+            index += 3;
+            continue;
+          }
+          throw new Error("Use `ai work worktree create <id>` or `ai work worktree remove <id>`.");
         }
         command = { kind: "work-worktree-create", target };
         index += 3;
@@ -290,7 +295,7 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
         index += 1;
         continue;
       }
-      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, \`work show <id>\`, \`work branch <id>\`, \`work worktree create <id>\`, \`work commit <id>\`, or \`work pr <id>\`.`);
+      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, \`work show <id>\`, \`work branch <id>\`, \`work worktree create <id>\`, \`work worktree remove <id>\`, \`work commit <id>\`, or \`work pr <id>\`.`);
     }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];

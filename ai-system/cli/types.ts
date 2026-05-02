@@ -47,6 +47,7 @@ export type CliCommand =
   | { kind: "work-show"; target: string }
   | { kind: "work-branch"; target: string }
   | { kind: "work-worktree-create"; target: string }
+  | { kind: "work-worktree-remove"; target: string }
   | { kind: "work-commit"; target: string; push?: boolean }
   | { kind: "work-pr"; target: string; draft?: boolean; dryRunPr?: boolean }
   | { kind: "work-from-issue"; url: string }

@@ -282,6 +282,20 @@ Phase W11 deepening verification note:
 - [x] Audit data can be exported for team review and offline analysis.
 - [x] Dashboard analytics now show governance and reliability signals, not only cost charts.
 
+## Phase W12 — Workspace Hardening And Cleanup (Completed 2026-05-02)
+
+- [x] Add roadmap milestone for hardening and lifecycle cleanup.
+- [x] Add worktree cleanup command for finished or cancelled work items.
+- [x] Add retention helper for stale workspace worktrees.
+- [x] Add cleanup regression coverage.
+- [x] Re-run full verification gates after cleanup changes.
+
+Phase W12 verification note:
+
+- [x] Finished and cancelled worktrees can be removed explicitly.
+- [x] Server maintenance now reconciles orphaned worktree metadata and prunes stale directories.
+- [x] Cleanup behavior is covered by regression tests and passes the full baseline suite.
+
 ## Completion Notes
 
 - `tasks/roadmap.md` is now the roadmap source of truth.

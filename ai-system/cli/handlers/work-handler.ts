@@ -6,7 +6,7 @@ import { planWorkItemBranch, prepareWorkItemBranch, deriveWorktreePath } from ".
 import { watchCiForWorkItem, proposeCiRepairTask } from "../../work/ci.js";
 import { scheduleWorkItems } from "../../work/scheduler.js";
 import { WorkStore } from "../../work/work-store.js";
-import { createWorktree } from "../../work/worktree-manager.js";
+import { createWorktree, removeWorktree } from "../../work/worktree-manager.js";
 import { commitWorkItemChanges, generateWorkItemPRBody, previewGhPR } from "../../work/commit-pr.js";
 import { outputJsonResult } from "../formatters.js";
 import { printWorkItem, printWorkItemList } from "../formatters/work.js";
@@ -96,6 +96,24 @@ export async function handleWorkCommand(
       const worktreePath = deriveWorktreePath(cwd, workItem.id);
       await createWorktree(cwd, branchName, worktreePath);
       const updated = { ...workItem, branch: branchName, worktreePath, updatedAt: new Date().toISOString() };
+      await store.save(updated);
+      if (outputJson) {
+        await outputJsonResult(updated, savePath);
+        return true;
+      }
+      printWorkItem(updated);
+      return true;
+    }
+    case "work-worktree-remove": {
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const store = new WorkStore(cwd, rules);
+      const workItem = await store.load(command.target);
+      if (!workItem) throw new Error(`Work item not found: ${command.target}`);
+      if (!workItem.worktreePath) {
+        throw new Error(`Work item ${command.target} does not have a worktree path.`);
+      }
+      await removeWorktree(cwd, workItem.worktreePath);
+      const updated = { ...workItem, worktreePath: undefined, updatedAt: new Date().toISOString() };
       await store.save(updated);
       if (outputJson) {
         await outputJsonResult(updated, savePath);

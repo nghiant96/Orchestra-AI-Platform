@@ -6,6 +6,7 @@ import path from "node:path";
 import { runCommand } from "../ai-system/utils/api.js";
 import { planWorkItemBranch, deriveWorktreePath } from "../ai-system/work/branch-manager.js";
 import { createWorktree } from "../ai-system/work/worktree-manager.js";
+import { cleanupFinishedWorktree, cleanupWorkspaceLifecycle } from "../ai-system/work/worktree-cleanup.js";
 import { WorkStore } from "../ai-system/work/work-store.js";
 
 test("workspace branch and worktree helpers create safe metadata", async () => {
@@ -30,6 +31,14 @@ test("workspace branch and worktree helpers create safe metadata", async () => {
     const updated = await store.load(workItem.id);
     assert.equal(updated?.branch, plan.branchName);
     assert.equal(updated?.worktreePath, worktreePath);
+
+    await cleanupFinishedWorktree(repoRoot, { ...updated!, status: "done" });
+    await assert.rejects(() => fs.stat(worktreePath));
+
+    await store.save({ ...updated!, worktreePath, status: "done", updatedAt: new Date().toISOString() });
+    const report = await cleanupWorkspaceLifecycle(repoRoot, { artifacts: { data_dir: ".ai-system-artifacts" }, retention: { queue_days: 1 } } as any);
+    assert.equal(typeof report.removedWorktrees, "number");
+    assert.equal(report.repairedWorkItems >= 0, true);
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }

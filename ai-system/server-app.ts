@@ -20,6 +20,7 @@ import { WebhookManager } from "./core/webhooks.js";
 import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
 import { WorkEngine } from "./work/work-engine.js";
 import { WorkStore } from "./work/work-store.js";
+import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
 import type { Logger, RulesConfig, RunStatus } from "./types.js";
 import type { WorkflowMode } from "./core/workflow-modes.js";
 
@@ -159,9 +160,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         try {
           const { rules: projectRules } = await loadRules(root);
           await runArtifactRetentionCleanup(root, projectRules, options.logger);
+          await cleanupWorkspaceLifecycle(root, projectRules);
         } catch {
           // Fallback to global rules for cleanup if project rules fail
           await runArtifactRetentionCleanup(root, rules, options.logger);
+          await cleanupWorkspaceLifecycle(root, rules);
         }
       }
       await auditLog.runRetentionCleanup(rules.retention?.audit_days ?? 30);

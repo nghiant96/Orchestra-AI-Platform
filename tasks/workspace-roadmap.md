@@ -631,6 +631,24 @@ Acceptance:
 - Workspace supports multiple projects and operators cleanly.
 - Artifacts remain readable across schema versions.
 
+## Phase W12 - Hardening And Lifecycle Cleanup
+
+Goal: make the workspace resilient under long-lived team usage.
+
+Tasks:
+
+- Tighten project/action permissions for sensitive routes and workspace operations.
+- Add audit export and team-review snapshots for compliance or offline analysis.
+- Add worktree cleanup and orphan recovery for finished or cancelled work items.
+- Add retention helpers for stale worktree directories and old workspace metadata.
+- Add regression tests for permission gates, audit export, and cleanup behavior.
+
+Acceptance:
+
+- Sensitive actions are gated by server policy, not UI convention.
+- Teams can export audit history for review and debugging.
+- Stale worktrees and workspace metadata can be cleaned up safely.
+
 ## Recommended First Implementation Sprint
 
 Start with `Work Item v1`, not PR automation.
