@@ -4,6 +4,7 @@
 
 Turn Codex, Gemini, and Claude CLIs into a coordinated, governed coding workflow with planning, automated checks, self-repair loops, and human-in-the-loop approvals.
 
+[![CI](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-local--first-blue)](docs/SECURITY.md)
 [![License](https://img.shields.io/badge/license-Private-red)](#)
 

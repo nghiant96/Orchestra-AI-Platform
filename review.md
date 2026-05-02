@@ -14,7 +14,7 @@
 | **Chất lượng mã** | ⭐⭐⭐⭐ | Tốt — TypeCheck sạch, ESLint sạch |
 | **Test coverage** | ⭐⭐⭐⭐⭐ | Tốt — 208 test pass, 0 test fail |
 | **Tài liệu** | ⭐⭐⭐⭐⭐ | Xuất sắc — README, OPERATIONS, WORKSPACE, release notes |
-| **DevOps** | ⭐⭐⭐⭐ | Tốt — Docker, Makefile, compose, server mode |
+| **DevOps** | ⭐⭐⭐⭐⭐ | Xuất sắc — Docker, CI/CD (GitHub Actions), Makefile, server mode |
 | **Roadmap alignment** | ⭐⭐⭐⭐⭐ | Xuất sắc — v0.2–v0.9 đã hoàn thành, workspace W0–W12 cũng đã xanh |
 | **Maintainability** | ⭐⭐⭐ | Trung bình — Một số file core quá lớn |
 
