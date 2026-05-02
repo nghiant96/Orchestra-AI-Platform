@@ -158,6 +158,20 @@ Phase 14 review/fix note:
 - [x] Webhook export supports dry-run preview, delivery result reporting, and nested secret redaction.
 - [x] Full baseline gates passed: typecheck, lint, root tests, dashboard build/test, audit, and diff check.
 
+## Workspace Conversion Planning
+
+- [x] Read and assess `review.md`.
+- [x] Evaluate feasibility of converting the current system into an AI Software Workspace.
+- [x] Create detailed workspace roadmap in `tasks/workspace-roadmap.md`.
+- [x] Create detailed Gemini/DeepSeek implementation checklist in `tasks/workspace-cli-implementation-plan.md`.
+
+Planning result:
+
+- Workspace conversion is feasible without rewriting the existing orchestrator.
+- Recommended architecture is a Work Item layer above current runs/artifacts.
+- Next milestone should be Work Item v1: durable work item, assessment, task graph skeleton, evidence checklist, and CLI create/list/show.
+- Use `tasks/workspace-cli-implementation-plan.md` as the handoff source for Gemini CLI, DeepSeek, or other coding agents.
+
 ## Test Failure Triage - 2026-04-30
 
 - [x] Reproduce `tests/server-queue.test.ts` lifecycle crash.
