@@ -3,6 +3,7 @@ import path from "node:path";
 import { canPerformAction } from "../../core/permissions.js";
 import { WorkEngine } from "../../work/work-engine.js";
 import { WorkStore } from "../../work/work-store.js";
+import type { WorkItem } from "../../work/work-item.js";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 
 export const workItemsRoute: RouteHandler = {
@@ -15,7 +16,9 @@ export const workItemsRoute: RouteHandler = {
       }
       const { rules } = await loadRules(cwd);
       const store = new WorkStore(cwd, rules);
-      ctx.respondJson(res, 200, { ok: true, version: 1, workItems: await store.list() });
+      const engine = new WorkEngine(rules);
+      const workItems = await Promise.all((await store.list()).map((item) => reconcileWorkItem(item, engine, ctx)));
+      ctx.respondJson(res, 200, { ok: true, version: 1, workItems });
       return true;
     }
 
@@ -63,7 +66,9 @@ export const workItemsRoute: RouteHandler = {
       const store = new WorkStore(cwd, rules);
       const workItem = await store.load(workItemId);
       if (workItem) {
-        ctx.respondJson(res, 200, { ok: true, workItem });
+        const reconciled = await reconcileWorkItem(workItem, new WorkEngine(rules), ctx);
+        if (reconciled.updatedAt !== workItem.updatedAt) await store.save(reconciled);
+        ctx.respondJson(res, 200, { ok: true, workItem: reconciled });
       } else {
         ctx.respondJson(res, 404, { ok: false, error: "Work item not found" });
       }
@@ -98,12 +103,40 @@ export const workItemsRoute: RouteHandler = {
         return true;
       }
       if (action === "run") {
-        const assessed = workItem.assessment ? workItem : await new WorkEngine(rules).assess(workItem);
-        const job = await ctx.queue.enqueue({ task: `${assessed.title}\n\n${assessed.description}`.trim(), cwd, dryRun: payload?.dryRun !== false, workflowMode: assessed.expectedOutput === "pull_request" ? "review" : "standard" });
-        const updated = { ...assessed, status: "executing" as const, linkedRuns: Array.from(new Set([...assessed.linkedRuns, job.jobId])), updatedAt: new Date().toISOString() };
+        const engine = new WorkEngine(rules);
+        const reconciled = await reconcileWorkItem(workItem, engine, ctx);
+        const { workItem: planned, requests } = await engine.createNodeExecutionRequests(reconciled, {
+          dryRun: payload?.dryRun !== false,
+          nodeId: typeof payload?.nodeId === "string" ? payload.nodeId : undefined
+        });
+        if (requests.length === 0) {
+          const updated = {
+            ...planned,
+            status: planned.graph?.nodes.some((node) => node.status === "failed") ? "failed" as const : planned.status,
+            updatedAt: new Date().toISOString()
+          };
+          await store.save(updated);
+          ctx.respondJson(res, 409, { ok: false, error: "No executable graph node is ready.", workItem: updated });
+          return true;
+        }
+        const jobs = [];
+        for (const request of requests) {
+          jobs.push(await ctx.queue.enqueue({
+            task: request.task,
+            cwd,
+            dryRun: request.dryRun,
+            workflowMode: request.workflowMode
+          }));
+        }
+        const updated = engine.attachQueuedRuns(planned, jobs.map((job, index) => ({ nodeId: requests[index]!.nodeId, runId: job.jobId })));
         await store.save(updated);
-        await ctx.auditLog.append({ actor: ctx.actor, action: "work_item.run", cwd, details: { workItemId, jobId: job.jobId } });
-        ctx.respondJson(res, 202, { ok: true, workItem: updated, job });
+        await ctx.auditLog.append({
+          actor: ctx.actor,
+          action: "work_item.run",
+          cwd,
+          details: { workItemId, jobIds: jobs.map((job) => job.jobId), nodeIds: requests.map((request) => request.nodeId) }
+        });
+        ctx.respondJson(res, 202, { ok: true, workItem: updated, job: jobs[0], jobs });
         return true;
       }
       const updated = { ...workItem, status: action === "cancel" ? "cancelled" as const : "created" as const, updatedAt: new Date().toISOString() };
@@ -116,6 +149,12 @@ export const workItemsRoute: RouteHandler = {
     return false;
   }
 };
+
+async function reconcileWorkItem(workItem: WorkItem, engine: WorkEngine, ctx: ServerRouteContext): Promise<WorkItem> {
+  if (workItem.linkedRuns.length === 0) return workItem;
+  const jobs = (await Promise.all(workItem.linkedRuns.map((runId) => ctx.queue.get(runId)))).filter((job): job is NonNullable<typeof job> => job !== null);
+  return engine.reconcileRunResults(workItem, jobs);
+}
 
 async function loadRules(cwd: string) {
   const { loadRules } = await import("../../core/orchestrator-runtime.js");

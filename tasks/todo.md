@@ -238,6 +238,22 @@ Result:
 - The duplicated scoping, adapter detection, sandbox runner, validation, and issue helper logic has been moved to focused modules.
 - Server/workspace smoke routes respond deterministically instead of hanging on missing handlers.
 - Final full suite passed: 208/208 tests.
+
+## Phase W4 - Work Engine + Orchestrator Mapping
+
+- [x] Inspect current `WorkEngine`, Work Item graph types, queue API, and work item server route.
+- [x] Add graph-node-to-orchestrator task mapping without duplicating orchestrator internals.
+- [x] Enqueue executable graph nodes from `/work-items/:id/run` and persist `assignedRunId`.
+- [x] Reconcile graph node/checklist status from linked queue job results.
+- [x] Add focused tests for engine mapping and API run behavior.
+- [x] Run verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm exec node --import tsx --test tests/work-engine.test.ts tests/workspace-workflow.test.ts tests/server-queue.test.ts`, `pnpm test`, and `git diff --check`.
+
+Result:
+
+- `WorkEngine` now maps the next dependency-ready graph node into an orchestrator-backed queue request.
+- Work item runs now link graph nodes to queue job IDs and attach run evidence to checklist items.
+- Work item reads reconcile completed/failed/cancelled queue jobs back into graph and checklist state.
+- Full suite passed: 210/210 tests.
 - [x] Phase 2.1: Add generic Task Contract model.
 - [x] Phase 2.2: Add deterministic contract extraction beyond Event Feed.
 - [x] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.

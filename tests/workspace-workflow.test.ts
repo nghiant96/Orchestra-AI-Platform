@@ -59,6 +59,13 @@ test("workspace API can create assess run and list work items", async () => {
     assert.equal(run.ok, true);
     assert.equal(run.workItem.status, "executing");
     assert.equal(run.workItem.linkedRuns.length, 1);
+    assert.equal(run.workItem.graph.nodes.find((node: any) => node.id === "inspect-1").assignedRunId, run.job.jobId);
+    assert.match(run.job.task, /Graph node: inspect-1 \(inspect\)/);
+
+    await waitForJob(baseUrl, String(run.job.jobId), "completed");
+    const loaded = await requestJson(baseUrl, "GET", `/work-items/${created.workItem.id}?cwd=${encodeURIComponent(repoRoot)}`);
+    assert.equal(loaded.workItem.graph.nodes.find((node: any) => node.id === "inspect-1").status, "completed");
+    assert.equal(loaded.workItem.checklist.find((item: any) => item.id === "inspect-1").status, "passed");
 
     const list = await requestJson(baseUrl, "GET", `/work-items?cwd=${encodeURIComponent(repoRoot)}`);
     assert.equal(list.ok, true);
@@ -117,6 +124,15 @@ function requestJson(baseUrl: string, method: string, pathname: string, body?: u
     if (data) req.write(data);
     req.end();
   });
+}
+
+async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`);
+    if (job.status === status) return job;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
 }
 
 function listen(server: ReturnType<typeof createAiSystemServer>): Promise<string> {
