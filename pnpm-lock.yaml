@@ -11,9 +11,6 @@ importers:
 
   .:
     dependencies:
-      '@types/blessed':
-        specifier: ^0.1.27
-        version: 0.1.27
       '@xenova/transformers':
         specifier: ^2.17.2
         version: 2.17.2
@@ -24,6 +21,9 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.2.1)
+      '@types/blessed':
+        specifier: ^0.1.27
+        version: 0.1.27
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.39
