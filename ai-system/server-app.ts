@@ -1,28 +1,24 @@
 import http from "node:http";
 import path from "node:path";
-import fs from "node:fs/promises";
 import { Orchestrator } from "./core/orchestrator.js";
-import { parseExternalTask, normalizeExternalTaskToPrompt } from "./core/external-task.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
-import { FileAuditLog, parseAuditActor, resolveAuditLogPath, roleCan } from "./core/audit-log.js";
-import { canPerformAction } from "./core/permissions.js";
-import { buildProjectRegistry } from "./core/project-registry.js";
-import { appendProjectLesson, proposeLessonsFromRuns, readProjectLessons } from "./core/lessons.js";
+import { FileAuditLog, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
 import {
   listRecentRunSummaries,
-  loadRunSummary,
   runArtifactRetentionCleanup
 } from "./core/artifacts.js";
-import { aggregateProjectStats, classifyServerError } from "./core/server-analytics.js";
+import { classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
-import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
-import { WorkEngine } from "./work/work-engine.js";
-import { WorkStore } from "./work/work-store.js";
 import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
+import { healthRoute } from "./server/routes/health.js";
+import { adminRoute } from "./server/routes/admin.js";
+import { jobsRoute } from "./server/routes/jobs.js";
+import { configRoute } from "./server/routes/config.js";
+import { workItemsRoute } from "./server/routes/work-items.js";
+import type { RouteHandler, ServerRouteContext } from "./server/routes-context.js";
 import type { Logger, RulesConfig, RunStatus } from "./types.js";
-import type { WorkflowMode } from "./core/workflow-modes.js";
 
 export interface ServerAppOptions {
   defaultCwd: string;
@@ -198,6 +194,31 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
     try {
       const url = new URL(req.url || "/", "http://localhost");
+      const routeContext: ServerRouteContext = {
+        defaultCwd,
+        allowedRoots,
+        options: {
+          authToken: options.authToken,
+          queueConcurrency: options.queueConcurrency,
+          logger: { info: options.logger.info.bind(options.logger), warn: options.logger.warn.bind(options.logger) }
+        },
+        queue,
+        auditLog,
+        currentGlobalRules,
+        globalRulesPromise,
+        actor: parseAuditActor(req.headers, currentGlobalRules ?? (await globalRulesPromise).rules),
+        broadcastLog,
+        resolveRequestedCwd,
+        resolveOptionalRequestedCwd,
+        isAuthorized: (request) => isAuthorized(request, options.authToken || ""),
+        respondJson
+      };
+      const routeHandlers: RouteHandler[] = [healthRoute, adminRoute, jobsRoute, configRoute, workItemsRoute];
+      for (const route of routeHandlers) {
+        if (await route.handle(req, res, url, routeContext)) {
+          return;
+        }
+      }
 
       if (url.pathname === "/logs" && req.method === "GET") {
         res.writeHead(200, {
@@ -213,648 +234,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         return;
       }
 
-      if (url.pathname === "/health" && req.method === "GET") {
-        const jobs = await queue.list();
-        const activeJobs = jobs.filter((j) => j.status === "running" || j.status === "waiting_for_approval");
-        const queuedJobs = jobs.filter((j) => j.status === "queued");
-        const { rules } = await loadRules(defaultCwd);
-        const approvalMode = resolveApprovalPolicy("", rules);
-
-        return respondJson(res, 200, {
-          ok: true,
-          status: "online",
-          version: "2.0.0",
-          cwd: defaultCwd,
-          allowedWorkdirs: options.allowedWorkdirs || [defaultCwd],
-          queue: {
-            concurrency: Math.max(1, Number(options.queueConcurrency || 1)),
-            activeCount: activeJobs.length,
-            queuedCount: queuedJobs.length,
-            totalRecent: jobs.length,
-            paused: queue.getPaused(),
-            approvalMode: approvalMode.approvalMode,
-            skipApproval: approvalMode.approvalMode === "auto",
-            approvalPolicy: approvalMode
-          },
-          memory: {
-            usage: process.memoryUsage(),
-            uptime: process.uptime()
-          }
-        });
-      }
-
       if (!isAuthorized(req, options.authToken || "")) {
         return respondJson(res, 401, {
           ok: false,
           error: "Unauthorized"
         });
       }
-
-      const actorRules = currentGlobalRules ?? (await globalRulesPromise).rules;
-      const actor = parseAuditActor(req.headers, actorRules);
-
-      if (url.pathname === "/projects" && req.method === "GET") {
-        const projects = await buildProjectRegistry(options.allowedWorkdirs || [defaultCwd], async (cwd) => await loadRules(cwd));
-        return respondJson(res, 200, { ok: true, version: 1, projects });
-      }
-
-      if (url.pathname === "/audit" && req.method === "GET") {
-        const limit = Number(url.searchParams.get("limit") || 100);
-        return respondJson(res, 200, { ok: true, version: 1, events: await auditLog.list(limit) });
-      }
-
-      if (url.pathname === "/audit/export" && req.method === "GET") {
-        if (!roleCan(actor, "operator")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const limit = Number(url.searchParams.get("limit") || 1000);
-        const format = url.searchParams.get("format") || "json";
-        const events = await auditLog.list(limit);
-        if (format === "jsonl") {
-          res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8" });
-          res.end(events.map((event) => JSON.stringify(event)).join("\n") + (events.length > 0 ? "\n" : ""));
-          return;
-        }
-        return respondJson(res, 200, { ok: true, version: 1, events });
-      }
-
-      if (url.pathname === "/lessons" && req.method === "GET") {
-        const cwd = resolveRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots) ?? defaultCwd;
-        const { rules } = await loadRules(cwd);
-        const runs = await Promise.all(
-          (await listRecentRunSummaries(cwd, rules, 50)).map(async (entry) => await loadRunSummary(cwd, rules, entry.runName))
-        );
-        return respondJson(res, 200, {
-          ok: true,
-          version: 1,
-          lessons: await readProjectLessons(cwd),
-          proposals: proposeLessonsFromRuns(runs)
-        });
-      }
-
-      if (url.pathname === "/lessons" && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const payload = await readJsonBody(req);
-        const cwd = resolveRequestedCwd(typeof payload.cwd === "string" ? payload.cwd : null, defaultCwd, allowedRoots) ?? defaultCwd;
-        if (typeof payload.title !== "string" || typeof payload.body !== "string") {
-          return respondJson(res, 400, { ok: false, error: "Missing lesson title or body" });
-        }
-        await appendProjectLesson(cwd, { title: payload.title, body: payload.body });
-        await auditLog.append({ actor, action: "lesson.create", cwd, details: { title: payload.title } });
-        return respondJson(res, 201, { ok: true });
-      }
-
-      if (url.pathname === "/work-items" && req.method === "GET") {
-        const cwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-        if (!cwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-        const { rules } = await loadRules(cwd);
-        const store = new WorkStore(cwd, rules);
-        return respondJson(res, 200, { ok: true, version: 1, workItems: await store.list() });
-      }
-
-      if (url.pathname === "/work-items" && req.method === "POST") {
-        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "work_item.create")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const payload = await readJsonBody(req);
-        const cwd = resolveRequestedCwd(payload?.cwd, defaultCwd, allowedRoots);
-        if (!cwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-        const title = typeof payload?.title === "string" ? payload.title.trim() : "";
-        if (!title) {
-          return respondJson(res, 400, { ok: false, error: "Missing work item title" });
-        }
-        const { rules } = await loadRules(cwd);
-        const store = new WorkStore(cwd, rules);
-        const workItem = await store.create({
-          title,
-          projectId: path.basename(cwd),
-          description: typeof payload?.description === "string" ? payload.description : "",
-          type: normalizeWorkItemType(payload?.type),
-          source: normalizeWorkItemSource(payload?.source),
-          expectedOutput: normalizeExpectedOutput(payload?.expectedOutput),
-          linkedRuns: Array.isArray(payload?.linkedRuns) ? payload.linkedRuns.filter((item: unknown) => typeof item === "string") : []
-        } as any);
-        await auditLog.append({ actor, action: "work_item.create", cwd, details: { workItemId: workItem.id } });
-        return respondJson(res, 201, { ok: true, workItem });
-      }
-
-      const workItemMatch = /^\/work-items\/([^/]+)(?:\/(assess|run|cancel|retry))?$/.exec(url.pathname);
-      if (workItemMatch && req.method === "GET" && !workItemMatch[2]) {
-        const workItemId = workItemMatch[1] ?? "";
-        const cwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-        if (!cwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-        const { rules } = await loadRules(cwd);
-        const store = new WorkStore(cwd, rules);
-        const workItem = await store.load(workItemId);
-        return workItem ? respondJson(res, 200, { ok: true, workItem }) : respondJson(res, 404, { ok: false, error: "Work item not found" });
-      }
-
-      if (workItemMatch && req.method === "POST" && workItemMatch[2]) {
-        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, `work_item.${workItemMatch[2]}`)) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const workItemId = workItemMatch[1] ?? "";
-        const action = workItemMatch[2];
-        const payload = await readJsonBody(req);
-        const cwd = resolveRequestedCwd(payload?.cwd ?? url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-        if (!cwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-        const { rules } = await loadRules(cwd);
-        const store = new WorkStore(cwd, rules);
-        const workItem = await store.load(workItemId);
-        if (!workItem) {
-          return respondJson(res, 404, { ok: false, error: "Work item not found" });
-        }
-
-        if (action === "assess") {
-          const engine = new WorkEngine(rules);
-          const assessed = await engine.assess(workItem);
-          await store.save(assessed);
-          await auditLog.append({ actor, action: "work_item.assess", cwd, details: { workItemId } });
-          return respondJson(res, 200, { ok: true, workItem: assessed });
-        }
-
-        if (action === "run") {
-          const assessed = workItem.assessment ? workItem : await new WorkEngine(rules).assess(workItem);
-          const job = await queue.enqueue({
-            task: `${assessed.title}\n\n${assessed.description}`.trim(),
-            cwd,
-            dryRun: payload?.dryRun !== false,
-            workflowMode: assessed.expectedOutput === "pull_request" ? "review" : "standard"
-          });
-          const updated = {
-            ...assessed,
-            status: "executing" as const,
-            linkedRuns: Array.from(new Set([...assessed.linkedRuns, job.jobId])),
-            updatedAt: new Date().toISOString()
-          };
-          await store.save(updated);
-          await auditLog.append({ actor, action: "work_item.run", cwd, details: { workItemId, jobId: job.jobId } });
-          return respondJson(res, 202, { ok: true, workItem: updated, job });
-        }
-
-        const updated = {
-          ...workItem,
-          status: action === "cancel" ? "cancelled" as const : "created" as const,
-          updatedAt: new Date().toISOString()
-        };
-        await store.save(updated);
-        await auditLog.append({ actor, action: `work_item.${action}`, cwd, details: { workItemId } });
-        return respondJson(res, 200, { ok: true, workItem: updated });
-      }
-
-      if (url.pathname === "/run" && req.method === "POST") {
-        const payload = await readJsonBody(req);
-        const task = typeof payload?.task === "string" ? payload.task : "";
-        if (!task) {
-          return respondJson(res, 400, {
-            ok: false,
-            error: "Missing task"
-          });
-        }
-
-        const cwd = resolveRequestedCwd(payload?.cwd, defaultCwd, allowedRoots);
-        if (!cwd) {
-          return respondJson(res, 403, {
-            ok: false,
-            error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS"
-          });
-        }
-
-        const result = await runner({
-          jobId: `run-${Date.now().toString(36)}`,
-          task,
-          cwd,
-          dryRun: payload?.dryRun !== false
-        });
-
-
-        return respondJson(res, result.ok ? 200 : 422, result);
-      }
-
-      if (url.pathname === "/jobs" && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const payload = await readJsonBody(req);
-        const task = typeof payload?.task === "string" ? payload.task.trim() : "";
-        const externalUrl = typeof payload?.externalUrl === "string" ? payload.externalUrl : "";
-
-        let effectiveTask = task;
-        let externalTask: import("./types.js").ExternalTaskRef | undefined;
-        let effectiveWorkflowMode = parseWorkflowMode(payload?.workflowMode) ?? "standard";
-
-        if (externalUrl || task) {
-          const parsed = parseExternalTask(externalUrl || task);
-          if (parsed) {
-            externalTask = parsed;
-            if (!effectiveTask || effectiveTask === parsed.url) effectiveTask = normalizeExternalTaskToPrompt(parsed);
-            if (parsed.kind === "pull_request" && !payload?.workflowMode) {
-              effectiveWorkflowMode = "review";
-            }
-          } else if (externalUrl) {
-             return respondJson(res, 400, { ok: false, error: "Invalid external task URL" });
-          }
-        }
-
-        if (!effectiveTask) {
-          return respondJson(res, 400, {
-            ok: false,
-            error: "Missing task"
-          });
-        }
-        const cwd = resolveRequestedCwd(payload?.cwd, defaultCwd, allowedRoots);
-
-        if (!cwd) {
-          return respondJson(res, 403, {
-            ok: false,
-            error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS"
-          });
-        }
-
-        // Budget Enforcement: Check daily usage
-        let approvalMode: ReturnType<typeof resolveApprovalPolicy> | null = null;
-        try {
-          const { rules } = await loadRules(cwd);
-          approvalMode = resolveApprovalPolicy(effectiveTask, rules, [], { workflowMode: effectiveWorkflowMode as any });
-          const maxDaily = rules.execution?.budgets?.max_daily_cost_units;
-          if (maxDaily && maxDaily > 0) {
-            // Self-call stats to get usage
-            const stats = await aggregateProjectStats(cwd, rules);
-            const todayStr = new Date().toISOString().split("T")[0];
-            const todayCost = stats.costByDay.find((d) => d.date === todayStr)?.cost || 0;
-
-            if (todayCost >= maxDaily) {
-              return respondJson(res, 403, {
-                ok: false,
-                error: `Daily budget exceeded: ${todayCost.toFixed(2)}/${maxDaily} units used today.`
-              });
-            }
-          }
-        } catch (err) {
-          options.logger.warn(`Daily budget check failed (ignoring): ${(err as Error).message}`);
-        }
-
-        const job = await queue.enqueue({
-          task: effectiveTask,
-          cwd,
-          dryRun: payload?.dryRun !== false,
-          workflowMode: effectiveWorkflowMode,
-          approvalMode: approvalMode?.approvalMode ?? "manual",
-          approvalPolicy: approvalMode ?? undefined,
-          externalTask
-        });
-        await auditLog.append({
-          actor,
-          action: "job.create",
-          cwd,
-          jobId: job.jobId,
-          details: {
-            dryRun: job.dryRun,
-            approvalMode: job.approvalMode,
-            riskClass: job.approvalPolicy?.riskClass ?? null
-          }
-        });
-        return respondJson(res, 202, job);
-      }
-
-      const contentMatch = /^\/jobs\/([^/]+)\/files\/content$/.exec(url.pathname);
-      if (contentMatch && req.method === "GET") {
-        const jobId = contentMatch[1] ?? "";
-        const filePath = url.searchParams.get("path");
-        const type = url.searchParams.get("type") || "generated"; // "original" or "generated"
-        const requestedCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-        if (!requestedCwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-
-        if (!filePath) {
-          return respondJson(res, 400, { ok: false, error: "Missing path parameter" });
-        }
-
-        const job = await queue.get(jobId);
-        let artifactPath = job?.artifactPath;
-
-        if (!artifactPath && jobId.startsWith("run-")) {
-          const { rules } = await loadRules(requestedCwd);
-          const artifactsDir = path.resolve(requestedCwd, rules.artifacts?.data_dir || ".ai-system-artifacts");
-          artifactPath = path.join(artifactsDir, jobId);
-        }
-
-        if (!artifactPath) {
-          return respondJson(res, 404, { ok: false, error: "Job not found or no artifacts" });
-        }
-
-        try {
-          const indexPath = path.join(artifactPath, "artifact-index.json");
-          const index = await loadJsonIfExists<any>(indexPath);
-          const latestIterationPath = index?.latestIterationPath;
-
-          if (!latestIterationPath) {
-            return respondJson(res, 404, { ok: false, error: "No iteration data found" });
-          }
-
-          const iterationDir = path.isAbsolute(latestIterationPath) ? latestIterationPath : path.join(artifactPath, latestIterationPath);
-
-          const subDir = type === "original" ? "files-original" : "files";
-          const fullPath = path.join(iterationDir, subDir, filePath);
-
-          try {
-            const content = await fs.readFile(fullPath, "utf8");
-            return respondJson(res, 200, { ok: true, content });
-          } catch {
-            return respondJson(res, 404, { ok: false, error: "File not found in artifacts" });
-          }
-        } catch (err) {
-          return respondJson(res, 500, { ok: false, error: (err as Error).message });
-        }
-      }
-
-      if (url.pathname === "/config" && req.method === "POST") {
-        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "config.update")) {
-          return respondJson(res, 403, { ok: false, error: "Admin role required" });
-        }
-        try {
-          const payload = await readJsonBody(req);
-          const configPath = await resolveProjectConfigPath(defaultCwd);
-
-          if (!configPath) {
-            return respondJson(res, 404, { ok: false, error: "Project config file not found. Create .ai-system.json first." });
-          }
-
-          const existing = (await loadJsonIfExists<any>(configPath)) || {};
-          const updated = mergeConfig(existing, payload);
-          await writeJsonFile(configPath, updated);
-          await auditLog.append({
-            actor,
-            action: "config.update",
-            cwd: defaultCwd,
-            details: { configPath }
-          });
-
-          options.logger.info(`System configuration updated via Dashboard.`);
-          return respondJson(res, 200, { ok: true, config: updated });
-        } catch (err) {
-          return respondJson(res, 500, { ok: false, error: (err as Error).message });
-        }
-      }
-
-      if (url.pathname === "/queue/pause" && req.method === "POST") {
-        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "queue.pause")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        queue.setPaused(true);
-        await auditLog.append({ actor, action: "queue.pause", cwd: defaultCwd });
-        options.logger.info("System queue PAUSED via Dashboard.");
-        return respondJson(res, 200, { ok: true, paused: true });
-      }
-
-      if (url.pathname === "/queue/resume" && req.method === "POST") {
-        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "queue.resume")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        queue.setPaused(false);
-        await auditLog.append({ actor, action: "queue.resume", cwd: defaultCwd });
-        options.logger.info("System queue RESUMED via Dashboard.");
-        return respondJson(res, 200, { ok: true, paused: false });
-      }
-
-      if (url.pathname === "/queue/clear-finished" && req.method === "POST") {
-        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "queue.clear_finished")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const jobs = await queue.list(500);
-        const finished = jobs.filter((j) => j.status === "completed" || j.status === "failed" || j.status === "cancelled");
-        let deletedCount = 0;
-        for (const job of finished) {
-          if (await queue.delete(job.jobId)) deletedCount++;
-        }
-        await auditLog.append({
-          actor,
-          action: "queue.clear_finished",
-          cwd: defaultCwd,
-          details: { deletedCount }
-        });
-        options.logger.info(`Cleared ${deletedCount} finished jobs from queue.`);
-        return respondJson(res, 200, { ok: true, deletedCount });
-      }
-
-      if (url.pathname === "/config" && req.method === "GET") {
-        try {
-          const { rules, profile, globalProfile, plugins } = await loadRules(defaultCwd);
-          // Mask sensitive info
-          const safeRules = JSON.parse(JSON.stringify(rules));
-          if (safeRules.providers) {
-            for (const provider of Object.values(safeRules.providers as Record<string, any>)) {
-              if (provider.api_key) provider.api_key = "********";
-            }
-          }
-          if (safeRules.memory?.api_key) safeRules.memory.api_key = "********";
-
-          return respondJson(res, 200, {
-            version: 1,
-            rules: safeRules,
-            profile,
-            globalProfile,
-            plugins
-          });
-        } catch (err) {
-          return respondJson(res, 500, { ok: false, error: (err as Error).message });
-        }
-      }
-
-      if (url.pathname === "/stats" && req.method === "GET") {
-        const filterCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-        if (!filterCwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-        try {
-          const { rules } = await loadRules(filterCwd);
-          const stats = await aggregateProjectStats(filterCwd, rules);
-          return respondJson(res, 200, { ok: true, ...stats, version: 1 });
-        } catch (err) {
-          return respondJson(res, 500, { ok: false, error: (err as Error).message });
-        }
-      }
-
-      if (url.pathname === "/jobs" && req.method === "GET") {
-        const filterCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-        if (!filterCwd) {
-          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-        }
-        const jobs = await queue.list();
-
-        // Filter queue jobs by filterCwd if present
-        const filteredQueueJobs = jobs.filter((j) => isPathWithinRoot(filterCwd, j.cwd));
-
-        options.logger.info(`GET /jobs - Found ${filteredQueueJobs.length} jobs in queue${filterCwd ? ` for ${filterCwd}` : ""}`);
-
-        // Load recent runs from artifacts
-        try {
-          const { rules } = await loadRules(filterCwd);
-          const recentRuns = await listRecentRunSummaries(filterCwd, rules, 20);
-          options.logger.info(`GET /jobs - Found ${recentRuns.length} recent runs in ${filterCwd}`);
-
-          const runJobs: QueueJob[] = recentRuns
-            .filter((run) => !jobs.some((j) => j.artifactPath === run.runPath || j.jobId === run.runName))
-            .map((run) => mapRunSummaryToQueueJob(run, filterCwd));
-
-          const merged = [...filteredQueueJobs, ...runJobs].sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          );
-
-          return respondJson(res, 200, {
-            version: 1,
-            jobs: merged.slice(0, 50)
-          });
-          } catch {
-          // If artifacts can't be loaded, just return queue jobs
-          return respondJson(res, 200, { version: 1, jobs: filteredQueueJobs });
-          }
-
-      }
-
-      const approvalMatch = /^\/jobs\/([^/]+)\/(approve|reject)$/.exec(url.pathname);
-      if (approvalMatch && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
-          return respondJson(res, 403, { ok: false, error: "Operator role required" });
-        }
-        const jobId = approvalMatch[1] ?? "";
-        const action = approvalMatch[2];
-        const pending = pendingApprovals.get(jobId);
-
-        if (!pending) {
-          return respondJson(res, 404, { ok: false, error: "No pending approval for this job" });
-        }
-
-        const approved = action === "approve";
-        pending.resolve(approved);
-        pendingApprovals.delete(jobId);
-
-        const job = await queue.get(jobId);
-        if (job) {
-          await queue.updateJob(job, { status: "running" });
-        }
-        await auditLog.append({
-          actor,
-          action: approved ? "job.approve" : "job.reject",
-          cwd: job?.cwd,
-          jobId,
-          details: { pendingType: pending.type }
-        });
-
-        options.logger.info(`Job ${jobId} ${approved ? "approved" : "rejected"} via Dashboard.`);
-        return respondJson(res, 200, { ok: true, action });
-      }
-
-      const jobMatch = /^\/jobs\/([^/]+)(?:\/(cancel|resume|retry))?$/.exec(url.pathname);
-      if (jobMatch && req.method === "GET" && !jobMatch[2]) {
-        const jobId = jobMatch[1] ?? "";
-        let job = await queue.get(jobId);
-
-        if (!job && jobId.startsWith("run-")) {
-          try {
-            const requestedCwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
-            if (!requestedCwd) {
-              return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
-            }
-            const { rules } = await loadRules(requestedCwd);
-            const summary = await loadRunSummary(requestedCwd, rules, jobId);
-            if (summary && summary.runState) {
-              job = {
-                version: 1,
-                jobId: jobId,
-                status: normalizeRunStatus(summary.runState.status || "completed"),
-                task: summary.runState.task || "",
-                cwd: requestedCwd,
-                dryRun: summary.runState.dryRun || false,
-                approvalMode:
-                  summary.runState.approvalPolicy?.approvalMode ?? (summary.runState.status?.startsWith("paused_") ? "manual" : undefined),
-                approvalPolicy: summary.runState.approvalPolicy ?? summary.artifactIndex?.approvalPolicy ?? undefined,
-                createdAt: summary.runState.execution?.transitions?.[0]?.timestamp || new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                artifactPath: path.dirname(summary.statePath),
-                resultSummary: summary.runState.latestReviewSummary,
-                error: summary.runState.status === "failed" ? "Run failed." : null,
-                diffSummaries: summary.runState.diffSummaries || summary.artifactIndex?.diffSummaries,
-                latestToolResults: summary.runState.latestToolResults || summary.artifactIndex?.latestToolResults,
-                execution: summary.runState.execution
-                  ? {
-                      transitions: summary.runState.execution.transitions,
-                      providerMetrics: summary.runState.execution.providerMetrics,
-                      budget: summary.runState.execution.budget,
-                      totalDurationMs: summary.runState.execution.totalDurationMs,
-                      retryHint: summary.runState.execution.retryHint ?? null
-                    }
-                  : undefined
-              };
-            }
-          } catch {
-            // Not found in artifacts either
-          }
-        }
-
-        return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
-      }
-
-      if (jobMatch && req.method === "POST" && jobMatch[2]) {
-        const jobId = jobMatch[1] ?? "";
-        const action = jobMatch[2];
-
-        if (action === "cancel") {
-          if (!roleCan(actor, "operator")) {
-            return respondJson(res, 403, { ok: false, error: "Operator role required" });
-          }
-          const job = await queue.cancel(jobId);
-          if (job) {
-            await auditLog.append({ actor, action: "job.cancel", cwd: job.cwd, jobId });
-          }
-          return job ? respondJson(res, 200, job) : respondJson(res, 404, { ok: false, error: "Job not found" });
-        }
-
-        if (action === "resume") {
-          if (!roleCan(actor, "operator")) {
-            return respondJson(res, 403, { ok: false, error: "Operator role required" });
-          }
-          const job = await queue.get(jobId);
-          if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
-          if (job.status !== "failed" && job.status !== "cancelled") {
-            return respondJson(res, 400, { ok: false, error: "Only failed or cancelled jobs can be resumed" });
-          }
-          const updated = await queue.updateJob(job, { status: "queued", resume: true });
-          await auditLog.append({ actor, action: "job.resume", cwd: updated.cwd, jobId });
-          return respondJson(res, 200, updated);
-        }
-
-        if (action === "retry") {
-          if (!roleCan(actor, "operator")) {
-            return respondJson(res, 403, { ok: false, error: "Operator role required" });
-          }
-          const job = await queue.get(jobId);
-          if (!job) return respondJson(res, 404, { ok: false, error: "Job not found" });
-          const newJob = await queue.enqueue({
-            task: job.task,
-            cwd: job.cwd,
-            dryRun: job.dryRun
-          });
-          await auditLog.append({ actor, action: "job.retry", cwd: job.cwd, jobId: newJob.jobId, details: { sourceJobId: jobId } });
-          return respondJson(res, 201, newJob);
-        }
-      }
-
-      return respondJson(res, 404, {
-        ok: false,
-        error: "Not found"
-      });
     } catch (error) {
       const normalized = error as Error;
       return respondJson(res, 500, {
@@ -893,12 +278,6 @@ function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowed
   return resolveRequestedCwd(typeof value === "string" && value.trim() ? value : undefined, defaultCwd, allowedRoots);
 }
 
-function parseWorkflowMode(value: unknown): WorkflowMode | null {
-  return value === "standard" || value === "implement" || value === "review" || value === "fix" || value === "refactor"
-    ? value
-    : null;
-}
-
 function isPathWithinRoot(root: string, candidate: string): boolean {
   const resolvedRoot = path.resolve(root);
   const resolvedCandidate = path.resolve(candidate);
@@ -912,16 +291,6 @@ function isAuthorized(req: http.IncomingMessage, token: string): boolean {
 
   const header = req.headers.authorization || req.headers["x-api-key"];
   return header === `Bearer ${token}` || header === token;
-}
-
-function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): void {
-  res.writeHead(statusCode, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
-    Pragma: "no-cache",
-    Expires: "0"
-  });
-  res.end(JSON.stringify(body, null, 2));
 }
 
 export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: boolean; pauseAfterPlan: boolean } {
@@ -980,36 +349,13 @@ function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
   }
 }
 
-function normalizeWorkItemType(value: unknown): import("./work/work-item.js").WorkItemType {
-  if (value === "bugfix" || value === "feature" || value === "refactor" || value === "test" || value === "docs" || value === "investigation" || value === "review") {
-    return value;
-  }
-  return "feature";
-}
-
-function normalizeWorkItemSource(value: unknown): import("./work/work-item.js").WorkItemSource {
-  if (value === "manual" || value === "github_issue" || value === "github_pr" || value === "ci_failure" || value === "api" || value === "webhook") {
-    return value;
-  }
-  return "manual";
-}
-
-function normalizeExpectedOutput(value: unknown): import("./work/work-item.js").ExpectedOutput {
-  if (value === "report" || value === "patch" || value === "branch" || value === "pull_request") {
-    return value;
-  }
-  return "patch";
-}
-
-async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  if (chunks.length === 0) {
-    return {};
-  }
-
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): boolean {
+  res.writeHead(statusCode, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0"
+  });
+  res.end(JSON.stringify(body, null, 2));
+  return true;
 }
