@@ -65,7 +65,7 @@ test("workspace API can create assess run and list work items", async () => {
     assert.ok(list.workItems.some((item: any) => item.id === created.workItem.id));
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
   }
 });
 
@@ -138,4 +138,18 @@ function closeServer(server: http.Server): Promise<void> {
 
 function silentLogger(): Logger {
   return { step() {}, info() {}, warn() {}, error() {}, success() {} };
+}
+
+async function cleanupDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 }

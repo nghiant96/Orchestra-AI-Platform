@@ -224,7 +224,73 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
         index += 3;
         continue;
       }
-      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, \`work show <id>\`, \`work branch <id>\`, or \`work worktree create <id>\`.`);
+      if (subCommand === "commit") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error("Missing ID for `ai work commit <id>`.");
+        }
+        const push = args.includes("--push");
+        command = { kind: "work-commit", target, push };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "pr") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error("Missing ID for `ai work pr <id>`.");
+        }
+        const draft = !args.includes("--no-draft");
+        const dryRunPr = args.includes("--dry-run-pr");
+        command = { kind: "work-pr", target, draft, dryRunPr };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "from-issue") {
+        const url = args[index + 2];
+        if (!url) throw new Error("Missing URL for `ai work from-issue <url>`.");
+        command = { kind: "work-from-issue", url };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "from-pr") {
+        const url = args[index + 2];
+        if (!url) throw new Error("Missing URL for `ai work from-pr <url>`.");
+        command = { kind: "work-from-pr", url };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "inbox") {
+        if (args[index + 2] !== "sync") throw new Error("Use `ai work inbox sync`.");
+        command = { kind: "work-inbox-sync" };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "ci") {
+        const next = args[index + 2];
+        const target = args[index + 3];
+        if (next === "watch" && target) {
+          command = { kind: "work-ci-watch", target };
+          index += 3;
+          continue;
+        }
+        if (next === "fix" && target) {
+          command = { kind: "work-ci-fix", target };
+          index += 3;
+          continue;
+        }
+        throw new Error("Use `ai work ci watch <id>` or `ai work ci fix <id>`.");
+      }
+      if (subCommand === "schedule") {
+        command = { kind: "work-schedule" };
+        index += 1;
+        continue;
+      }
+      if (subCommand === "metrics") {
+        command = { kind: "work-metrics" };
+        index += 1;
+        continue;
+      }
+      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, \`work show <id>\`, \`work branch <id>\`, \`work worktree create <id>\`, \`work commit <id>\`, or \`work pr <id>\`.`);
     }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];

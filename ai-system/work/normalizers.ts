@@ -30,7 +30,8 @@ export function normalizeWorkItem(data: any): WorkItem {
     pullRequest: data.pullRequest,
     assessment: data.assessment,
     graph: data.graph,
-    checklist: Array.isArray(data.checklist) ? data.checklist : []
+    checklist: Array.isArray(data.checklist) ? data.checklist : [],
+    ci: data.ci
   };
 
   return normalized;

@@ -249,6 +249,25 @@ Result:
 - [x] Add tests for branch and worktree metadata creation in a temporary git repository.
 - [x] Run full verification gates: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (206/206 pass).
 
+## Phase W7-W11 — Workspace Delivery Loop, Inbox, Scheduler, Governance (Completed 2026-05-02)
+
+- [x] Add commit and PR planning helpers grounded in work item evidence.
+- [x] Add CI watch and CI repair task helpers with repair attempt tracking.
+- [x] Add inbox import helpers for GitHub Issue and PR URLs.
+- [x] Add scheduler helpers for branch/worktree conflict detection and ready/blocked planning.
+- [x] Add CLI commands for `work commit`, `work pr`, `work from-issue`, `work from-pr`, `work inbox sync`, `work ci watch`, `work ci fix`, `work schedule`, and `work metrics`.
+- [x] Add work item CI state to persisted schema and normalization.
+- [x] Add regression tests for commit/PR, inbox, CI, scheduler, and server queue cleanup stability.
+- [x] Run full verification gates: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (207/207 pass), `git diff --check`.
+
+Phase W7-W11 verification note:
+
+- [x] PR preview and commit generation are now deterministic and grounded in work item metadata.
+- [x] Inbox imports deduplicate by external URL and preserve GitHub source metadata.
+- [x] CI watch/fix helpers track failing checks and increment repair attempts.
+- [x] Scheduler detects branch/worktree conflicts before concurrent execution.
+- [x] Server queue tests no longer race on job lookup or temp-dir cleanup.
+
 ## Completion Notes
 
 - `tasks/roadmap.md` is now the roadmap source of truth.

@@ -35,7 +35,7 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
     );
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
   }
 });
 
@@ -60,8 +60,8 @@ test("server keeps POST /run synchronous and rejects disallowed job cwd", async 
     assert.match(rejected.error, /outside AI_SYSTEM_ALLOWED_WORKDIRS/);
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(outsideRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
+    await cleanupDir(outsideRoot);
   }
 });
 
@@ -97,7 +97,7 @@ test("server cancels queued jobs", async () => {
   } finally {
     releaseFirstJob();
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
   }
 });
 
@@ -135,7 +135,7 @@ test("health and queued jobs expose effective approval mode", async () => {
     assert.equal(created.approvalMode, "auto");
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
   }
 });
 
@@ -171,8 +171,8 @@ test("project registry and audit log expose multi-project operations", async () 
     assert.ok(audit.events.some((event: any) => event.action === "job.create" && event.actor.id === "tester"));
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(otherRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
+    await cleanupDir(otherRoot);
   }
 });
 
@@ -247,7 +247,7 @@ test("server smoke covers health projects jobs stats lessons and audit", async (
     assert.ok(audit.events.some((event: any) => event.action === "lesson.create" && event.actor.id === "smoke"));
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
   }
 });
 
@@ -284,8 +284,8 @@ test("jobs API filters queue records by requested project cwd", async () => {
     assert.equal(rejected.ok, false);
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(otherRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
+    await cleanupDir(otherRoot);
   }
 });
 
@@ -309,7 +309,7 @@ test("jobs API accepts a GitHub URL directly as task input", async () => {
     assert.equal(created.workflowMode, "review");
   } finally {
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await cleanupDir(repoRoot);
   }
 });
 
@@ -412,13 +412,59 @@ async function requestJson(
 
 async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`);
-    if (job.status === status) {
+    const job = await requestJsonMaybe(baseUrl, "GET", `/jobs/${jobId}`);
+    if (job?.status === status) {
       return job;
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
+}
+
+async function requestJsonMaybe(
+  baseUrl: string,
+  method: string,
+  pathname: string,
+  body?: unknown
+): Promise<any | null> {
+  const url = new URL(pathname, baseUrl);
+  const payload = body === undefined ? null : JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      url,
+      {
+        method,
+        headers: {
+          ...(payload
+            ? {
+                "Content-Type": "application/json",
+                "Content-Length": Buffer.byteLength(payload)
+              }
+            : {})
+        }
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on("end", () => {
+          if (res.statusCode === 404) {
+            resolve(null);
+            return;
+          }
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+    );
+    req.on("error", reject);
+    if (payload) {
+      req.write(payload);
+    }
+    req.end();
+  });
 }
 
 function createResult({ task, cwd, dryRun, ok }: { task: string; cwd: string; dryRun: boolean; ok: boolean }): OrchestratorResult {
@@ -475,4 +521,18 @@ function silentLogger(): Logger {
     error() {},
     success() {}
   };
+}
+
+async function cleanupDir(dir: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 }

@@ -46,7 +46,16 @@ export type CliCommand =
   | { kind: "work-list" }
   | { kind: "work-show"; target: string }
   | { kind: "work-branch"; target: string }
-  | { kind: "work-worktree-create"; target: string };
+  | { kind: "work-worktree-create"; target: string }
+  | { kind: "work-commit"; target: string; push?: boolean }
+  | { kind: "work-pr"; target: string; draft?: boolean; dryRunPr?: boolean }
+  | { kind: "work-from-issue"; url: string }
+  | { kind: "work-from-pr"; url: string }
+  | { kind: "work-inbox-sync" }
+  | { kind: "work-ci-watch"; target: string }
+  | { kind: "work-ci-fix"; target: string }
+  | { kind: "work-schedule" }
+  | { kind: "work-metrics" };
 
 export interface InteractiveState {
   cwd: string;

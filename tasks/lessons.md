@@ -44,3 +44,13 @@ the interval kept the event loop open.
 **Rule**: Any timer, interval, watcher, socket, or background worker created by server setup must be
 disposed in the server close lifecycle. Use `unref()` for long-lived maintenance timers when appropriate,
 and inspect active handles/processes before weakening tests that appear to hang after passing assertions.
+
+## 2026-05-02: Polling tests must tolerate eventual consistency and cleanup races
+
+**Mistake**: A queue test asserted that a job lookup must return `200` immediately and cleaned up temporary
+directories with a single `fs.rm()` call. In this server, queued jobs can lag briefly before lookup succeeds
+and `rmdir` can race with background file handles.
+
+**Rule**: When testing queue or background workflows, poll for ready state instead of asserting immediate
+availability. Use retrying cleanup helpers for temp directories and server artifacts so ENOTEMPTY races do
+not hide otherwise passing behavior.

@@ -137,7 +137,17 @@ export interface WorkItem {
     branch: string;
     base: string;
   };
+  ci?: {
+    lastCheckedAt?: string;
+    status?: "passing" | "failing" | "unknown";
+    summary?: string;
+    failingChecks?: string[];
+    repairAttempts?: number;
+    maxRepairAttempts?: number;
+  };
   assessment?: TaskAssessment;
   graph?: ExecutionGraph;
   checklist?: ChecklistItem[];
+  appliedFiles?: string[];
+  commitHash?: string;
 }
