@@ -136,6 +136,7 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
   const queueTiming = summarizeQueueTiming(queueJobs);
 
   return {
+    ok: true,
     version: 1,
     totalProjectCost: stats.totalProjectCost,
     totalRuns: stats.totalRuns,

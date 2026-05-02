@@ -203,7 +203,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           logger: { info: options.logger.info.bind(options.logger), warn: options.logger.warn.bind(options.logger) }
         },
         queue,
+        runNow: (input) => runner(input),
         auditLog,
+        pendingApprovals,
         currentGlobalRules,
         globalRulesPromise,
         actor: parseAuditActor(req.headers, currentGlobalRules ?? (await globalRulesPromise).rules),
@@ -240,6 +242,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
           error: "Unauthorized"
         });
       }
+
+      return respondJson(res, 404, {
+        ok: false,
+        error: "Not found"
+      });
     } catch (error) {
       const normalized = error as Error;
       return respondJson(res, 500, {

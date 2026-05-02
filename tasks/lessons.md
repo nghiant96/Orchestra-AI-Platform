@@ -54,3 +54,12 @@ and `rmdir` can race with background file handles.
 **Rule**: When testing queue or background workflows, poll for ready state instead of asserting immediate
 availability. Use retrying cleanup helpers for temp directories and server artifacts so ENOTEMPTY races do
 not hide otherwise passing behavior.
+
+## 2026-05-02: Continue implementation when the user already approved execution
+
+**Mistake**: Paused to ask for confirmation during a concrete implementation/refactor request after the user
+had already said to proceed autonomously.
+
+**Rule**: For concrete implementation tasks with clear acceptance criteria, continue through code changes and
+verification without asking for another go-ahead. Only stop for user input when local context cannot resolve a
+material product or safety decision.

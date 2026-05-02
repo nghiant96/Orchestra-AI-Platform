@@ -218,6 +218,26 @@ Result:
 - [x] Phase 1.5.3: Decompose Config View into policy panels without changing form shape.
 - [x] Phase 1.5.4: Add Project Health from existing health/artifact data.
 - [x] Phase 3.1-3.3: Add explainable risk policy and show approval decisions (high-risk strict review complete).
+
+## Tool Executor Refactor - 2026-05-02
+
+- [x] Move JSON validation, tool invocation, Docker sandbox preflight, sandbox image shaping, and issue normalization into `ai-system/core/tool-runner.ts`.
+- [x] Use `resolveToolCommand` from `ai-system/core/tool-scoping.ts` instead of duplicate scoping logic inside `tool-executor.ts`.
+- [x] Use `detectToolAdapterContexts` from `ai-system/core/tool-adapters.ts` instead of duplicate adapter detection inside `tool-executor.ts`.
+- [x] Restore Python adapter smart detection for uv/poetry/pipenv/pip, ruff/flake8, mypy, and pytest/unittest.
+- [x] Normalize adapter command source to `adapter` and fix package lookup walking.
+- [x] Keep public exports unchanged: `runToolChecks`, `summarizeConfiguredTools`, `createDryRunToolExecutionSummary`.
+- [x] Run focused verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm exec node --import tsx --test tests/tool-executor.test.ts`.
+- [x] Fix route-split regressions discovered during full tests: `/run`, `/jobs/:id`, job cancel/approval, `/projects`, `/stats`, `/lessons`, queue control, and default 404 responses.
+- [x] Fix W0 `requestJson` expected-status helper so matching negative checks do not reject.
+- [x] Run final verification: `pnpm run typecheck`, `pnpm run lint`, `pnpm exec node --import tsx --test tests/server-queue.test.ts tests/workspace-baseline.test.ts tests/tool-executor.test.ts`, `pnpm test`, and `git diff --check`.
+
+Result:
+
+- `ai-system/core/tool-executor.ts` is now a thin orchestration module at 339 lines.
+- The duplicated scoping, adapter detection, sandbox runner, validation, and issue helper logic has been moved to focused modules.
+- Server/workspace smoke routes respond deterministically instead of hanging on missing handlers.
+- Final full suite passed: 208/208 tests.
 - [x] Phase 2.1: Add generic Task Contract model.
 - [x] Phase 2.2: Add deterministic contract extraction beyond Event Feed.
 - [x] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.

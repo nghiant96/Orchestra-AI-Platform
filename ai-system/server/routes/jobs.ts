@@ -1,6 +1,7 @@
 import type http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { roleCan } from "../../core/audit-log.js";
 import { parseExternalTask, normalizeExternalTaskToPrompt } from "../../core/external-task.js";
 import { listRecentRunSummaries } from "../../core/artifacts.js";
 import { classifyServerError } from "../../core/server-analytics.js";
@@ -13,8 +14,31 @@ import type { WorkflowMode } from "../../core/workflow-modes.js";
 
 export const jobsRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
+    if (url.pathname === "/run" && req.method === "POST") {
+      const payload = await readJsonBody(req);
+      const task = typeof payload?.task === "string" ? payload.task.trim() : "";
+      if (!task) {
+        ctx.respondJson(res, 400, { ok: false, error: "Missing task" });
+        return true;
+      }
+      const cwd = ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
+      if (!cwd) {
+        ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        return true;
+      }
+      const result = await ctx.runNow({
+        jobId: `sync-${Date.now().toString(36)}`,
+        task,
+        cwd,
+        dryRun: payload?.dryRun !== false,
+        workflowMode: parseWorkflowMode(payload?.workflowMode) ?? "standard"
+      });
+      ctx.respondJson(res, 200, result);
+      return true;
+    }
+
     if (url.pathname === "/jobs" && req.method === "POST") {
-      if (!canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "work_item.create")) {
+      if (!roleCan(ctx.actor, "operator") || !canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "work_item.create")) {
         ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
         return true;
       }
@@ -83,13 +107,54 @@ export const jobsRoute: RouteHandler = {
       }
     }
 
+    const jobMatch = /^\/jobs\/([^/]+)$/.exec(url.pathname);
+    if (jobMatch && req.method === "GET") {
+      const jobId = jobMatch[1] ?? "";
+      const job = await ctx.queue.get(jobId);
+      if (!job) {
+        ctx.respondJson(res, 404, { ok: false, error: "Job not found" });
+        return true;
+      }
+      ctx.respondJson(res, 200, job);
+      return true;
+    }
+
+    const cancelMatch = /^\/jobs\/([^/]+)\/cancel$/.exec(url.pathname);
+    if (cancelMatch && req.method === "POST") {
+      if (!canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "queue.pause")) {
+        ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
+        return true;
+      }
+      const jobId = cancelMatch[1] ?? "";
+      const job = await ctx.queue.cancel(jobId);
+      if (!job) {
+        ctx.respondJson(res, 404, { ok: false, error: "Job not found" });
+        return true;
+      }
+      await ctx.auditLog.append({ actor: ctx.actor, action: "job.cancel", cwd: job.cwd, jobId: job.jobId });
+      ctx.respondJson(res, 200, job);
+      return true;
+    }
+
     const approvalMatch = /^\/jobs\/([^/]+)\/(approve|reject)$/.exec(url.pathname);
     if (approvalMatch && req.method === "POST") {
       if (!canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "queue.resume")) {
         ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
         return true;
       }
-      return false;
+      const jobId = approvalMatch[1] ?? "";
+      const action = approvalMatch[2] ?? "";
+      const pendingApproval = ctx.pendingApprovals.get(jobId);
+      const job = await ctx.queue.get(jobId);
+      if (!pendingApproval || !job) {
+        ctx.respondJson(res, 404, { ok: false, error: "Pending approval not found" });
+        return true;
+      }
+      ctx.pendingApprovals.delete(jobId);
+      pendingApproval.resolve(action === "approve");
+      await ctx.auditLog.append({ actor: ctx.actor, action: `job.${action}`, cwd: job.cwd, jobId });
+      ctx.respondJson(res, 200, { ok: true, jobId, approved: action === "approve" });
+      return true;
     }
 
     const contentMatch = /^\/jobs\/([^/]+)\/files\/content$/.exec(url.pathname);

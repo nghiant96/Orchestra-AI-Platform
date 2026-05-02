@@ -176,7 +176,11 @@ function requestJson(
                     try {
                         const result = JSON.parse(raw);
                         if (expectStatus !== undefined) {
-                            reject(new Error(`Expected status ${expectStatus}, got ${res.statusCode}`));
+                            if (res.statusCode !== expectStatus) {
+                                reject(new Error(`Expected status ${expectStatus}, got ${res.statusCode}`));
+                                return;
+                            }
+                            resolve(result);
                             return;
                         }
                         if (res.statusCode && res.statusCode >= 400) {
