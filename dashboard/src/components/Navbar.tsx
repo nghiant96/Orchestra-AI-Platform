@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Terminal, Activity, Settings, Search, RefreshCw, FolderTree, ChevronDown, BarChart3 } from 'lucide-react';
+import { Terminal, Activity, Settings, Search, RefreshCw, FolderTree, ChevronDown, BarChart3, ListChecks } from 'lucide-react';
 import { cn } from '../utils/cn';
 
 interface NavbarProps {
@@ -94,6 +94,16 @@ export const Navbar = ({
             >
               <BarChart3 size={14} />
               Analytics
+            </NavLink>
+            <NavLink
+              to="/work"
+              className={({ isActive }) => cn(
+                "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
+                isActive ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+              )}
+            >
+              <ListChecks size={14} />
+              Work
             </NavLink>
           </div>
         </div>

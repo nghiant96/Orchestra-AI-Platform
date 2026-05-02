@@ -129,6 +129,41 @@ export interface Job {
   };
 }
 
+export interface WorkItem {
+  schemaVersion: number;
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  source: 'manual' | 'github_issue' | 'github_pr' | 'ci_failure' | 'api' | 'webhook';
+  type: 'bugfix' | 'feature' | 'refactor' | 'test' | 'docs' | 'investigation' | 'review';
+  status: string;
+  risk: 'low' | 'medium' | 'high' | 'blocked';
+  expectedOutput: 'report' | 'patch' | 'branch' | 'pull_request';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  linkedRuns: string[];
+  assessment?: {
+    complexity: 'small' | 'medium' | 'large';
+    risk: 'low' | 'medium' | 'high' | 'blocked';
+    confidence: number;
+    affectedAreas: string[];
+    requiresBranch: boolean;
+    requiresHumanApproval: boolean;
+    requiresFullTestSuite: boolean;
+    tokenBudget?: number;
+    modelTier?: number;
+    modelCallReason?: string;
+    reason: string;
+  };
+  graph?: {
+    nodes: Array<{ id: string; kind: string; title: string; goal: string; status: string; dependsOn: string[]; assignedRunId?: string }>;
+    edges: Array<{ from: string; to: string; kind: string }>;
+  };
+  checklist?: Array<{ id: string; text: string; required: boolean; status: string }>;
+}
+
 export interface PluginManifest {
   name: string;
   version: string;

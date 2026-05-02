@@ -17,6 +17,8 @@ import { aggregateProjectStats, classifyServerError } from "./core/server-analyt
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
 import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "./utils/config.js";
+import { WorkEngine } from "./work/work-engine.js";
+import { WorkStore } from "./work/work-store.js";
 import type { Logger, RulesConfig, RunStatus } from "./types.js";
 import type { WorkflowMode } from "./core/workflow-modes.js";
 
@@ -283,6 +285,112 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         await appendProjectLesson(cwd, { title: payload.title, body: payload.body });
         await auditLog.append({ actor, action: "lesson.create", cwd, details: { title: payload.title } });
         return respondJson(res, 201, { ok: true });
+      }
+
+      if (url.pathname === "/work-items" && req.method === "GET") {
+        const cwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+        if (!cwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
+        const { rules } = await loadRules(cwd);
+        const store = new WorkStore(cwd, rules);
+        return respondJson(res, 200, { ok: true, version: 1, workItems: await store.list() });
+      }
+
+      if (url.pathname === "/work-items" && req.method === "POST") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
+        const payload = await readJsonBody(req);
+        const cwd = resolveRequestedCwd(payload?.cwd, defaultCwd, allowedRoots);
+        if (!cwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
+        const title = typeof payload?.title === "string" ? payload.title.trim() : "";
+        if (!title) {
+          return respondJson(res, 400, { ok: false, error: "Missing work item title" });
+        }
+        const { rules } = await loadRules(cwd);
+        const store = new WorkStore(cwd, rules);
+        const workItem = await store.create({
+          title,
+          projectId: path.basename(cwd),
+          description: typeof payload?.description === "string" ? payload.description : "",
+          type: normalizeWorkItemType(payload?.type),
+          source: normalizeWorkItemSource(payload?.source),
+          expectedOutput: normalizeExpectedOutput(payload?.expectedOutput),
+          linkedRuns: Array.isArray(payload?.linkedRuns) ? payload.linkedRuns.filter((item: unknown) => typeof item === "string") : []
+        } as any);
+        await auditLog.append({ actor, action: "work_item.create", cwd, details: { workItemId: workItem.id } });
+        return respondJson(res, 201, { ok: true, workItem });
+      }
+
+      const workItemMatch = /^\/work-items\/([^/]+)(?:\/(assess|run|cancel|retry))?$/.exec(url.pathname);
+      if (workItemMatch && req.method === "GET" && !workItemMatch[2]) {
+        const workItemId = workItemMatch[1] ?? "";
+        const cwd = resolveOptionalRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+        if (!cwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
+        const { rules } = await loadRules(cwd);
+        const store = new WorkStore(cwd, rules);
+        const workItem = await store.load(workItemId);
+        return workItem ? respondJson(res, 200, { ok: true, workItem }) : respondJson(res, 404, { ok: false, error: "Work item not found" });
+      }
+
+      if (workItemMatch && req.method === "POST" && workItemMatch[2]) {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
+        const workItemId = workItemMatch[1] ?? "";
+        const action = workItemMatch[2];
+        const payload = await readJsonBody(req);
+        const cwd = resolveRequestedCwd(payload?.cwd ?? url.searchParams.get("cwd"), defaultCwd, allowedRoots);
+        if (!cwd) {
+          return respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        }
+        const { rules } = await loadRules(cwd);
+        const store = new WorkStore(cwd, rules);
+        const workItem = await store.load(workItemId);
+        if (!workItem) {
+          return respondJson(res, 404, { ok: false, error: "Work item not found" });
+        }
+
+        if (action === "assess") {
+          const engine = new WorkEngine(rules);
+          const assessed = await engine.assess(workItem);
+          await store.save(assessed);
+          await auditLog.append({ actor, action: "work_item.assess", cwd, details: { workItemId } });
+          return respondJson(res, 200, { ok: true, workItem: assessed });
+        }
+
+        if (action === "run") {
+          const assessed = workItem.assessment ? workItem : await new WorkEngine(rules).assess(workItem);
+          const job = await queue.enqueue({
+            task: `${assessed.title}\n\n${assessed.description}`.trim(),
+            cwd,
+            dryRun: payload?.dryRun !== false,
+            workflowMode: assessed.expectedOutput === "pull_request" ? "review" : "standard"
+          });
+          const updated = {
+            ...assessed,
+            status: "executing" as const,
+            linkedRuns: Array.from(new Set([...assessed.linkedRuns, job.jobId])),
+            updatedAt: new Date().toISOString()
+          };
+          await store.save(updated);
+          await auditLog.append({ actor, action: "work_item.run", cwd, details: { workItemId, jobId: job.jobId } });
+          return respondJson(res, 202, { ok: true, workItem: updated, job });
+        }
+
+        const updated = {
+          ...workItem,
+          status: action === "cancel" ? "cancelled" as const : "created" as const,
+          updatedAt: new Date().toISOString()
+        };
+        await store.save(updated);
+        await auditLog.append({ actor, action: `work_item.${action}`, cwd, details: { workItemId } });
+        return respondJson(res, 200, { ok: true, workItem: updated });
       }
 
       if (url.pathname === "/run" && req.method === "POST") {
@@ -851,6 +959,27 @@ function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
     default:
       return "failed";
   }
+}
+
+function normalizeWorkItemType(value: unknown): import("./work/work-item.js").WorkItemType {
+  if (value === "bugfix" || value === "feature" || value === "refactor" || value === "test" || value === "docs" || value === "investigation" || value === "review") {
+    return value;
+  }
+  return "feature";
+}
+
+function normalizeWorkItemSource(value: unknown): import("./work/work-item.js").WorkItemSource {
+  if (value === "manual" || value === "github_issue" || value === "github_pr" || value === "ci_failure" || value === "api" || value === "webhook") {
+    return value;
+  }
+  return "manual";
+}
+
+function normalizeExpectedOutput(value: unknown): import("./work/work-item.js").ExpectedOutput {
+  if (value === "report" || value === "patch" || value === "branch" || value === "pull_request") {
+    return value;
+  }
+  return "patch";
 }
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {

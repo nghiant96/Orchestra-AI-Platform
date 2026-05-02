@@ -9,7 +9,8 @@ import {
   SearchCode,
   Info,
   Settings,
-  Server
+  Server,
+  ListChecks
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
@@ -23,6 +24,8 @@ import { ProjectHealthPanel } from './components/ProjectHealthPanel';
 import { useJobs } from './hooks/useJobs';
 import { useConfig } from './hooks/useConfig';
 import { useHealth } from './hooks/useHealth';
+import { useWorkItems } from './hooks/useWorkItems';
+import { WorkBoardPanel } from './components/WorkBoardPanel';
 
 // Lazy loaded components for code splitting
 const JobDetailModal = lazy(() => import('./components/JobDetailModal').then(m => ({ default: m.JobDetailModal })));
@@ -63,6 +66,7 @@ function App() {
     resumeJob,
     jobs
   } = useJobs(currentProject);
+  const { workItems, loading: workLoading, stats: workStats } = useWorkItems(currentProject);
 
   const statusCounts = useMemo(() => {
     return jobs.reduce<Record<string, number>>((counts, job) => {
@@ -159,7 +163,17 @@ function App() {
                   <StatCard title="Pipeline Failures" value={stats.failed} icon={AlertCircle} color="bg-rose-50 text-rose-600" />
                 </div>
 
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                  <StatCard title="Work Items" value={workStats.total} icon={ListChecks} color="bg-violet-50 text-violet-600" />
+                  <StatCard title="Workspace Active" value={workStats.active} icon={Activity} color="bg-indigo-50 text-indigo-600" />
+                  <StatCard title="Workspace Done" value={workStats.done} icon={ShieldCheck} color="bg-emerald-50 text-emerald-600" />
+                  <StatCard title="Workspace Failed" value={workStats.failed} icon={AlertCircle} color="bg-rose-50 text-rose-600" />
+                </div>
+
                 <ProjectHealthPanel health={health} jobs={jobs} />
+                <div className="mb-8">
+                  <WorkBoardPanel workItems={workItems} loading={workLoading} />
+                </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                   <div className="lg:col-span-4">
@@ -261,6 +275,17 @@ function App() {
             } />
             <Route path="/analytics" element={
               <AnalyticsView currentProject={currentProject} />
+            } />
+            <Route path="/work" element={
+              <div className="space-y-8">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatCard title="Work Items" value={workStats.total} icon={ListChecks} color="bg-violet-50 text-violet-600" />
+                  <StatCard title="Workspace Active" value={workStats.active} icon={Activity} color="bg-indigo-50 text-indigo-600" />
+                  <StatCard title="Workspace Done" value={workStats.done} icon={ShieldCheck} color="bg-emerald-50 text-emerald-600" />
+                  <StatCard title="Workspace Failed" value={workStats.failed} icon={AlertCircle} color="bg-rose-50 text-rose-600" />
+                </div>
+                <WorkBoardPanel workItems={workItems} loading={workLoading} />
+              </div>
             } />
             <Route path="*" element={
               <div className="p-20 text-center">
