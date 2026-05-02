@@ -176,6 +176,53 @@ test("project registry and audit log expose multi-project operations", async () 
   }
 });
 
+test("project permissions gate sensitive actions and audit can be exported", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-permissions-"));
+  await fs.writeFile(path.join(repoRoot, ".ai-system.json"), JSON.stringify({
+    auth: {
+      role_mapping: { viewer: "viewer", operator: "operator", admin: "admin" },
+      project_role_mapping: {
+        [path.basename(repoRoot)]: { viewer: "viewer", operator: "operator", admin: "admin" }
+      },
+      action_permissions: {
+        "queue.pause": "operator",
+        "queue.resume": "operator",
+        "queue.clear_finished": "operator",
+        "config.update": "admin",
+        "work_item.create": "operator"
+      }
+    }
+  }), "utf8");
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const denied = await requestJson(baseUrl, "POST", "/queue/pause", undefined, 403, {
+      "x-ai-system-actor": "viewer",
+      "x-ai-system-role": "viewer"
+    });
+    assert.equal(denied.ok, false);
+
+    const allowed = await requestJson(baseUrl, "POST", "/queue/pause", undefined, 200, {
+      "x-ai-system-actor": "operator",
+      "x-ai-system-role": "operator"
+    });
+    assert.equal(allowed.paused, true);
+
+    const exportResult = await requestJson(baseUrl, "GET", "/audit/export?format=json");
+    assert.equal(exportResult.ok, true);
+    assert.ok(Array.isArray(exportResult.events));
+  } finally {
+    await closeServer(server);
+    await cleanupDir(repoRoot);
+  }
+});
+
 test("server smoke covers health projects jobs stats lessons and audit", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-smoke-"));
   await fs.writeFile(path.join(repoRoot, ".ai-system.json"), JSON.stringify({ skip_approval: true }), "utf8");

@@ -6,6 +6,7 @@ import { parseExternalTask, normalizeExternalTaskToPrompt } from "./core/externa
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath, roleCan } from "./core/audit-log.js";
+import { canPerformAction } from "./core/permissions.js";
 import { buildProjectRegistry } from "./core/project-registry.js";
 import { appendProjectLesson, proposeLessonsFromRuns, readProjectLessons } from "./core/lessons.js";
 import {
@@ -259,6 +260,21 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         return respondJson(res, 200, { ok: true, version: 1, events: await auditLog.list(limit) });
       }
 
+      if (url.pathname === "/audit/export" && req.method === "GET") {
+        if (!roleCan(actor, "operator")) {
+          return respondJson(res, 403, { ok: false, error: "Operator role required" });
+        }
+        const limit = Number(url.searchParams.get("limit") || 1000);
+        const format = url.searchParams.get("format") || "json";
+        const events = await auditLog.list(limit);
+        if (format === "jsonl") {
+          res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8" });
+          res.end(events.map((event) => JSON.stringify(event)).join("\n") + (events.length > 0 ? "\n" : ""));
+          return;
+        }
+        return respondJson(res, 200, { ok: true, version: 1, events });
+      }
+
       if (url.pathname === "/lessons" && req.method === "GET") {
         const cwd = resolveRequestedCwd(url.searchParams.get("cwd"), defaultCwd, allowedRoots) ?? defaultCwd;
         const { rules } = await loadRules(cwd);
@@ -298,7 +314,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/work-items" && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
+        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "work_item.create")) {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         const payload = await readJsonBody(req);
@@ -339,7 +355,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (workItemMatch && req.method === "POST" && workItemMatch[2]) {
-        if (!roleCan(actor, "operator")) {
+        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, `work_item.${workItemMatch[2]}`)) {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         const workItemId = workItemMatch[1] ?? "";
@@ -561,7 +577,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/config" && req.method === "POST") {
-        if (!roleCan(actor, "admin")) {
+        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "config.update")) {
           return respondJson(res, 403, { ok: false, error: "Admin role required" });
         }
         try {
@@ -590,7 +606,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/queue/pause" && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
+        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "queue.pause")) {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         queue.setPaused(true);
@@ -600,7 +616,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/queue/resume" && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
+        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "queue.resume")) {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         queue.setPaused(false);
@@ -610,7 +626,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       if (url.pathname === "/queue/clear-finished" && req.method === "POST") {
-        if (!roleCan(actor, "operator")) {
+        if (!canPerformAction(actor, currentGlobalRules ?? (await globalRulesPromise).rules, "queue.clear_finished")) {
           return respondJson(res, 403, { ok: false, error: "Operator role required" });
         }
         const jobs = await queue.list(500);

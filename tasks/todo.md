@@ -268,6 +268,20 @@ Phase W7-W11 verification note:
 - [x] Scheduler detects branch/worktree conflicts before concurrent execution.
 - [x] Server queue tests no longer race on job lookup or temp-dir cleanup.
 
+## Phase W11 Deepening — Team Permissions, Audit Export, Analytics Dashboard (Completed 2026-05-02)
+
+- [x] Add project-aware action permissions and server-side policy helpers.
+- [x] Add audit export endpoint for JSON and JSONL snapshots.
+- [x] Extend dashboard analytics with queue latency, retry rate, contract coverage, and audit retention.
+- [x] Add regression coverage for project-scoped permissions and audit export.
+- [x] Re-run full verification gates after W11 deepening.
+
+Phase W11 deepening verification note:
+
+- [x] Permission gates now live in server routes rather than being UI-only.
+- [x] Audit data can be exported for team review and offline analysis.
+- [x] Dashboard analytics now show governance and reliability signals, not only cost charts.
+
 ## Completion Notes
 
 - `tasks/roadmap.md` is now the roadmap source of truth.

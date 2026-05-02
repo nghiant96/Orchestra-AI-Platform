@@ -178,6 +178,9 @@ export async function aggregateProjectStats(cwd: string, rules: RulesConfig) {
         failed: data.failed,
         passRate: data.total > 0 ? data.passed / data.total : 0
       }))
+    },
+    audit: {
+      retentionDays: rules.retention?.audit_days ?? 30
     }
   };
 }

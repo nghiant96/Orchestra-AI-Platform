@@ -7,23 +7,10 @@ import {
 } from 'recharts';
 import { TrendingUp, Clock, Download, PieChart as PieIcon, LayoutDashboard } from 'lucide-react';
 import { StatCard } from './StatCard';
-
-interface AnalyticsData {
-  totalProjectCost: number;
-  costByDay: { date: string, cost: number }[];
-  failuresByClass: { name: string, count: number }[];
-  avgDurationByStage: { stage: string, avgMs: number }[];
-  providerPerformance?: {
-    provider: string;
-    runs: number;
-    failureRate: number;
-    avgDurationMs: number;
-    totalCostUnits: number;
-  }[];
-}
+import type { WorkspaceStats } from '../types/index.js';
 
 export const AnalyticsView = ({ currentProject }: { currentProject: string }) => {
-  const [data, setData] = useState<AnalyticsData | null>(null);
+  const [data, setData] = useState<WorkspaceStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -66,10 +53,12 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6'];
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (!data) return;
     try {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const auditRes = await fetch(`/audit/export?format=json&t=${Date.now()}`);
+      const auditData = await auditRes.json();
+      const blob = new Blob([JSON.stringify({ stats: data, audit: auditData }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -91,7 +80,7 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
       <div className="flex justify-between items-center px-4">
         <div>
           <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tight">Run Intelligence</h2>
-          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Cost & Performance Analytics</p>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Cost, Governance & Performance</p>
         </div>
         <button
           onClick={handleExport}
@@ -123,6 +112,13 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
           color="bg-blue-50 text-blue-600" 
           subvalue="Based on last 50 runs"
         />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 px-4">
+        <StatCard title="Queue Records" value={`${data.queueLatency?.totalQueueRecords ?? 0}`} icon={Clock} color="bg-slate-50 text-slate-600" />
+        <StatCard title="Retry Rate" value={`${((data.queueLatency?.retryRate ?? 0) * 100).toFixed(0)}%`} icon={TrendingUp} color="bg-amber-50 text-amber-600" />
+        <StatCard title="Contract Pass" value={`${((data.contractStats?.passRate ?? 0) * 100).toFixed(0)}%`} icon={PieIcon} color="bg-emerald-50 text-emerald-600" />
+        <StatCard title="Audit Retention" value={`${data.audit?.retentionDays ?? 0}d`} icon={LayoutDashboard} color="bg-indigo-50 text-indigo-600" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -260,6 +256,30 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Cost</p>
                       <p className="text-sm font-black text-indigo-600">{provider.totalCostUnits.toFixed(2)}</p>
                     </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+          <h3 className="text-sm font-black mb-6 flex items-center gap-3 uppercase tracking-tight text-slate-900">
+            <LayoutDashboard size={18} className="text-violet-500" />
+            Contract Coverage
+          </h3>
+          <div className="space-y-3">
+            {(data.contractStats?.byDomain ?? []).length === 0 ? (
+              <p className="py-12 text-center text-xs font-bold italic text-slate-400">No contract coverage recorded yet.</p>
+            ) : (
+              data.contractStats?.byDomain.map((domain) => (
+                <div key={domain.domain} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <p className="text-sm font-black uppercase text-slate-900">{domain.domain}</p>
+                    <span className="text-[10px] font-black text-slate-500">{domain.total} checks</span>
+                  </div>
+                  <div className="text-xs font-bold text-slate-500">
+                    Pass rate {(domain.passRate * 100).toFixed(0)}%
                   </div>
                 </div>
               ))

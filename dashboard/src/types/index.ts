@@ -129,6 +129,44 @@ export interface Job {
   };
 }
 
+export interface WorkspaceStats {
+  ok?: boolean;
+  version?: number;
+  totalProjectCost: number;
+  totalRuns: number;
+  avgWaitTimeMs: number;
+  avgExecutionTimeMs: number;
+  queueLatency?: {
+    totalQueueRecords: number;
+    avgWaitTimeMs: number;
+    avgExecutionTimeMs: number;
+    retryRate: number;
+  };
+  avgIterations: number;
+  costByDay: { date: string; cost: number }[];
+  failuresByClass: { name: string; count: number }[];
+  avgDurationByStage: { stage: string; avgMs: number }[];
+  providerPerformance?: {
+    provider: string;
+    runs: number;
+    failureRate: number;
+    avgDurationMs: number;
+    avgIterations?: number;
+    totalCostUnits: number;
+    degraded?: boolean;
+  }[];
+  contractStats?: {
+    total: number;
+    passed: number;
+    failed: number;
+    passRate: number;
+    byDomain: { domain: string; total: number; passed: number; failed: number; passRate: number }[];
+  };
+  audit?: {
+    retentionDays: number;
+  };
+}
+
 export interface WorkItem {
   schemaVersion: number;
   id: string;

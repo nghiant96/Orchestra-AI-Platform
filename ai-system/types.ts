@@ -448,6 +448,8 @@ export interface RulesConfig {
   };
   auth?: {
     role_mapping?: Record<string, "viewer" | "operator" | "admin">;
+    project_role_mapping?: Record<string, Record<string, "viewer" | "operator" | "admin">>;
+    action_permissions?: Partial<Record<string, "viewer" | "operator" | "admin">>;
   };
   webhooks?: Array<{
     url: string;
