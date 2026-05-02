@@ -57,6 +57,11 @@ The agent must not infer status from memory, prior chats, or old roadmap text. T
 - GitHub/Jira/Trello/network writes must start as dry-run previews unless explicitly approved.
 - Required checklist items cannot become `passed` without evidence.
 - Waiving a required checklist item requires actor, reason, timestamp, and audit event.
+- Use deterministic assessment, graph templates, cached project intelligence, and summary-only artifact context before spending extra model tokens.
+- Use Tier 0 no-LLM execution for simple deterministic work whenever safe.
+- Every model call must record a reason to spend and the chosen model tier.
+- Full repo context is forbidden unless explicitly approved.
+- CI repair loops must have hard attempt, cost, and duration limits before automatic repair is enabled.
 - Timers, intervals, watchers, sockets, and background workers must be disposed on close or use `unref()` where appropriate.
 - If tests fail, investigate root cause instead of weakening assertions.
 - Update `tasks/todo.md` after each sub-phase actually completes.
@@ -77,6 +82,77 @@ From the Phase 9-14 work:
 - Refactor rollback notes must not suggest destructive git commands.
 - Webhook/export previews must redact nested secrets.
 - Dashboard changes require dashboard build and dashboard tests.
+
+## Cost-Aware Execution Policy For Agents
+
+The workspace conversion must not call a model for every internal step. Use the cheapest reliable mechanism first.
+
+Execution tiers:
+
+```text
+Tier 0 - No LLM:
+  docs-only changes
+  formatting/lint-only fixes
+  small config/test changes
+  deterministic checklist/evidence validation
+  cached project intelligence lookup
+
+Tier 1 - Cheap LLM:
+  task classification when rules are inconclusive
+  log/check summarization
+  PR/check summary
+  short risk explanation
+
+Tier 2 - Standard LLM:
+  normal implementation
+  medium bugfix
+  targeted review
+  focused test planning
+
+Tier 3 - Strong LLM:
+  architecture change
+  security/auth/payment
+  data migration
+  broad refactor
+  repeated CI failure
+  final PR review for high-risk work
+```
+
+Escalation rules:
+
+- Start at the lowest safe tier.
+- Escalate only with a recorded reason.
+- Stop or ask approval when budget is exceeded.
+- Do not call a stronger model when deterministic rules, cached intelligence, or a cheaper model can safely do the job.
+- Ask the user one clear question or produce an investigation report when missing information would otherwise cause multiple speculative model calls.
+
+Default budget rules:
+
+- Simple deterministic task: Tier 0, zero model calls, heuristic/check-based review.
+- Low-risk task: deterministic assessment, template graph, one implementation run, checks, lightweight review.
+- Medium-risk task: deterministic assessment plus optional LLM, template graph with targeted adjustment, one to two implementation runs, normal review.
+- High-risk task: deterministic plus LLM-assisted assessment, explicit graph, approval checkpoints, full staff-level review.
+- CI repair: default maximum of two attempts, at most one full-context retry, stop on repeated failure class or budget exhaustion.
+- Full repo context: forbidden unless explicitly approved.
+- Artifact replay: summary-only by default.
+
+Implementation requirements:
+
+- Add token budget and model tier fields to assessment/work execution metadata before enabling multi-run automation.
+- Add `modelCallReason` or equivalent metadata for any model-assisted step.
+- Add zero-LLM fast path detection for docs-only, formatting/lint-only, small config/test changes, and deterministic evidence validation.
+- Prefer rule-based classification for task type, risk signals, checklist evidence, and CI status.
+- Prefer graph templates for bugfix, feature, refactor, review, and CI failure.
+- Cache dependency graph, file summaries, Task Contracts, risk signals, and test mappings.
+- Pass `execution-summary.json`, `review-summary.json`, and `checks-summary.json` between runs instead of raw logs/artifacts whenever possible.
+- Scale review prompt size by risk.
+- Record actual token/cost usage when provider summaries are available.
+
+Target cost envelope:
+
+- Simple deterministic tasks should use zero model tokens for workspace overhead and may cost less than the current run-only model.
+- Keep common low/medium-risk tasks around 5-20% token growth versus the current run-only model.
+- Allow higher token spend only for high-risk tasks, PR-facing review, or CI repair where it replaces blind retries.
 
 ## Universal Preflight Before Any Phase
 
@@ -238,10 +314,14 @@ Checklist:
 
 - [ ] Add deterministic signals for auth, payment, security, migration, deployment, config/env/secrets, dependency/lockfile, broad refactor, external issue/PR, and expected output.
 - [ ] Reuse existing risk policy instead of inventing a second risk system.
-- [ ] Produce `complexity`, `risk`, `confidence`, `affectedAreas`, `requiresBranch`, `requiresHumanApproval`, `requiresFullTestSuite`, `reason`, and `signals`.
+- [ ] Produce `complexity`, `risk`, `confidence`, `affectedAreas`, `requiresBranch`, `requiresHumanApproval`, `requiresFullTestSuite`, `tokenBudget`, `modelTier`, `modelCallReason`, `reason`, and `signals`.
+- [ ] Add Tier 0 classification for docs-only, formatting/lint-only, small config/test changes, and deterministic evidence validation.
+- [ ] Add fast-path classification for low-risk tasks so they can avoid LLM assessment.
 - [ ] Persist `assessment.json`.
 - [ ] Add CLI display with concise reasons and next recommended action.
 - [ ] Add optional LLM-assisted assessment only behind schema validation and deterministic fallback.
+- [ ] Add tests proving low-risk tasks stay deterministic and high-risk tasks can request stronger assessment/review.
+- [ ] Add tests proving Tier 0 tasks require zero model calls.
 - [ ] Add tests for low, medium, high, blocked, external PR review, and secret/config cases.
 - [ ] Update `tasks/todo.md` with W2 completion notes.
 
@@ -274,6 +354,7 @@ Checklist:
 - [ ] Add graph node kinds: inspect, test, implement, check, review, commit, pr, ci_fix.
 - [ ] Add edge kinds: dependency, blocker, validation.
 - [ ] Add default templates for bugfix, feature, refactor, review, and CI failure.
+- [ ] Use graph templates by default; only request LLM graph adjustment for large/high-risk tasks.
 - [ ] Generate checklist items from graph nodes, assessment, and Task Contracts.
 - [ ] Add evidence refs for file, check, artifact, run, commit, PR, review, approval, and audit event.
 - [ ] Validate file evidence exists.
@@ -311,6 +392,10 @@ Expected files:
 Checklist:
 
 - [ ] Map execution graph nodes to existing orchestrator task prompts.
+- [ ] Enforce context budgets from assessment/work execution metadata.
+- [ ] Enforce model tier escalation rules before each model-assisted step.
+- [ ] Record a reason whenever execution escalates from Tier 0 to Tier 1/2/3.
+- [ ] Use summary-only artifact context by default between runs.
 - [ ] Link each executed node to one or more run IDs.
 - [ ] Persist node status from run result.
 - [ ] Attach evidence after checks, review, approval, or artifact generation.
@@ -319,6 +404,7 @@ Checklist:
 - [ ] Add resume work item behavior.
 - [ ] Add retry failed node behavior.
 - [ ] Add work-item-level failure classification from linked run failures.
+- [ ] Record actual token/cost usage from provider summaries when available.
 - [ ] Add tests with mocked run execution where possible.
 - [ ] Update `tasks/todo.md` with W4 completion notes.
 
@@ -463,6 +549,8 @@ Checklist:
 - [ ] Convert failed checks into structured fix tasks linked to the same Work Item.
 - [ ] Link CI repair runs to the same branch/PR.
 - [ ] Add loop limits for attempts, cost, duration, and repeated failure class.
+- [ ] Use compact failing-check summaries before sending logs to the model.
+- [ ] Escalate to full logs only once per CI repair sequence unless explicitly approved.
 - [ ] Add `ai work ci watch`, `ai work ci fix`, and optional `ai fix-ci --pr`.
 - [ ] Persist final CI status and residual-risk report.
 - [ ] Add tests with fixture `gh` output.
@@ -646,4 +734,3 @@ Use this checklist before accepting a Gemini/DeepSeek patch:
 - [ ] Did dashboard changes pass dashboard build/test?
 - [ ] Did all required gates pass?
 - [ ] Did `tasks/todo.md` reflect only completed work?
-

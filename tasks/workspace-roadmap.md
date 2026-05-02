@@ -55,6 +55,115 @@ The workspace should manage multiple work items across projects, branches, appro
 - Start sequential. Model the execution graph early so parallel execution can come later.
 - Prefer CLI/GitHub CLI integration first; move to GitHub App/API when multi-user server operation requires it.
 
+## Cost-Aware Execution Policy
+
+The workspace model adds assessment, graph, checklist, review, PR, and CI feedback steps. Those steps must be cost-controlled by design instead of calling a model for every decision.
+
+Principles:
+
+- Use deterministic rules first. Call an LLM only when rules cannot confidently classify the task or when risk requires deeper reasoning.
+- Keep a zero-LLM path for simple deterministic work such as docs-only edits, formatting/lint-only fixes, small config changes, small test updates, and evidence validation.
+- Keep a fast path for small low-risk tasks: Work Item -> deterministic assessment -> one compact implementation run -> checks -> lightweight review.
+- Require every model call to have a recorded reason to spend: ambiguity, high risk, failed check analysis, large diff review, user-facing/API/security change, or PR-facing output.
+- Use fixed task graph templates for common task types instead of generating a fresh graph with an LLM every time.
+- Never use an LLM to mark checklist items as passed. Checklist completion must be evidence-based.
+- Use context budgets per run. Do not replay full roadmap, logs, artifact history, or repo context when a summary plus relevant files is enough.
+- Cache project intelligence such as dependency graph, file summaries, Task Contracts, risk signals, and test mappings.
+- Pass summaries between runs by default: `execution-summary.json`, `review-summary.json`, and `checks-summary.json` should be preferred over full artifact replay.
+- Scale review depth by risk: lightweight review for low risk, normal review for medium risk, full staff-level review for high risk or PR-facing work.
+- Use heuristic review before AI review. Escalate to full AI review only for high-risk, many-file, API/security/payment/auth, missing-test, or PR-facing changes.
+- CI repair loops must have hard limits for attempts, cost, and duration.
+- Route models by task class: cheaper/faster models for classification, summaries, and checklist drafts; stronger models for complex implementation and final review.
+- Ask the user one clear question or produce an investigation report when missing information would otherwise cause multiple speculative model calls.
+
+Execution tiers:
+
+```text
+Tier 0 - No LLM:
+  docs-only changes
+  formatting/lint-only fixes
+  small config/test changes
+  deterministic checklist/evidence validation
+  cached project intelligence lookup
+
+Tier 1 - Cheap LLM:
+  task classification when rules are inconclusive
+  log/check summarization
+  PR/check summary
+  short risk explanation
+
+Tier 2 - Standard LLM:
+  normal implementation
+  medium bugfix
+  targeted review
+  focused test planning
+
+Tier 3 - Strong LLM:
+  architecture change
+  security/auth/payment
+  data migration
+  broad refactor
+  repeated CI failure
+  final PR review for high-risk work
+```
+
+Escalation rule:
+
+```text
+Start at the lowest safe tier.
+Escalate only with a recorded reason.
+Stop or ask approval when budget is exceeded.
+Do not call a stronger model just because a cheaper deterministic path is available.
+```
+
+Default budget policy:
+
+```text
+simple deterministic task:
+  tier: 0
+  model calls: 0
+  review: heuristic/check-based
+
+low-risk task:
+  tier: 0-2 depending on ambiguity
+  max implementation runs: 1
+  assessment: deterministic
+  task graph: template
+  review: heuristic or lightweight
+
+medium-risk task:
+  tier: 1-2
+  max implementation runs: 1-2
+  assessment: deterministic plus optional LLM
+  task graph: template plus targeted adjustment
+  review: normal
+
+high-risk task:
+  tier: 2-3
+  assessment: deterministic plus LLM-assisted validation
+  task graph: explicit graph with approval checkpoints
+  review: full staff-level review
+  writes/branch/commit/PR: approval-gated
+
+CI repair:
+  default max attempts: 2
+  full-context retry: at most 1
+  stop on repeated failure class or budget exhaustion
+
+full repo context:
+  forbidden unless explicitly approved
+
+artifact replay:
+  summary-only by default
+```
+
+Target cost envelope:
+
+- Simple deterministic tasks should use zero model tokens for workspace overhead and may cost less than the current run-only model.
+- Common low/medium-risk tasks should keep token growth around 5-20% versus the current run-only model.
+- Complex high-risk tasks may spend more tokens, but the extra spend must reduce blind retries, improve review quality, or produce auditable evidence.
+- CI feedback is the highest cost risk and must be budget-limited before automatic repair is enabled.
+
 ## Target Domain Model
 
 ### WorkItem
@@ -92,6 +201,8 @@ Fields:
 - `requiresBranch`
 - `requiresHumanApproval`
 - `requiresFullTestSuite`
+- `tokenBudget`
+- `modelTier`
 - `reason`
 - `signals`
 
@@ -584,4 +695,3 @@ Proceed with the workspace conversion.
 The recommended next milestone is:
 
 > Work Item v1: durable work item, assessment, task graph skeleton, evidence checklist, and CLI create/list/show.
-

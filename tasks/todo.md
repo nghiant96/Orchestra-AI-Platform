@@ -164,6 +164,8 @@ Phase 14 review/fix note:
 - [x] Evaluate feasibility of converting the current system into an AI Software Workspace.
 - [x] Create detailed workspace roadmap in `tasks/workspace-roadmap.md`.
 - [x] Create detailed Gemini/DeepSeek implementation checklist in `tasks/workspace-cli-implementation-plan.md`.
+- [x] Add workspace token/cost optimization policy to roadmap and agent handoff plan.
+- [x] Upgrade cost policy to tiered cost-aware execution with Tier 0 zero-LLM path for simple tasks.
 
 Planning result:
 
@@ -171,6 +173,7 @@ Planning result:
 - Recommended architecture is a Work Item layer above current runs/artifacts.
 - Next milestone should be Work Item v1: durable work item, assessment, task graph skeleton, evidence checklist, and CLI create/list/show.
 - Use `tasks/workspace-cli-implementation-plan.md` as the handoff source for Gemini CLI, DeepSeek, or other coding agents.
+- Cost policy target: simple deterministic tasks use Tier 0 with zero workspace model calls; common low/medium-risk workspace tasks stay around 5-20% token growth by using deterministic assessment, graph templates, cached project intelligence, summary-only artifact context, risk-scaled review, progressive model escalation, and CI repair limits.
 
 ## Test Failure Triage - 2026-04-30
 
@@ -211,6 +214,14 @@ Result:
 - [x] Phase 2.3: Migrate Event Feed requirement guards into Task Contracts.
 - [x] Phase 2.4: Expand contract results in Job Detail with pass/fail state.
 - [x] Phase 5: Complete multi-project queue/artifact isolation.
+
+## Phase W0 — Workspace Documentation Baseline (Completed 2026-05-02)
+
+- [x] Read `tasks/workspace-roadmap.md` and identify canonical domain terms.
+- [x] Create `docs/WORKSPACE.md` with glossary, artifact layout, migration rules, and relationship diagram.
+- [x] Add `tests/workspace-baseline.test.ts` smoke tests covering server API, artifact coexistence, and glossary content.
+- [x] Run full verification gates: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (196/196 pass), `pnpm run dashboard:build`, `pnpm --dir dashboard test` (5/5 pass).
+- [x] Mark all Phase W0 acceptance criteria complete in `docs/WORKSPACE.md`.
 
 ## Completion Notes
 
