@@ -41,7 +41,10 @@ export type CliCommand =
   | { kind: "runs-latest" }
   | { kind: "runs-list" }
   | { kind: "runs-show"; target: string }
-  | { kind: "apply-artifact"; target: string };
+  | { kind: "apply-artifact"; target: string }
+  | { kind: "work-create"; title: string }
+  | { kind: "work-list" }
+  | { kind: "work-show"; target: string };
 
 export interface InteractiveState {
   cwd: string;

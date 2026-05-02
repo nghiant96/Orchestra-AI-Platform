@@ -5,3 +5,4 @@ export * from "./formatters/runs.js";
 export * from "./formatters/result.js";
 export * from "./formatters/interactive.js";
 export * from "./formatters/json.js";
+export * from "./formatters/work.js";

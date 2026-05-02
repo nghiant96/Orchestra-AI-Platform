@@ -89,6 +89,9 @@ export function sanitizeForDisplay(value: unknown): unknown {
 
 export function maskSecrets(value: string): string {
   if (!value) return value;
+  if (/^work-[A-Za-z0-9-]+$/.test(value)) {
+    return value;
+  }
   // A simple mask for strings that look like keys
   if (value.length > 20 && (value.includes("sk-") || /^[A-Za-z0-9-_]{30,}$/.test(value))) {
     return `${value.slice(0, 4)}...${value.slice(-4)}`;

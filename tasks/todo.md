@@ -201,7 +201,16 @@ Result:
 - [x] Write the detailed execution plan to `tasks/implementation-plan.md`.
 - [x] Reset `tasks/todo.md` to current active work only.
 
-## Next Implementation Queue
+## Phase W1 — Work Item v1 Data Model And Store (Completed 2026-05-02)
+
+- [x] Add `WorkItem`, `TaskAssessment`, `ExecutionGraph`, `ChecklistItem`, and `EvidenceRef` types.
+- [x] Add file-backed work store under `.ai-system-artifacts/work-items/`.
+- [x] Add normalizers and schema versioning.
+- [x] Add CLI commands: `ai work create`, `ai work list`, `ai work show`.
+- [x] Add comprehensive tests for Work Item store and normalization.
+- [x] Fix W1 review issues: validate work item IDs and persist required sidecar files (`assessment.json`, `task-graph.json`, `checklist.json`, `runs.json`).
+- [x] Preserve Work Item IDs in CLI JSON output so `ai work show <id>` remains usable.
+- [x] Run full verification gates: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (203/203 pass).
 
 - [x] Phase 1.3: Improve Dashboard Operations UX.
 - [x] Phase 1.4: Document and harden Quality Gate Policy.

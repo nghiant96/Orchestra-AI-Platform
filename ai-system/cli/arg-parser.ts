@@ -180,6 +180,33 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
       }
       throw new Error(`Unsupported config subcommand "${action}". Use \`config show\` or \`config use <preset>\`.`);
     }
+    if (arg === "work") {
+      const subCommand = args[index + 1];
+      if (subCommand === "create") {
+        const title = args[index + 2];
+        if (!title) {
+          throw new Error("Missing title for `ai work create <title>`.");
+        }
+        command = { kind: "work-create", title };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "list") {
+        command = { kind: "work-list" };
+        index += 1;
+        continue;
+      }
+      if (subCommand === "show") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error("Missing ID for `ai work show <id>`.");
+        }
+        command = { kind: "work-show", target };
+        index += 2;
+        continue;
+      }
+      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, or \`work show <id>\`.`);
+    }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];
       if (!nextArg) {
