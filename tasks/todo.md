@@ -241,6 +241,14 @@ Result:
 - [x] Add tests covering assessment, task graph, checklist, server API, and dashboard build.
 - [x] Run full verification gates: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (205/205 pass), `pnpm run dashboard:build`, `pnpm --dir dashboard test` (5/5 pass).
 
+## Phase W6 — Branch And Worktree Automation (Completed 2026-05-02)
+
+- [x] Add safe branch planning from work item metadata and existing git workflow helpers.
+- [x] Add worktree creation helper with work item branch/worktree metadata persistence.
+- [x] Add CLI commands: `ai work branch`, `ai work worktree create`.
+- [x] Add tests for branch and worktree metadata creation in a temporary git repository.
+- [x] Run full verification gates: `pnpm run typecheck`, `pnpm run lint`, `pnpm test` (206/206 pass).
+
 ## Completion Notes
 
 - `tasks/roadmap.md` is now the roadmap source of truth.
@@ -258,6 +266,7 @@ Result:
 - Analytics now includes provider performance metrics for run count, failure rate, average duration, and total cost from existing artifact provider metrics.
 - Policy decisions are now persisted into run-state and artifact-index, including risk signals for paths, dependency/security areas, broad generated-file scope, and large diffs.
 - Workspace W2-W5 now exists: deterministic assessment, graph/checklist generation, work item API, one-run linkage, and a dashboard work board.
+- Workspace W6 now exists: safe branch planning, worktree creation, and persisted branch/worktree metadata.
 - Multi-project foundation now exposes `/projects`, role-aware operator/admin permissions, and `/audit` events for job, queue, config, and lesson actions.
 - Learning foundation now reads/writes `tasks/lessons.md`, injects relevant lessons into planning, proposes rules from repeated failure classes, and surfaces lessons in the dashboard.
 - Multi-project readiness is complete: queue listing, stats, artifact lookup, run lookup, and clear-finished behavior now respect validated project cwd boundaries.

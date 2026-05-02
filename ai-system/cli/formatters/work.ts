@@ -25,6 +25,14 @@ export function printWorkItem(workItem: WorkItem): void {
     workItem.linkedRuns.forEach(runId => console.log(`  - ${runId}`));
   }
 
+  if (workItem.branch) {
+    console.log(`- branch:      ${workItem.branch}`);
+  }
+
+  if (workItem.worktreePath) {
+    console.log(`- worktree:    ${workItem.worktreePath}`);
+  }
+
   if (workItem.assessment) {
     console.log("- assessment:");
     console.log(`  - complexity: ${workItem.assessment.complexity}`);

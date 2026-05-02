@@ -1,6 +1,8 @@
 import path from "node:path";
 import { loadRules } from "../../core/orchestrator-runtime.js";
+import { planWorkItemBranch, prepareWorkItemBranch, deriveWorktreePath } from "../../work/branch-manager.js";
 import { WorkStore } from "../../work/work-store.js";
+import { createWorktree } from "../../work/worktree-manager.js";
 import { outputJsonResult } from "../formatters.js";
 import { printWorkItem, printWorkItemList } from "../formatters/work.js";
 import type { CliCommand, TaskRunOptions } from "../types.js";
@@ -63,6 +65,38 @@ export async function handleWorkCommand(
         return true;
       }
       printWorkItem(workItem);
+      return true;
+    }
+    case "work-branch": {
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const store = new WorkStore(cwd, rules);
+      const workItem = await store.load(command.target);
+      if (!workItem) throw new Error(`Work item not found: ${command.target}`);
+      const branch = await prepareWorkItemBranch(cwd, workItem, workItem.id, workItem.externalTask);
+      const updated = { ...workItem, branch: branch.branchName, updatedAt: new Date().toISOString() };
+      await store.save(updated);
+      if (outputJson) {
+        await outputJsonResult(updated, savePath);
+        return true;
+      }
+      printWorkItem(updated);
+      return true;
+    }
+    case "work-worktree-create": {
+      const { rules } = await loadRules(cwd, configPath, explicitGlobalConfigPath, ignoreProjectConfig);
+      const store = new WorkStore(cwd, rules);
+      const workItem = await store.load(command.target);
+      if (!workItem) throw new Error(`Work item not found: ${command.target}`);
+      const branchName = workItem.branch || planWorkItemBranch(workItem, workItem.id, workItem.externalTask).branchName;
+      const worktreePath = deriveWorktreePath(cwd, workItem.id);
+      await createWorktree(cwd, branchName, worktreePath);
+      const updated = { ...workItem, branch: branchName, worktreePath, updatedAt: new Date().toISOString() };
+      await store.save(updated);
+      if (outputJson) {
+        await outputJsonResult(updated, savePath);
+        return true;
+      }
+      printWorkItem(updated);
       return true;
     }
     default:

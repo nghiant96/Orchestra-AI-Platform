@@ -205,7 +205,26 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
         index += 2;
         continue;
       }
-      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, or \`work show <id>\`.`);
+      if (subCommand === "branch") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error("Missing ID for `ai work branch <id>`.");
+        }
+        command = { kind: "work-branch", target };
+        index += 2;
+        continue;
+      }
+      if (subCommand === "worktree") {
+        const next = args[index + 2];
+        const target = args[index + 3];
+        if (next !== "create" || !target) {
+          throw new Error("Use `ai work worktree create <id>`.");
+        }
+        command = { kind: "work-worktree-create", target };
+        index += 3;
+        continue;
+      }
+      throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, \`work show <id>\`, \`work branch <id>\`, or \`work worktree create <id>\`.`);
     }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];

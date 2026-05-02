@@ -129,6 +129,7 @@ export interface WorkItem {
   externalTask?: ExternalTaskRef;
   linkedRuns: string[];
   branch?: string;
+  worktreePath?: string;
   pullRequest?: {
     provider: string;
     number: number;

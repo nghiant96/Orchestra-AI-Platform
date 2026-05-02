@@ -26,6 +26,7 @@ export function normalizeWorkItem(data: any): WorkItem {
     externalTask: data.externalTask,
     linkedRuns: Array.isArray(data.linkedRuns) ? data.linkedRuns : [],
     branch: data.branch,
+    worktreePath: data.worktreePath,
     pullRequest: data.pullRequest,
     assessment: data.assessment,
     graph: data.graph,

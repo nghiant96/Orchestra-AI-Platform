@@ -44,7 +44,9 @@ export type CliCommand =
   | { kind: "apply-artifact"; target: string }
   | { kind: "work-create"; title: string }
   | { kind: "work-list" }
-  | { kind: "work-show"; target: string };
+  | { kind: "work-show"; target: string }
+  | { kind: "work-branch"; target: string }
+  | { kind: "work-worktree-create"; target: string };
 
 export interface InteractiveState {
   cwd: string;
