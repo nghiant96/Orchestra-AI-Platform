@@ -36,7 +36,7 @@ graph LR
 | **Human-in-the-loop** | Approval gates, risk-based policies, pause checkpoints | None |
 | **Artifact tracking** | Every iteration persisted, diff-aware, resumable | None |
 | **Team control plane** | HTTP API, job queue, dashboard, audit log | Single user |
-| **Workspace engine** | Durable work items, task graphs, PR automation, CI watch | None |
+| **Workspace engine (Preview)** | Durable work items, branch tracking, PR planning | None |
 
 ---
 
@@ -197,9 +197,12 @@ Each profile maps roles to specific providers. For example, `quality` might assi
 
 ---
 
-## Workspace Engine — Durable Work Items
+## Workspace Engine — Durable Work Items (Experimental / v1.0 Roadmap)
 
-For multi-step engineering tasks, Orchestra provides a **Workspace Engine** that goes beyond single-shot execution:
+> [!WARNING]
+> **Status: Experimental Preview.** The Workspace Engine is currently in active development (Phase W1). While the data model, branch management, and PR planning are functional, advanced features like the dynamic Task Graph, Evidence Checklist, and full CI auto-repair loops are aspirational roadmap items planned for v1.0.
+
+For multi-step engineering tasks, Orchestra provides an evolving **Workspace Engine** that goes beyond single-shot execution:
 
 ```mermaid
 stateDiagram-v2
@@ -217,10 +220,10 @@ stateDiagram-v2
 ```
 
 A Work Item contains:
-- **Assessment** — Risk level, complexity estimate, tier classification
-- **Task Graph** — DAG of execution nodes (inspect → implement → test → review)
-- **Evidence Checklist** — Each item requires proof (run ID, commit SHA, PR URL) — no unchecked claims
-- **Branch/PR State** — Tracks branch, commits, PR number, CI status
+- **Assessment (Roadmap)** — Risk level, complexity estimate, tier classification
+- **Task Graph (Roadmap)** — DAG of execution nodes (inspect → implement → test → review)
+- **Evidence Checklist (Roadmap)** — Each item requires proof before passing
+- **Branch/PR State (Available)** — Tracks branch, commits, PR number, CI status
 
 ### Cost-Aware Execution Tiers
 
@@ -303,15 +306,16 @@ ai fix                                # Interactive fix-focused flow
 ai fix-checks                         # Run project checks + auto-repair
 ```
 
-### Workspace Commands
+### Workspace Commands (Experimental Preview)
 
 ```bash
 ai work list                          # List all work items
 ai work create "task description"     # Create a new work item
-ai work assess <id>                   # Run risk assessment
-ai work run <id>                      # Execute the next graph node
-ai work inbox import <github-url>     # Import issue/PR as work item
-ai work ci-watch <id>                 # Watch PR CI status
+ai work show <id>                     # Get work item details
+ai work branch <id>                   # Create/sync git branch for work item
+ai work commit <id>                   # Commit applied files to the branch
+ai work pr <id>                       # Generate and preview GitHub PR
+ai work ci watch <id>                 # Watch PR CI status
 ai work metrics                       # Show workspace metrics
 ```
 

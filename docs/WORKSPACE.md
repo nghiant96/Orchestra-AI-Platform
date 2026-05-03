@@ -219,3 +219,14 @@ Phase W0 is documentation-only. The only code change is a new smoke test file th
 - [x] `pnpm run dashboard:build` and `pnpm --dir dashboard test` pass. ✅ 5/5 passed
 - [x] Existing CLI/server/dashboard behavior is unchanged. ✅ No regressions
 - [x] Old run artifacts remain loadable after this document exists. ✅ Verified via coexistence test
+
+## Current Limitations & Roadmap
+
+As of **Phase W1**, the Workspace Engine is in **Active Preview** and has the following limitations:
+
+1. **Task Graphs & Evidence Checklist**: These are aspirational concepts (planned for Phase W3). Currently, the system uses single-node implicit execution rather than dynamically generating constraint-based DAGs.
+2. **PR Automation**: `ai work pr` and `ai work branch` assist with Git operations, but fully automated "AI-driven PR merging" or multi-branch orchestration is not yet completely autonomous.
+3. **CI Watch**: `ai work ci watch` can read GitHub Actions statuses, but the `ai work ci fix` loop is experimental and may require manual intervention.
+4. **Dashboard Integration**: The Work Board provides a high-level Kanban view, but detailed interaction with individual graph nodes and evidence waiving is not yet implemented in the UI.
+
+The system is fully stable for standalone task execution (`ai run`, `ai fix`), while Workspace features are progressively rolling out towards v1.0.
