@@ -81,3 +81,12 @@ servers and still left teardown races in queue-backed tests.
 **Rule**: Use socket/listen readiness as the default helper and reserve HTTP probing for servers that expose
 that endpoint. For queue-backed or filesystem-backed tests, close the server first and then retry cleanup
 until the artifact directory is actually gone.
+
+## 2026-05-03: Split orchestration flows by lifecycle, not by helper noise
+
+**Mistake**: `orchestrator.ts` kept both `run` and `resume` plus retry helpers in one file, which made the
+module shallow and hard to navigate even after smaller helpers were extracted.
+
+**Rule**: When a class owns two distinct lifecycle flows, move each flow into its own module and keep the
+class as a thin delegation seam. The delegate modules must be import-clean; otherwise the split just hides
+the same complexity behind dead imports.

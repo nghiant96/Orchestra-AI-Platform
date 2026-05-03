@@ -231,6 +231,18 @@ Result:
 - `tests/run-executor.test.ts` covers both the missing-target detector and the orchestration gate.
 - Verification passed: `pnpm exec node --import tsx --test tests/run-executor.test.ts`, `pnpm run typecheck`, `pnpm run lint`, `pnpm test`.
 
+## Orchestrator Split
+
+- [x] Move `resume` orchestration out of `orchestrator.ts` into `orchestrator-resume.ts`.
+- [x] Add `orchestrator-run.ts` for the main run path so the class only delegates.
+- [x] Verify the split with orchestrator-focused tests and the full baseline suite.
+
+Result:
+
+- `ai-system/core/orchestrator.ts` now delegates `run` and `resume` through a tiny host interface.
+- `ai-system/core/orchestrator-run.ts` and `ai-system/core/orchestrator-resume.ts` own the heavy orchestration flows.
+- Verification passed: `pnpm run lint`, `pnpm exec node --import tsx --test tests/orchestrator.resume.test.ts tests/orchestrator-integration.test.ts`, `pnpm test`.
+
 ## Tool Executor Refactor - 2026-05-02
 
 - [x] Move JSON validation, tool invocation, Docker sandbox preflight, sandbox image shaping, and issue normalization into `ai-system/core/tool-runner.ts`.
