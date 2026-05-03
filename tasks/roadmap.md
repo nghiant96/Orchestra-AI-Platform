@@ -1,715 +1,180 @@
 # AI Software Workspace Roadmap
 
-Last updated: 2026-05-02
+Last updated: 2026-05-03
 
-## Feasibility Assessment
+## Current Read
 
-Converting the current system into an AI Software Workspace is feasible and strategically sound.
+The repo is past the "does it work" stage. The current job is to turn it into a product people can trust:
 
-The current repo already has the core ingredients:
+- server auth and `.env` loading are in place
+- the CLI loop is solid enough to keep improving
+- dashboard and workspace APIs exist
+- work items, graph, checklist, branch, PR, audit, and retention are already real
+- the remaining gap is product coherence, release readiness, and team-scale control
 
-- Task execution lifecycle: plan, context, generate, checks, review, fix, write, resume, retry.
-- Artifact-backed runs with run-state, artifact-index, routing artifacts, tool results, review output, and execution summaries.
-- Queue/server/dashboard foundation with project registry, jobs, stats, lessons, roles, audit, and approval actions.
-- Risk policy, Task Contracts, blast-radius context, missing-test detection, refactor analysis, external GitHub Issue/PR metadata, branch/commit/PR preview helpers, retention, normalizers, and webhook export.
+The right roadmap is not "build more agent features". It is:
 
-The important product shift is not to compete with Codex, Gemini, or Claude. The product becomes:
+1. stabilize the current platform
+2. make the core execution loop excellent
+3. finish the workspace control plane
+4. add team-level governance and observability
+5. connect external task sources
+6. scale cost and reliability without losing control
 
-> AI Software Workspace: a governed work-execution layer that turns engineering tasks into planned, checked, branch-based pull requests.
+## Principles
 
-The model/agent remains a worker. The system owns workflow, state, evidence, permissions, git/PR handoff, and team visibility.
+- Keep the core single-task loop reliable before widening scope.
+- Use deterministic rules first; spend model tokens only when the rules are not enough.
+- Every state transition must be traceable to evidence.
+- Workspace features should be additive, not destructive, until they prove themselves.
+- User-facing claims must match code and docs.
+- Approval remains explicit for writes, branch creation, PR creation, and risky actions.
 
-## Recommended Direction
+## Phase A - Stabilize v0.9
 
-Do not rewrite the current orchestrator. Add a higher-level Work Item layer above it.
-
-Current shape:
-
-```text
-Task -> Orchestrator Run -> Artifacts
-```
-
-Target shape:
-
-```text
-Work Item
-  -> Assessment
-  -> Task Graph
-  -> Checklist with Evidence
-  -> One or more Orchestrator Runs
-  -> Branch / Commit / PR
-  -> CI / Review Feedback
-  -> Final Report / Lessons
-```
-
-The workspace should manage multiple work items across projects, branches, approvals, PRs, checks, and learning.
-
-## Design Principles
-
-- Work items are durable entities, not transient prompts.
-- Every important claim needs evidence: file, check result, artifact, commit, PR, or approval event.
-- Generator/fixer should keep producing patches. Work engine decides where patches go.
-- Git/GitHub/workspace logic must not be mixed into generator/fixer agents.
-- Human approval remains explicit for writes, commits, pushes, PR creation, external comments, and risky actions.
-- State must be resumable, inspectable, and auditable.
-- Start sequential. Model the execution graph early so parallel execution can come later.
-- Prefer CLI/GitHub CLI integration first; move to GitHub App/API when multi-user server operation requires it.
-
-## Cost-Aware Execution Policy
-
-The workspace model adds assessment, graph, checklist, review, PR, and CI feedback steps. Those steps must be cost-controlled by design instead of calling a model for every decision.
-
-Principles:
-
-- Use deterministic rules first. Call an LLM only when rules cannot confidently classify the task or when risk requires deeper reasoning.
-- Keep a zero-LLM path for simple deterministic work such as docs-only edits, formatting/lint-only fixes, small config changes, small test updates, and evidence validation.
-- Keep a fast path for small low-risk tasks: Work Item -> deterministic assessment -> one compact implementation run -> checks -> lightweight review.
-- Require every model call to have a recorded reason to spend: ambiguity, high risk, failed check analysis, large diff review, user-facing/API/security change, or PR-facing output.
-- Use fixed task graph templates for common task types instead of generating a fresh graph with an LLM every time.
-- Never use an LLM to mark checklist items as passed. Checklist completion must be evidence-based.
-- Use context budgets per run. Do not replay full roadmap, logs, artifact history, or repo context when a summary plus relevant files is enough.
-- Cache project intelligence such as dependency graph, file summaries, Task Contracts, risk signals, and test mappings.
-- Pass summaries between runs by default: `execution-summary.json`, `review-summary.json`, and `checks-summary.json` should be preferred over full artifact replay.
-- Scale review depth by risk: lightweight review for low risk, normal review for medium risk, full staff-level review for high risk or PR-facing work.
-- Use heuristic review before AI review. Escalate to full AI review only for high-risk, many-file, API/security/payment/auth, missing-test, or PR-facing changes.
-- CI repair loops must have hard limits for attempts, cost, and duration.
-- Route models by task class: cheaper/faster models for classification, summaries, and checklist drafts; stronger models for complex implementation and final review.
-- Ask the user one clear question or produce an investigation report when missing information would otherwise cause multiple speculative model calls.
-
-Execution tiers:
-
-```text
-Tier 0 - No LLM:
-  docs-only changes
-  formatting/lint-only fixes
-  small config/test changes
-  deterministic checklist/evidence validation
-  cached project intelligence lookup
-
-Tier 1 - Cheap LLM:
-  task classification when rules are inconclusive
-  log/check summarization
-  PR/check summary
-  short risk explanation
-
-Tier 2 - Standard LLM:
-  normal implementation
-  medium bugfix
-  targeted review
-  focused test planning
-
-Tier 3 - Strong LLM:
-  architecture change
-  security/auth/payment
-  data migration
-  broad refactor
-  repeated CI failure
-  final PR review for high-risk work
-```
-
-Escalation rule:
-
-```text
-Start at the lowest safe tier.
-Escalate only with a recorded reason.
-Stop or ask approval when budget is exceeded.
-Do not call a stronger model just because a cheaper deterministic path is available.
-```
-
-Default budget policy:
-
-```text
-simple deterministic task:
-  tier: 0
-  model calls: 0
-  review: heuristic/check-based
-
-low-risk task:
-  tier: 0-2 depending on ambiguity
-  max implementation runs: 1
-  assessment: deterministic
-  task graph: template
-  review: heuristic or lightweight
-
-medium-risk task:
-  tier: 1-2
-  max implementation runs: 1-2
-  assessment: deterministic plus optional LLM
-  task graph: template plus targeted adjustment
-  review: normal
-
-high-risk task:
-  tier: 2-3
-  assessment: deterministic plus LLM-assisted validation
-  task graph: explicit graph with approval checkpoints
-  review: full staff-level review
-  writes/branch/commit/PR: approval-gated
-
-CI repair:
-  default max attempts: 2
-  full-context retry: at most 1
-  stop on repeated failure class or budget exhaustion
-
-full repo context:
-  forbidden unless explicitly approved
-
-artifact replay:
-  summary-only by default
-```
-
-Target cost envelope:
-
-- Simple deterministic tasks should use zero model tokens for workspace overhead and may cost less than the current run-only model.
-- Common low/medium-risk tasks should keep token growth around 5-20% versus the current run-only model.
-- Complex high-risk tasks may spend more tokens, but the extra spend must reduce blind retries, improve review quality, or produce auditable evidence.
-- CI feedback is the highest cost risk and must be budget-limited before automatic repair is enabled.
-
-## Target Domain Model
-
-### WorkItem
-
-Represents a user-visible software task.
-
-Fields:
-
-- `id`
-- `projectId`
-- `title`
-- `description`
-- `source`: `manual`, `github_issue`, `github_pr`, `ci_failure`, `api`, `webhook`
-- `type`: `bugfix`, `feature`, `refactor`, `test`, `docs`, `investigation`, `review`
-- `status`
-- `risk`
-- `expectedOutput`: `report`, `patch`, `branch`, `pull_request`
-- `createdBy`
-- `createdAt`, `updatedAt`
-- `externalTask`
-- `linkedRuns`
-- `branch`
-- `pullRequest`
-
-### TaskAssessment
-
-Represents deterministic plus AI-assisted task assessment.
-
-Fields:
-
-- `complexity`: `small`, `medium`, `large`
-- `risk`: `low`, `medium`, `high`, `blocked`
-- `confidence`
-- `affectedAreas`
-- `requiresBranch`
-- `requiresHumanApproval`
-- `requiresFullTestSuite`
-- `tokenBudget`
-- `modelTier`
-- `reason`
-- `signals`
-
-### ExecutionGraph
-
-Represents task decomposition.
-
-Fields:
-
-- `nodes`: inspect, test, implement, check, review, commit, PR, CI fix
-- `edges`: dependency, blocker, validation
-- `status` per node
-- `assignedRunId` per node when executed
-
-### Checklist
-
-Checklist is the execution contract.
-
-Fields:
-
-- `id`
-- `text`
-- `required`
-- `status`: `todo`, `doing`, `passed`, `failed`, `waived`
-- `evidence`: file, check, artifact, commit, PR, review, audit event
-
-Checklist items should not become `passed` without evidence.
-
-## Architecture Target
-
-Suggested module layout:
-
-```text
-ai-system/work/
-  work-item.ts
-  assessment.ts
-  task-graph.ts
-  checklist.ts
-  evidence.ts
-  work-store.ts
-  work-engine.ts
-  state-machine.ts
-
-ai-system/git/
-  branch-manager.ts
-  worktree-manager.ts
-  commit-manager.ts
-  diff-manager.ts
-
-ai-system/github/
-  github-cli.ts
-  issue-client.ts
-  pr-client.ts
-  checks-client.ts
-  review-comments.ts
-
-ai-system/workspace/
-  inbox.ts
-  work-board.ts
-  notifications.ts
-  workspace-api.ts
-
-ai-system/policy/
-  action-permissions.ts
-```
-
-Keep existing modules and reuse them:
-
-- `core/orchestrator.ts`
-- `core/run-executor.ts`
-- `core/artifacts.ts`
-- `core/risk-policy.ts`
-- `core/task-requirements.ts`
-- `core/blast-radius.ts`
-- `core/git-workflow.ts`
-- `core/external-task.ts`
-- `core/job-queue.ts`
-- `server-app.ts`
-
-## Phase W0 - Workspace Baseline And Compatibility
-
-Goal: establish workspace direction without destabilizing current task/run flows.
+Goal: make the repo cloneable, runnable, and understandable by someone new.
 
 Tasks:
 
-- Add workspace roadmap and glossary.
-- Inventory current artifact schemas and decide where Work Item artifacts live.
-- Define migration rule: old runs remain readable and do not require a Work Item.
-- Add docs explaining the distinction between run, job, project, work item, and workspace.
-- Add smoke test that current `POST /jobs`, `/jobs`, `/stats`, `/audit`, and dashboard still work after workspace files exist.
+- Make dev startup deterministic:
+  - root `.env.example`
+  - clear `AI_SYSTEM_SERVER_TOKEN` setup
+  - `local:dev` path that works without guesswork
+- Keep docs aligned with runtime behavior:
+  - server host/token behavior
+  - auth expectations
+  - workspace preview vs shipped features
+- Publish a small demo path:
+  - one simple bugfix
+  - one dashboard walkthrough
+  - one artifact trace
+- Clean release hygiene:
+  - tags
+  - changelog/release notes
+  - CI green on root tests and dashboard build
 
 Acceptance:
 
-- Existing CLI/server/dashboard behavior is unchanged.
-- Workspace artifacts can coexist with `.ai-system-artifacts/run-*`.
-- `pnpm run typecheck`, `pnpm run lint`, `pnpm test`, dashboard build/test pass.
+- A fresh clone can run the system without reading source code first.
+- `pnpm test` and `pnpm run dashboard:build` pass in CI.
+- README, security docs, and startup scripts say the same thing.
 
-## Phase W1 - Work Item v1 Data Model And Store
+## Phase B - Make the Core Loop Excellent
 
-Goal: create durable Work Items independent from a single run.
+Goal: reduce retries, bad generations, and noisy checks.
 
 Tasks:
 
-- Add `WorkItem`, `TaskAssessment`, `ExecutionGraph`, `ChecklistItem`, and `EvidenceRef` types.
-- Add file-backed work store:
-  - `.ai-system-artifacts/work-items/<work-id>/work-item.json`
-  - `assessment.json`
-  - `task-graph.json`
-  - `checklist.json`
-  - `runs.json`
-- Add normalizers and schema version.
-- Add listing/loading APIs.
-- Add tests for new and old/missing fields.
-
-Suggested commands:
-
-```bash
-ai work create "Fix login redirect bug"
-ai work list
-ai work show <work-id>
-```
+- Improve run summaries and retry hints.
+- Make JSON extraction and validation stricter and more explainable.
+- Keep provider routing measurable:
+  - success rate
+  - latency
+  - retry rate
+  - budget usage
+- Improve changed-file scoping and fallback check selection.
+- Make context selection more transparent:
+  - why a file was included
+  - why a file was dropped
+  - what the risk signals were
+- Keep repair loops budgeted and bounded.
 
 Acceptance:
 
-- Work items can be created, listed, loaded, and normalized.
-- No orchestrator run is required just to create a work item.
-- Old run artifacts still load.
+- Simple bugfixes finish with fewer blind retries.
+- Tool-check failures point to the real issue, not a generic wrapper error.
+- Simple tasks can stay cheap; expensive tasks must justify their cost.
 
-## Phase W2 - Assessment Engine
+## Phase C - Finish Workspace Engine v1 Preview
 
-Goal: turn raw task text into a structured assessment before implementation.
-
-Tasks:
-
-- Add deterministic assessment signals:
-  - auth/payment/security/migration/deployment
-  - config/env/secrets
-  - dependency/lockfile
-  - expected file count
-  - external issue/PR source
-  - requested output: report, branch, PR
-- Reuse `risk-policy.ts` for risk class.
-- Add optional planner-assisted assessment behind schema validation.
-- Persist `assessment.json`.
-- Surface assessment in CLI and dashboard Work Item detail.
-
-Suggested commands:
-
-```bash
-ai work assess <work-id>
-ai work create "..." --assess
-```
-
-Acceptance:
-
-- Low/medium/high/blocked risk is explainable.
-- Assessment does not write files.
-- Assessment can require approval before later write/branch actions.
-
-## Phase W3 - Task Graph And Evidence Checklist
-
-Goal: decompose work into a graph and enforce evidence-based checklist completion.
+Goal: make a work item a durable execution object, not just a wrapped task.
 
 Tasks:
 
-- Add `ExecutionGraph` builder.
-- Start with sequential execution but store graph nodes/edges.
-- Add default decomposition templates:
-  - bugfix
-  - feature
-  - refactor
-  - review
-  - CI failure
-- Add checklist generation from graph plus Task Contracts.
-- Add evidence validation:
-  - file exists
-  - check result exists and passed
-  - run artifact exists
-  - commit/PR metadata exists
-  - approval event exists
-- Prevent required checklist item from passing without evidence.
-
-Acceptance:
-
-- Bugfix tasks generate inspect/test/implement/check/review/PR nodes.
-- Checklist progress is evidence-backed.
-- Waived required items require reason and actor.
-
-## Phase W4 - Work Engine Integration With Orchestrator
-
-Goal: execute work graph nodes through existing orchestrator runs.
-
-Tasks:
-
-- Add `WorkEngine` that maps graph nodes to orchestrator tasks.
-- Link work item to one or more run IDs.
-- Persist node status from run result.
-- Reuse existing approval policy and confirmation checkpoints.
-- Add resume behavior:
-  - resume work item
-  - resume failed node
-  - retry from run checkpoint
-- Add failure classification at work-item level.
-
-Suggested commands:
-
-```bash
-ai work run <work-id> --dry-run
-ai work resume <work-id>
-ai work retry <work-id> --node <node-id>
-```
-
-Acceptance:
-
-- A work item can run through at least one orchestrator node.
-- Work item status follows linked run status.
-- Evidence is attached after checks/review complete.
-
-## Phase W5 - Workspace API And Dashboard Work Board
-
-Goal: make Work Items visible and operable in the dashboard.
-
-Tasks:
-
-- Add server routes:
-  - `GET /work-items`
-  - `POST /work-items`
-  - `GET /work-items/:id`
-  - `POST /work-items/:id/assess`
-  - `POST /work-items/:id/run`
-  - `POST /work-items/:id/cancel`
-  - `POST /work-items/:id/retry`
-- Add dashboard pages:
-  - Inbox
-  - Work Board
-  - Work Item Detail
-- Work Item Detail sections:
+- Keep the work item data model authoritative:
   - assessment
   - task graph
   - checklist
   - linked runs
-  - branch/PR
-  - checks
-  - audit
-- Keep current job feed available.
+  - branch / PR metadata
+- Make graph node execution mapping complete.
+- Keep checklist completion evidence-backed.
+- Make work item run/resume/retry behavior predictable.
+- Finish dashboard surfaces for:
+  - inbox
+  - work board
+  - work item detail
+  - linked runs
+  - checklist evidence
+- Make branch/worktree handling safe and traceable.
+- Keep commit and PR generation grounded in recorded evidence.
 
 Acceptance:
 
-- User can create and inspect a work item from dashboard.
-- Dashboard shows checklist progress and evidence.
-- Job/run views still work.
+- A work item can move from intake -> assessment -> graph -> run -> branch -> PR.
+- The dashboard can explain what happened without reading raw artifacts.
+- Workspace features stay experimental until this loop is boring and repeatable.
 
-## Phase W6 - Branch And Worktree Automation
+## Phase D - Team Control Plane
 
-Goal: isolate work items into branch/worktree execution environments.
+Goal: make the workspace usable for senior engineers and small teams.
 
 Tasks:
 
-- Add branch manager using existing `git-workflow.ts` helpers.
-- Add optional `git worktree` manager:
-  - create worktree per work item
-  - map work item to worktree path
-  - cleanup/retain policy
-- Add dirty-worktree checks.
-- Add approval boundary before branch creation and artifact apply.
-- Persist branch/worktree metadata.
-
-Suggested commands:
-
-```bash
-ai work run <work-id> --branch
-ai work branch <work-id>
-ai work worktree create <work-id>
-```
+- Add role and permission surfaces that are explicit, not implicit.
+- Strengthen audit export and audit browsing.
+- Add analytics for throughput, failure modes, approval lag, and retry cost.
+- Add queue control surfaces that are safe for operators.
+- Improve project registry and per-project policy handling.
+- Keep local embedded mode and server mode clearly separated.
 
 Acceptance:
 
-- Branch names are safe and traceable.
-- Work item branch/worktree metadata is persisted.
-- No destructive git commands are used automatically.
-- Unrelated working tree changes are detected and protected.
+- Teams can answer who did what, when, and why.
+- Operators can control queue behavior without using hidden state.
+- Audit and export paths are useful for reviews and incident response.
 
-## Phase W7 - Commit And PR Automation
+## Phase E - External Task Intake And Auto-Triage
 
-Goal: turn completed work items into reviewable PRs with high-quality evidence.
+Goal: turn Jira, Trello, GitHub, and CI signals into first-class work items.
 
 Tasks:
 
-- Add approval-gated artifact apply/stage/commit path for work items.
-- Generate commit message from work item, assessment, checklist, files, tests.
-- Generate PR body from verified evidence:
-  - summary
-  - assessment
-  - plan/checklist
-  - files changed
-  - checks
-  - review notes
-  - risks
-  - artifacts
-  - rollback
-- Start with `gh` CLI preview/create behind approval.
-- Persist PR metadata.
-- Audit branch/commit/PR actions.
-
-Suggested commands:
-
-```bash
-ai work commit <work-id>
-ai work pr preview <work-id>
-ai work pr create <work-id>
-```
+- Add ingestion for external task sources.
+- Normalize incoming issues into the work item model.
+- Deduplicate and map external identities to workspace records.
+- Auto-assess incoming tasks before execution.
+- Sync status back to the source system.
+- Keep manual approval at the edges where it matters.
 
 Acceptance:
 
-- PR body is grounded in evidence, not invented claims.
-- PR creation never happens without explicit approval.
-- No direct push to protected branch by default.
+- An external task becomes a tracked work item with traceable provenance.
+- Status changes round-trip cleanly.
+- Auto-triage reduces manual sorting without inventing state.
 
-## Phase W8 - CI Feedback Loop
+## Phase F - Scale Cost, Reliability, and Governance
 
-Goal: watch PR checks and create follow-up fixes when CI fails.
+Goal: keep the product economical and controlled as usage grows.
 
 Tasks:
 
-- Add CI check collector:
-  - first via `gh pr checks`
-  - later via GitHub API/App
-- Normalize CI failures into internal fix tasks.
-- Link CI fix runs back to same work item/PR.
-- Add loop limits:
-  - max CI repair attempts
-  - max cost
-  - max duration
-- Add final CI status and residual-risk report.
-
-Suggested commands:
-
-```bash
-ai work ci watch <work-id>
-ai work ci fix <work-id>
-ai fix-ci --pr <number>
-```
+- Add tighter token budgets and budget reporting.
+- Cache project intelligence more aggressively.
+- Use summary-first artifact replay by default.
+- Make retention and cleanup policies explicit.
+- Add observability for queue health, replay cost, and provider spend.
+- Harden permissions, audit, and export paths for larger teams.
 
 Acceptance:
 
-- CI failure can produce a structured repair task.
-- Fix commits stay on the work item branch.
-- System stops when budget/attempt limit is reached.
+- Common low-risk tasks stay cheap.
+- Cost growth is measurable and explainable.
+- Larger teams can adopt the system without losing control of access or history.
 
-## Phase W9 - Inbox Integrations
+## Not Now
 
-Goal: bring external work into the workspace.
-
-Tasks:
-
-- GitHub Issue to Work Item.
-- GitHub PR to review Work Item.
-- CI failure to Work Item.
-- Webhook/API intake.
-- Optional Slack/Jira/Trello later.
-- Deduplication by external source URL/id.
-- Human approval for automatically imported work.
-
-Suggested commands:
-
-```bash
-ai work from-issue <url>
-ai work from-pr <url>
-ai work inbox sync
-```
-
-Acceptance:
-
-- External work appears in Inbox without manual context copying.
-- Duplicate external items do not create duplicate active work.
-- Imported work is not executed until policy permits it.
-
-## Phase W10 - Parallel Workspace Execution
-
-Goal: run multiple work items safely.
-
-Tasks:
-
-- Use worktree isolation for concurrent execution.
-- Add scheduler with per-project concurrency.
-- Add dependency graph between work items.
-- Prevent conflicting file scopes from running in parallel unless isolated.
-- Add dashboard visibility for active workspaces.
-- Add cleanup policy for old worktrees.
-
-Acceptance:
-
-- Multiple work items can run without touching the same working tree.
-- Conflicts are detected before execution.
-- Operators can pause/resume/cancel per work item.
-
-## Phase W11 - Team Governance And Productization
-
-Goal: mature workspace for team usage.
-
-Tasks:
-
-- Team roles and project-level permissions.
-- Approval policies per action:
-  - assess
-  - plan
-  - write
-  - branch
-  - commit
-  - PR
-  - external comment
-  - merge
-- Notification center.
-- Audit export.
-- Workspace analytics:
-  - cycle time
-  - PR success rate
-  - CI repair rate
-  - repeated failure classes
-  - checklist completion quality
-- Retention/migration docs for workspace artifacts.
-
-Acceptance:
-
-- Team can answer who approved what, when, and why.
-- Workspace supports multiple projects and operators cleanly.
-- Artifacts remain readable across schema versions.
-
-## Phase W12 - Hardening And Lifecycle Cleanup
-
-Goal: make the workspace resilient under long-lived team usage.
-
-Tasks:
-
-- Tighten project/action permissions for sensitive routes and workspace operations.
-- Add audit export and team-review snapshots for compliance or offline analysis.
-- Add worktree cleanup and orphan recovery for finished or cancelled work items.
-- Add retention helpers for stale worktree directories and old workspace metadata.
-- Add regression tests for permission gates, audit export, and cleanup behavior.
-
-Acceptance:
-
-- Sensitive actions are gated by server policy, not UI convention.
-- Teams can export audit history for review and debugging.
-- Stale worktrees and workspace metadata can be cleaned up safely.
-
-## Recommended First Implementation Sprint
-
-Start with `Work Item v1`, not PR automation.
-
-Sprint scope:
-
-1. Add `ai-system/work/` types and file store.
-2. Add `ai work create/list/show`.
-3. Persist `work-item.json` under `.ai-system-artifacts/work-items`.
-4. Add assessment skeleton using existing risk policy.
-5. Add checklist model with evidence refs.
-6. Add tests for create/list/show/normalize.
-7. Add a minimal dashboard Work Items list only after CLI/store is stable.
-
-Do not start with:
-
-- GitHub App.
-- Multi-user auth provider.
-- Full PR watcher.
-- Parallel worktree execution.
-
-Those are later layers after Work Item state is durable.
-
-## Verification Gates
-
-Every workspace phase with code changes must pass:
-
-```bash
-pnpm run typecheck
-pnpm run lint
-pnpm test
-pnpm run dashboard:build
-pnpm --dir dashboard test
-git diff --check
-```
-
-If Git/GitHub behavior changes:
-
-```bash
-pnpm exec node --import tsx --test tests/git-workflow.test.ts
-```
-
-If server/workspace API changes:
-
-```bash
-pnpm exec node --import tsx --test tests/server-queue.test.ts
-```
-
-## Main Risks
-
-- Scope creep: workspace can become too broad if Work Item v1 is not kept small.
-- State duplication: Work Item state must reference runs, not copy all run data.
-- Git safety: branch/worktree operations must never overwrite user changes.
-- Evidence quality: checklist without evidence becomes another AI claim.
-- Dashboard complexity: add Work Board progressively; do not bury current job feed.
-- External integrations: GitHub App should wait until CLI-based PR flow proves useful.
-
-## Decision
-
-Proceed with the workspace conversion.
-
-The recommended next milestone is:
-
-> Work Item v1: durable work item, assessment, task graph skeleton, evidence checklist, and CLI create/list/show.
+- Rewriting the system to Rust.
+- Fully autonomous merge without approval.
+- General-purpose multi-agent autonomy before workspace invariants are stable.
+- Broad connector expansion before the workspace intake model is boringly reliable.

@@ -2,22 +2,162 @@
 
 Last updated: 2026-05-03
 
-> **Note:** This file tracks active and immediately upcoming work for the AI Software Workspace. Completed phases (W0-W12) have been removed from this file to reduce clutter. Refer to `tasks/roadmap.md` for the overarching project direction and completed history.
+> This file tracks the concrete implementation order for the AI Software Workspace.
+> The active priority is Phase A, then Phase B, then the workspace/control-plane phases.
+> Detailed step-by-step checklists live in `tasks/implementation-checklist.md`.
 
-## Active Milestone: Phase W13 - Evidence Checklist & Task Graphs (Draft)
+## Phase A - Stabilize v0.9
 
-- [ ] Add dynamic task graph generation based on deterministic task assessment rules.
-- [ ] Implement evidence validation logic (verify file existence, tests passing, run artifacts).
-- [ ] Prevent Work Items from passing required checklist items without concrete evidence.
-- [ ] Implement UI for visualizing the Task Graph and Evidence Checklist in the Dashboard Work Item Detail view.
+Goal: a fresh clone can run, understand, and verify the product without reading source code first.
 
-## Upcoming Milestones
+- [ ] Normalize startup experience.
+  - [ ] Ensure `local:dev` works in a clean shell with `.env` present.
+  - [ ] Add or refresh `.env.example` with the required server token and the common dev flags.
+  - [ ] Document the exact startup order for server, dashboard, and full-stack mode.
+- [ ] Align docs with runtime behavior.
+  - [ ] Verify README, security docs, and server docs say the same thing about token, host, and auth.
+  - [ ] Document which features are shipped, which are preview, and which are roadmap-only.
+  - [ ] Add a short "first run" path that shows the minimum required commands.
+- [ ] Refresh demo and proof.
+  - [ ] Create one representative low-risk bugfix demo.
+  - [ ] Add a dashboard walkthrough that shows job state, health, and work item detail.
+  - [ ] Capture the run/artifact path that proves the demo worked.
+- [ ] Keep CI green on the release path.
+  - [ ] Confirm `pnpm test` stays green.
+  - [ ] Confirm `pnpm run dashboard:build` stays green.
+  - [ ] Confirm docs-linked commands are not stale.
 
-### Phase W14 - Advanced PR Automation & Multi-Branch Orchestration
-- [ ] Enhance `ai work pr` to fully automate AI-driven PR merging logic safely.
-- [ ] Build GitHub App integration for continuous webhook ingestion.
-- [ ] Improve CI Watch to support fully autonomous `ai work ci fix` loops with configurable budget/retry limits.
+Exit criteria:
 
-### Refactoring & Technical Debt
-- [ ] Review and consolidate the dashboard bundle (Chunking) to reduce load size.
-- [ ] Expand E2E Smoke Tests coverage to newly added Workspace API endpoints.
+- A new user can start the system without guessing hidden env vars.
+- The docs match the actual auth and host behavior.
+- The release path is reproducible in CI.
+
+## Phase B - Make the Core Loop Excellent
+
+Goal: lower retry cost and make failures explain themselves.
+
+- [ ] Tighten run outputs.
+  - [ ] Improve run summaries so they point to the actual failure class.
+  - [ ] Keep retry hints short, actionable, and artifact-backed.
+  - [ ] Make JSON parsing and schema failures explicit.
+- [ ] Improve tool checks.
+  - [ ] Keep changed-file scoping reliable for lint/test/typecheck.
+  - [ ] Add fallback behavior when scoped checks are incomplete.
+  - [ ] Parse tool failures into structured issues instead of generic errors.
+- [ ] Improve context selection.
+  - [ ] Explain why files were included or excluded.
+  - [ ] Keep budget trimming deterministic and visible.
+  - [ ] Reuse cached project intelligence instead of replaying full context.
+- [ ] Budget repair loops.
+  - [ ] Keep retry counts bounded by error class.
+  - [ ] Avoid escalating model cost unless the failure class justifies it.
+  - [ ] Record why a stronger model or extra pass was spent.
+
+Exit criteria:
+
+- Simple bugfixes need fewer blind retries.
+- Tool failures point to the real cause.
+- Low-risk tasks stay cheap.
+
+## Phase C - Finish Workspace Engine v1 Preview
+
+Goal: work items become durable execution objects, not wrapped tasks.
+
+- [ ] Complete the work item lifecycle.
+  - [ ] Keep assessment, graph, checklist, linked runs, branch, and PR metadata authoritative.
+  - [ ] Keep work item status transitions predictable across run/resume/retry.
+  - [ ] Persist evidence with every meaningful state change.
+- [ ] Complete graph execution mapping.
+  - [ ] Map graph nodes to orchestrator requests cleanly.
+  - [ ] Keep node status reconciled from run status.
+  - [ ] Attach checklist evidence from node and job results.
+- [ ] Finish workspace dashboard surfaces.
+  - [ ] Make inbox and work board usable.
+  - [ ] Make work item detail show graph, checklist, linked runs, and evidence.
+  - [ ] Keep job/run views available beside workspace views.
+- [ ] Finish branch and PR handoff.
+  - [ ] Keep branch creation safe and traceable.
+  - [ ] Keep commit and PR body grounded in evidence.
+  - [ ] Keep approval boundaries explicit before branch/commit/PR actions.
+
+Exit criteria:
+
+- A work item can move from intake -> assessment -> graph -> run -> branch -> PR.
+- The dashboard can explain what happened without raw artifact spelunking.
+- Workspace stays preview until this loop is boring.
+
+## Phase D - Team Control Plane
+
+Goal: make the workspace safe and visible for operators and senior engineers.
+
+- [ ] Add explicit role and permission surfaces.
+  - [ ] Separate server auth from local embedded permissions.
+  - [ ] Make operator-only actions obvious in API and UI.
+  - [ ] Keep audit actor identity separate from auth headers.
+- [ ] Strengthen audit and export.
+  - [ ] Make audit browsing easier.
+  - [ ] Add export paths for team review and incident response.
+  - [ ] Record approvals, queue control, branch, and PR actions.
+- [ ] Add operational analytics.
+  - [ ] Show throughput, failure rate, approval lag, and retry cost.
+  - [ ] Show queue health and retention impact.
+  - [ ] Keep analytics bounded and cheap.
+- [ ] Harden queue control.
+  - [ ] Keep pause/resume/cancel safe.
+  - [ ] Avoid hidden state or ambiguous action results.
+
+Exit criteria:
+
+- A team can answer who did what, when, and why.
+- Operators can manage queue state without risky side effects.
+
+## Phase E - External Task Intake And Auto-Triage
+
+Goal: turn Jira/Trello/GitHub/CI signals into first-class work items.
+
+- [ ] Define intake adapters.
+  - [ ] Normalize external task shape into work item shape.
+  - [ ] Track source, identity, and deduplication keys.
+  - [ ] Preserve external provenance in stored metadata.
+- [ ] Build auto-triage.
+  - [ ] Assess incoming tasks before execution.
+  - [ ] Route low-risk tasks to the cheap path.
+  - [ ] Flag tasks that need human approval early.
+- [ ] Sync status back.
+  - [ ] Update the source system as work progresses.
+  - [ ] Keep round-trip status changes traceable.
+  - [ ] Avoid inventing states that the source does not understand.
+
+Exit criteria:
+
+- External tasks become durable work items with provenance.
+- Status round-trips cleanly.
+
+## Phase F - Scale Cost, Reliability, and Governance
+
+Goal: keep the platform economical as usage grows.
+
+- [ ] Tighten cost policy.
+  - [ ] Add explicit budgets for classification, implementation, review, and repair.
+  - [ ] Report token usage by stage and provider.
+  - [ ] Keep summary-first replay as default.
+- [ ] Improve caching and retention.
+  - [ ] Cache project intelligence more aggressively.
+  - [ ] Keep retention and cleanup policies explicit.
+  - [ ] Avoid recomputing large stable context repeatedly.
+- [ ] Harden governance.
+  - [ ] Keep permissions, audit, and export paths robust for larger teams.
+  - [ ] Ensure the server-mode path remains strict even as local mode stays easy.
+
+Exit criteria:
+
+- Common tasks stay cheap.
+- Cost growth is measurable.
+- Larger teams can adopt the system without losing control.
+
+## Immediate Next Move
+
+- [ ] Start with Phase A implementation details and lock down the startup/docs/release path.
+- [ ] Use Phase B only after the release path is reliable.
+- [ ] Do not expand intake or team-control features until the workspace loop is stable.
