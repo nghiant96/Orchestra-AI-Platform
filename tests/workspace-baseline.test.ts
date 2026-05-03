@@ -1,12 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import http from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import type { Logger } from "../ai-system/types.js";
+import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
 
 // Phase W0 workspace baseline smoke tests.
 // These tests verify that the existing server/CLI behavior is unchanged
@@ -50,7 +48,7 @@ test("Phase W0 — server jobs API remains functional", async () => {
         const baseUrl = await listen(server);
 
         // /jobs POST
-        const created = await requestJson(baseUrl, "POST", "/jobs", { task: "w0 smoke task", dryRun: true });
+        const created = await requestJson(baseUrl, "POST", "/jobs", { task: "w0 smoke task", dryRun: true }, 202);
         assert.equal(created.status, "queued");
         assert.equal(typeof created.jobId, "string");
 
@@ -73,7 +71,6 @@ test("Phase W0 — server jobs API remains functional", async () => {
         await fs.rm(repoRoot, { recursive: true, force: true });
     }
 });
-
 test("Phase W0 — workspace artifacts can coexist with run artifacts", async () => {
     const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-w0-artifacts-"));
     const artifactsDir = path.join(repoRoot, ".ai-system-artifacts");
@@ -149,80 +146,3 @@ test("Phase W0 — docs/WORKSPACE.md exists and contains key domain terms", asyn
     assert.ok(content.includes("Old runs remain readable"));
     assert.ok(content.includes("do NOT require a Work Item"));
 });
-
-// --- Helpers ---
-
-function requestJson(
-    baseUrl: string,
-    method: string,
-    pathname: string,
-    body?: unknown,
-    expectStatus?: number
-): Promise<any> {
-    return new Promise((resolve, reject) => {
-        const url = new URL(pathname, baseUrl);
-        const data = body ? JSON.stringify(body) : undefined;
-        const req = http.request(
-            url,
-            {
-                method,
-                headers: { "content-type": "application/json", accept: "application/json" },
-            },
-            (res) => {
-                const chunks: Buffer[] = [];
-                res.on("data", (chunk: Buffer) => chunks.push(chunk));
-                res.on("end", () => {
-                    const raw = Buffer.concat(chunks).toString("utf-8");
-                    try {
-                        const result = JSON.parse(raw);
-                        if (expectStatus !== undefined) {
-                            if (res.statusCode !== expectStatus) {
-                                reject(new Error(`Expected status ${expectStatus}, got ${res.statusCode}`));
-                                return;
-                            }
-                            resolve(result);
-                            return;
-                        }
-                        if (res.statusCode && res.statusCode >= 400) {
-                            reject(new Error(`HTTP ${res.statusCode}: ${raw}`));
-                            return;
-                        }
-                        resolve(result);
-                    } catch {
-                        reject(new Error(`Invalid JSON: ${raw}`));
-                    }
-                });
-            }
-        );
-        req.on("error", reject);
-        if (data) req.write(data);
-        req.end();
-    });
-}
-
-function listen(server: ReturnType<typeof createAiSystemServer>): Promise<string> {
-    return new Promise((resolve, reject) => {
-        server.listen(0, "127.0.0.1", () => {
-            const addr = server.address() as AddressInfo;
-            if (!addr) return reject(new Error("No address"));
-            resolve(`http://127.0.0.1:${addr.port}`);
-        });
-        server.on("error", reject);
-    });
-}
-
-function closeServer(server: http.Server): Promise<void> {
-    return new Promise((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
-    });
-}
-
-function silentLogger(): Logger {
-    return {
-        step() { },
-        info() { },
-        warn() { },
-        error() { },
-        success() { },
-    };
-}

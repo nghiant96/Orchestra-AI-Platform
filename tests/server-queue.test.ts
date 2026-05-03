@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer, mapRunSummaryToQueueJob, resolveQueueRunApprovalMode } from "../ai-system/server-app.js";
-import type { Logger, OrchestratorResult } from "../ai-system/types.js";
+import type { OrchestratorResult } from "../ai-system/types.js";
+import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
 
 test("server jobs API enqueues, completes, lists, and returns stable JSON", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-jobs-"));
@@ -18,7 +18,7 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
 
   try {
     const baseUrl = await listen(server);
-    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "do queued work", dryRun: true });
+    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "do queued work", dryRun: true }, 202);
     assert.equal(created.status, "queued");
     assert.equal(typeof created.jobId, "string");
 
@@ -87,8 +87,8 @@ test("server cancels queued jobs", async () => {
 
   try {
     const baseUrl = await listen(server);
-    const first = await requestJson(baseUrl, "POST", "/jobs", { task: "hold worker" });
-    const queued = await requestJson(baseUrl, "POST", "/jobs", { task: "cancel me" });
+    const first = await requestJson(baseUrl, "POST", "/jobs", { task: "hold worker" }, 202);
+    const queued = await requestJson(baseUrl, "POST", "/jobs", { task: "cancel me" }, 202);
     const cancelled = await requestJson(baseUrl, "POST", `/jobs/${queued.jobId}/cancel`);
     assert.equal(cancelled.status, "cancelled");
     releaseFirstJob();
@@ -131,7 +131,7 @@ test("health and queued jobs expose effective approval mode", async () => {
     assert.equal(health.queue.approvalMode, "auto");
     assert.equal(health.queue.skipApproval, true);
 
-    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "auto approval mode" });
+    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "auto approval mode" }, 202);
     assert.equal(created.approvalMode, "auto");
   } finally {
     await closeServer(server);
@@ -161,7 +161,7 @@ test("project registry and audit log expose multi-project operations", async () 
     });
     assert.equal(denied.error, "Operator role required");
 
-    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "audited job", dryRun: true }, undefined, {
+    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "audited job", dryRun: true }, 202, {
       "x-ai-system-role": "operator",
       "x-ai-system-actor": "tester"
     });
@@ -310,8 +310,8 @@ test("jobs API filters queue records by requested project cwd", async () => {
 
   try {
     const baseUrl = await listen(server);
-    const first = await requestJson(baseUrl, "POST", "/jobs", { task: "project a" });
-    const second = await requestJson(baseUrl, "POST", "/jobs", { task: "project b", cwd: otherRoot });
+    const first = await requestJson(baseUrl, "POST", "/jobs", { task: "project a" }, 202);
+    const second = await requestJson(baseUrl, "POST", "/jobs", { task: "project b", cwd: otherRoot }, 202);
     await waitForJob(baseUrl, String(first.jobId), "completed");
     await waitForJob(baseUrl, String(second.jobId), "completed");
 
@@ -348,7 +348,7 @@ test("jobs API accepts a GitHub URL directly as task input", async () => {
     const baseUrl = await listen(server);
     const created = await requestJson(baseUrl, "POST", "/jobs", {
       task: "https://github.com/owner/repo/pull/456"
-    });
+    }, 202);
 
     assert.equal(created.externalTask.kind, "pull_request");
     assert.equal(created.externalTask.number, 456);
@@ -391,71 +391,6 @@ test("artifact run summaries map to typed queue jobs", () => {
   assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "paused_after_plan" }, "/repo").status, "waiting_for_approval");
   assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "unexpected" }, "/repo").status, "failed");
 });
-
-async function listen(server: http.Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  return `http://127.0.0.1:${(address as AddressInfo).port}`;
-}
-
-async function closeServer(server: http.Server): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
-}
-
-async function requestJson(
-  baseUrl: string,
-  method: string,
-  pathname: string,
-  body?: unknown,
-  expectedStatus?: number,
-  extraHeaders: Record<string, string> = {}
-): Promise<any> {
-  const url = new URL(pathname, baseUrl);
-  const payload = body === undefined ? null : JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      url,
-      {
-        method,
-        headers: {
-          ...extraHeaders,
-          ...(payload
-            ? {
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(payload)
-              }
-            : {})
-        }
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-        res.on("end", () => {
-          try {
-            assert.equal(res.statusCode, expectedStatus ?? (method === "POST" && pathname === "/jobs" ? 202 : 200));
-            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    if (payload) {
-      req.write(payload);
-    }
-    req.end();
-  });
-}
 
 async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -557,16 +492,6 @@ function createResult({ task, cwd, dryRun, ok }: { task: string; cwd: string; dr
       latestFiles: []
     },
     wroteFiles: false
-  };
-}
-
-function silentLogger(): Logger {
-  return {
-    step() {},
-    info() {},
-    warn() {},
-    error() {},
-    success() {}
   };
 }
 

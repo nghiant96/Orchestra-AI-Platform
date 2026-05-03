@@ -1,15 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import type { AddressInfo } from "node:net";
 import { createAiSystemServer } from "../ai-system/server-app.js";
 import { assessWorkItem } from "../ai-system/work/assessment.js";
 import { buildChecklist } from "../ai-system/work/checklist.js";
 import { buildTaskGraph } from "../ai-system/work/task-graph.js";
-import type { Logger, RulesConfig } from "../ai-system/types.js";
+import type { RulesConfig } from "../ai-system/types.js";
+import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
 
 test("workspace assessment, graph, and checklist are generated deterministically", async () => {
   const rules = { artifacts: { data_dir: ".artifacts" } } as RulesConfig;
@@ -46,16 +45,16 @@ test("workspace API can create assess run and list work items", async () => {
 
   try {
     const baseUrl = await listen(server);
-    const created = await requestJson(baseUrl, "POST", "/work-items", { cwd: repoRoot, title: "Fix signup flow", description: "Adjust auth callback" });
+    const created = await requestJson(baseUrl, "POST", "/work-items", { cwd: repoRoot, title: "Fix signup flow", description: "Adjust auth callback" }, 201);
     assert.equal(created.ok, true);
     assert.equal(created.workItem.status, "created");
 
-    const assessed = await requestJson(baseUrl, "POST", `/work-items/${created.workItem.id}/assess`, { cwd: repoRoot });
+    const assessed = await requestJson(baseUrl, "POST", `/work-items/${created.workItem.id}/assess`, { cwd: repoRoot }, 200);
     assert.equal(assessed.ok, true);
     assert.ok(assessed.workItem.assessment);
     assert.ok(assessed.workItem.graph?.nodes.length);
 
-    const run = await requestJson(baseUrl, "POST", `/work-items/${created.workItem.id}/run`, { cwd: repoRoot, dryRun: true });
+    const run = await requestJson(baseUrl, "POST", `/work-items/${created.workItem.id}/run`, { cwd: repoRoot, dryRun: true }, 202);
     assert.equal(run.ok, true);
     assert.equal(run.workItem.status, "executing");
     assert.equal(run.workItem.linkedRuns.length, 1);
@@ -104,28 +103,6 @@ function createResult(task: string, cwd: string, dryRun: boolean) {
   };
 }
 
-function requestJson(baseUrl: string, method: string, pathname: string, body?: unknown): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const url = new URL(pathname, baseUrl);
-    const data = body ? JSON.stringify(body) : undefined;
-    const req = http.request(url, { method, headers: { "content-type": "application/json", accept: "application/json" } }, (res) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => {
-        const raw = Buffer.concat(chunks).toString("utf8");
-        try {
-          resolve(JSON.parse(raw));
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-    req.on("error", reject);
-    if (data) req.write(data);
-    req.end();
-  });
-}
-
 async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`);
@@ -133,27 +110,6 @@ async function waitForJob(baseUrl: string, jobId: string, status: string): Promi
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
-}
-
-function listen(server: ReturnType<typeof createAiSystemServer>): Promise<string> {
-  return new Promise((resolve, reject) => {
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address() as AddressInfo;
-      if (!addr) return reject(new Error("No address"));
-      resolve(`http://127.0.0.1:${addr.port}`);
-    });
-    server.on("error", reject);
-  });
-}
-
-function closeServer(server: http.Server): Promise<void> {
-  return new Promise((resolve, reject) => {
-    server.close((err) => (err ? reject(err) : resolve()));
-  });
-}
-
-function silentLogger(): Logger {
-  return { step() {}, info() {}, warn() {}, error() {}, success() {} };
 }
 
 async function cleanupDir(dir: string): Promise<void> {

@@ -2,7 +2,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { parseAuditActor } from "../ai-system/core/audit-log.js";
@@ -10,6 +9,7 @@ import { FileBackedJobQueue } from "../ai-system/core/job-queue.js";
 import { WebhookManager } from "../ai-system/core/webhooks.js";
 import type { AuditEvent } from "../ai-system/core/audit-log.js";
 import type { RulesConfig } from "../ai-system/types.js";
+import { listen, closeServer } from "./test-utils.js";
 
 test("parseAuditActor applies configured identity role mapping before role headers", () => {
   const actor = parseAuditActor(
@@ -172,25 +172,6 @@ function createQueueJob(jobId: string, createdAt: string) {
     createdAt,
     updatedAt: createdAt
   };
-}
-
-async function listen(server: http.Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  return `http://127.0.0.1:${(address as AddressInfo).port}`;
-}
-
-async function closeServer(server: http.Server): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    server.close((error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
 }
 
 async function exists(filePath: string): Promise<boolean> {
