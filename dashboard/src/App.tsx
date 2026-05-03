@@ -11,7 +11,6 @@ import {
   Settings,
   Server,
   ListChecks,
-  Inbox
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
@@ -144,19 +143,19 @@ function App() {
   };
 
   const handleWorkItemAssess = async (item: WorkItem) => {
-    try { await assess(item); fetchWorkItems(); toast.success(`Assessing: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+    try { await assess(item); fetchWorkItems(); toast.success(`Assessing: ${item.title}`); } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   const handleWorkItemRun = async (item: WorkItem) => {
-    try { await run(item); fetchWorkItems(); toast.success(`Running: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+    try { await run(item); fetchWorkItems(); toast.success(`Running: ${item.title}`); } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   const handleWorkItemCancel = async (item: WorkItem) => {
-    try { await cancel(item); fetchWorkItems(); toast.success(`Cancelled: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+    try { await cancel(item); fetchWorkItems(); toast.success(`Cancelled: ${item.title}`); } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   const handleWorkItemRetry = async (item: WorkItem) => {
-    try { await retry(item); fetchWorkItems(); toast.success(`Retrying: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+    try { await retry(item); fetchWorkItems(); toast.success(`Retrying: ${item.title}`); } catch (e: unknown) { toast.error(e instanceof Error ? e.message : String(e)); }
   };
 
   return (

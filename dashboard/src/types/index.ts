@@ -183,13 +183,31 @@ export interface WorkItem {
   updatedAt: string;
   linkedRuns: string[];
   branch?: string;
+  worktreePath?: string;
   pullRequest?: {
     provider: string;
     number: number;
     url: string;
     branch: string;
     base: string;
+    html_url?: string;
   };
+  ci?: {
+    lastCheckedAt?: string;
+    status?: 'passing' | 'failing' | 'unknown';
+    summary?: string;
+    failingChecks?: string[];
+    repairAttempts?: number;
+    maxRepairAttempts?: number;
+  };
+  checks?: Array<{
+    id: string;
+    name: string;
+    status: string;
+    conclusion: string;
+    completed_at?: string;
+    html_url?: string;
+  }>;
   assessment?: {
     complexity: 'small' | 'medium' | 'large';
     risk: 'low' | 'medium' | 'high' | 'blocked';
@@ -221,6 +239,8 @@ export interface WorkItem {
     waiveReason?: string;
     waivedAt?: string;
   }>;
+  appliedFiles?: string[];
+  commitHash?: string;
 }
 
 export interface PluginManifest {

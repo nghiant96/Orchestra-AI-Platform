@@ -52,8 +52,8 @@ export const useWorkItems = (projectPath?: string) => {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
-      const data = await res.json().catch(() => null);
-      throw new Error((data && (data as any).error) || `Action ${verb} failed`);
+      const data = await res.json().catch(() => null) as Record<string, unknown> | null;
+      throw new Error(String(data?.error || `Action ${verb} failed`));
     }
     return res.json();
   }, []);

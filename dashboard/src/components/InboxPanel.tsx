@@ -35,8 +35,8 @@ export const InboxPanel = ({ onImport, onRefresh }: InboxPanelProps) => {
             setLastResult({ ok: true, message: 'Imported successfully' });
             setUrl('');
             onRefresh?.();
-        } catch (error: any) {
-            setLastResult({ ok: false, message: error.message || 'Import failed' });
+        } catch (error: unknown) {
+            setLastResult({ ok: false, message: error instanceof Error ? error.message : 'Import failed' });
         } finally {
             setImporting(false);
         }

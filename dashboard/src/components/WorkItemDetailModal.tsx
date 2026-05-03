@@ -183,7 +183,7 @@ export const WorkItemDetailModal = ({
                         <BranchTab workItem={workItem} />
                     )}
                     {activeTab === 'checks' && (
-                        <ChecksTab checks={(workItem as any).checks} pullRequest={(workItem as any).pullRequest} />
+                        <ChecksTab checks={workItem.checks} pullRequest={workItem.pullRequest} />
                     )}
                     {activeTab === 'actions' && (
                         <ActionsTab
@@ -446,10 +446,7 @@ function RunsTab({ linkedRuns }: { linkedRuns: string[] }) {
 }
 
 function BranchTab({ workItem }: { workItem: WorkItem }) {
-    const branch = (workItem as any).branch;
-    const pullRequest = (workItem as any).pullRequest;
-
-    if (!branch && !pullRequest) {
+    if (!workItem.branch && !workItem.pullRequest) {
         return (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
                 <GitPullRequest size={32} className="mx-auto text-slate-300 mb-3" />
@@ -461,25 +458,25 @@ function BranchTab({ workItem }: { workItem: WorkItem }) {
 
     return (
         <div className="space-y-4">
-            {branch && (
+            {workItem.branch && (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Branch</p>
                     <div className="flex items-center gap-2">
                         <GitBranch size={16} className="text-indigo-500" />
-                        <span className="font-mono text-sm text-slate-700">{typeof branch === 'string' ? branch : (branch as any).name || 'Unknown'}</span>
+                        <span className="font-mono text-sm text-slate-700">{workItem.branch}</span>
                     </div>
                 </div>
             )}
-            {pullRequest && (
+            {workItem.pullRequest && (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Pull Request</p>
                     <div className="flex items-center gap-2">
                         <GitPullRequest size={16} className="text-purple-500" />
                         <span className="font-mono text-sm text-slate-700">
-                            {typeof pullRequest === 'string' ? pullRequest : `#${(pullRequest as any).number || '?'}`}
+                            #{workItem.pullRequest.number}
                         </span>
-                        {(pullRequest as any).url && (
-                            <a href={(pullRequest as any).url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-500 hover:underline font-bold">
+                        {workItem.pullRequest.url && (
+                            <a href={workItem.pullRequest.url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-indigo-500 hover:underline font-bold">
                                 View
                             </a>
                         )}
@@ -490,7 +487,7 @@ function BranchTab({ workItem }: { workItem: WorkItem }) {
     );
 }
 
-function ChecksTab({ checks, pullRequest }: { checks?: any[]; pullRequest?: any }) {
+function ChecksTab({ checks, pullRequest }: { checks?: WorkItem['checks']; pullRequest?: WorkItem['pullRequest'] }) {
     if (!checks || checks.length === 0) {
         return (
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
