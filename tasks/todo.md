@@ -62,6 +62,12 @@ Exit criteria:
 
 Phase B status: done.
 
+Recent fixes:
+
+- [x] Harden dashboard workspace selection against stale localStorage paths outside `allowedWorkdirs`.
+- [x] Add regression coverage for safe workspace fallback in dashboard smoke tests and pure helper tests.
+- [x] Add server-backed workspace registration so the navbar can register new allowed roots and persist them across restarts.
+
 ## Phase C - Finish Workspace Engine v1 Preview
 
 Goal: work items become durable execution objects, not wrapped tasks.

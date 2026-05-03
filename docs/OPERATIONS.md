@@ -16,9 +16,13 @@ pnpm run server
 
 For multi-project operation, set `AI_SYSTEM_ALLOWED_WORKDIRS` to a comma-separated list of absolute repository paths. Requests with `cwd` outside those roots are rejected.
 
+You can also register an additional workspace root from the dashboard. The server stores the extra root in `.ai-system-server/workspaces.json` under the repo root and merges it with `AI_SYSTEM_ALLOWED_WORKDIRS` on startup.
+
 ```bash
 AI_SYSTEM_ALLOWED_WORKDIRS="/repo/a,/repo/b" pnpm run server
 ```
+
+To register a new workspace root through the API or dashboard, send an absolute path to `POST /workspaces` with operator credentials.
 
 Run the dashboard in another shell:
 

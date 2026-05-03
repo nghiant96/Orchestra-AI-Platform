@@ -77,7 +77,7 @@ export class FailoverJsonProvider implements JsonProvider {
       const isQuotaError = this.isQuotaOrCapacityError(error);
       const fallback = this.findFallbackProvider();
 
-      if (fallback && (isQuotaError || this.failedProviders.size === 0)) {
+      if (fallback && isQuotaError) {
         this.logger?.warn(`Provider ${this.currentProvider.id} encountered an issue. Switching to fallback: ${fallback.id}`);
         this.failedProviders.add(this.currentProvider.id);
         

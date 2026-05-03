@@ -1,4 +1,9 @@
 {
+  "auth": {
+    "role_mapping": {
+      "dashboard": "operator"
+    }
+  },
   "memory": {
     "enabled": true,
     "backend": "openmemory"

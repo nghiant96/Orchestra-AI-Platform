@@ -11,6 +11,7 @@ import {
 import { classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
+import { loadAllowedWorkdirs } from "./core/workspace-registry.js";
 import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
 import { healthRoute } from "./server/routes/health.js";
 import { adminRoute } from "./server/routes/admin.js";
@@ -33,7 +34,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const defaultCwd = path.resolve(options.defaultCwd);
   const authToken = options.authToken?.trim() || "";
   const requiresAuth = authToken.length > 0;
-  const allowedRoots = normalizeAllowedWorkdirs(options.allowedWorkdirs, defaultCwd);
+  const allowedRoots = loadAllowedWorkdirs(defaultCwd, options.allowedWorkdirs);
   const logClients = new Set<http.ServerResponse>();
   const originalOnLog = options.logger.onLog;
 
@@ -277,11 +278,6 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     void queue.stop();
   });
   return server;
-}
-
-function normalizeAllowedWorkdirs(values: string[] | undefined, defaultCwd: string): string[] {
-  const candidates = values && values.length > 0 ? values : [defaultCwd];
-  return candidates.map((entry) => path.resolve(entry.trim())).filter(Boolean);
 }
 
 function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {

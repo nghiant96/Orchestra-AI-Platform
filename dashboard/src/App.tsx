@@ -1,4 +1,4 @@
-import React, { useState, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useMemo, useCallback, lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -27,6 +27,8 @@ import { useHealth } from './hooks/useHealth';
 import { useWorkItems } from './hooks/useWorkItems';
 import { WorkBoardPanel } from './components/WorkBoardPanel';
 import { InboxPanel } from './components/InboxPanel';
+import { apiFetch } from './utils/api';
+import { resolveSafeWorkspacePath } from './utils/workspaceRoots';
 
 // Lazy loaded components for code splitting
 const JobDetailModal = lazy(() => import('./components/JobDetailModal').then(m => ({ default: m.JobDetailModal })));
@@ -47,11 +49,12 @@ function App() {
   const [selectedProject, setSelectedProject] = useState<string>(() => {
     return localStorage.getItem('orchestra_ai_project') || '';
   });
+  const allowedWorkdirs = useMemo(() => health?.allowedWorkdirs ?? [], [health?.allowedWorkdirs]);
 
   // Decide current project based on selection or health fallback
   const currentProject = useMemo(() => {
-    return selectedProject || health?.cwd || '';
-  }, [selectedProject, health?.cwd]);
+    return resolveSafeWorkspacePath(selectedProject, allowedWorkdirs, health?.cwd || '');
+  }, [selectedProject, allowedWorkdirs, health?.cwd]);
 
   const {
     loading: jobsLoading,
@@ -94,12 +97,18 @@ function App() {
     return formCwd || currentProject;
   }, [formCwd, currentProject]);
 
-  const handleProjectChange = (path: string) => {
+  const applyProjectSelection = useCallback((path: string, showToast: boolean) => {
     setSelectedProject(path);
     setFormCwd(''); // Reset manual override when project changes
     localStorage.setItem('orchestra_ai_project', path);
-    const projectName = path === '/' ? 'Root' : (path.split('/').pop() || 'Project');
-    toast.success(`Switched to project: ${projectName}`);
+    if (showToast) {
+      const projectName = path === '/' ? 'Root' : (path.split('/').pop() || 'Project');
+      toast.success(`Switched to project: ${projectName}`);
+    }
+  }, []);
+
+  const handleProjectChange = (path: string) => {
+    applyProjectSelection(path, true);
   };
 
   const selectedJob = useMemo(() =>
@@ -114,13 +123,52 @@ function App() {
       toast.error("Please specify a workspace directory");
       return;
     }
-    const result = await submitTask(task, finalCwd, dryRun);
+    const safeCwd = resolveSafeWorkspacePath(finalCwd, allowedWorkdirs, health?.cwd || '');
+    if (safeCwd !== finalCwd) {
+      if (allowedWorkdirs.length > 0) {
+        setSelectedProject(safeCwd);
+        setFormCwd('');
+        localStorage.setItem('orchestra_ai_project', safeCwd);
+        toast.error(`Workspace must be inside allowed roots. Using ${safeCwd} instead.`);
+      }
+      if (!safeCwd) {
+        toast.error('No allowed workspace directory is available');
+        return;
+      }
+    }
+    const result = await submitTask(task, safeCwd, dryRun);
     if (result.ok) {
       setTask('');
       setFormCwd(''); // Reset override after success
       toast.success("Task submitted to orchestration queue");
     } else {
       toast.error(`Submission failed: ${result.error}`);
+    }
+  };
+
+  const handleRegisterWorkspace = async (cwd: string) => {
+    const normalized = cwd.trim();
+    if (!normalized) {
+      return { ok: false, error: 'Workspace path is required' };
+    }
+
+    try {
+      const response = await apiFetch('/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd: normalized })
+      });
+      const data = await response.json().catch(() => null) as { ok?: boolean; error?: string; allowedWorkdirs?: string[] } | null;
+      if (!response.ok) {
+        return { ok: false, error: String(data?.error || `HTTP ${response.status}`) };
+      }
+
+      await fetchHealth();
+      applyProjectSelection(normalized, false);
+      toast.success(`Registered workspace: ${normalized}`);
+      return { ok: true, allowedWorkdirs: data?.allowedWorkdirs || [] };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : 'Failed to register workspace' };
     }
   };
 
@@ -160,14 +208,15 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 antialiased pb-20">
-      <Navbar
+        <Navbar
         searchTerm={searchTerm}
         setSearchTerm={setSearchTerm}
         fetchJobs={fetchJobs}
         loading={jobsLoading}
-        allowedWorkdirs={health?.allowedWorkdirs || []}
+        allowedWorkdirs={allowedWorkdirs}
         currentProject={currentProject}
         onProjectChange={handleProjectChange}
+        onRegisterWorkspace={handleRegisterWorkspace}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

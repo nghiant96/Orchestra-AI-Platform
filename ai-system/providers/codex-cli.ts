@@ -62,6 +62,7 @@ export class CodexCliProvider implements JsonProvider {
         command: this.config.command || "codex",
         args,
         cwd,
+        stdinMode: "ignore",
         timeoutMs: effectiveTimeoutMs,
         retries: effectiveRetries,
         baseDelayMs: effectiveBaseDelayMs,

@@ -85,6 +85,24 @@ test("runCommand force-kills hung child processes after the grace period", async
   }
 });
 
+test("runCommand can ignore stdin for non-interactive CLI providers", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-run-command-stdin-"));
+
+  try {
+    const result = await runCommand({
+      command: process.execPath,
+      args: ["-e", "process.stdout.write('ok')"],
+      cwd: tempDir,
+      stdinMode: "ignore"
+    });
+
+    assert.equal(result.stdout, "ok");
+    assert.equal(result.code, 0);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 async function waitFor(check: () => boolean, timeoutMs: number): Promise<void> {
   const startedAt = Date.now();
 

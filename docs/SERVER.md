@@ -95,6 +95,14 @@ GET  /config                  → 200 OK       Get effective config
 POST /config                  → 200 OK       Update runtime config
 ```
 
+### Workspaces
+
+```
+POST /workspaces              → 201 Created  Register an additional allowed workspace root
+```
+
+The dashboard uses this endpoint to persist extra workspace roots in `.ai-system-server/workspaces.json`.
+
 ### Administration
 
 ```

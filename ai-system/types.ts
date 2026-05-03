@@ -801,6 +801,7 @@ export interface CommandRunOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   input?: string;
+  stdinMode?: "pipe" | "ignore" | "inherit";
   timeoutMs?: number;
   killGraceMs?: number;
   monitorIntervalMs?: number;

@@ -148,6 +148,7 @@ export async function runCommand({
   cwd,
   env,
   input,
+  stdinMode = "pipe",
   timeoutMs = 60000,
   killGraceMs = DEFAULT_KILL_GRACE_MS,
   monitorIntervalMs = 0,
@@ -163,7 +164,7 @@ export async function runCommand({
     const child = spawn(command, args, {
       cwd,
       env: env ?? process.env,
-      stdio: ["pipe", "pipe", "pipe"],
+      stdio: [stdinMode, "pipe", "pipe"],
       detached: process.platform !== 'win32' // Use detached to kill process group if needed
     });
 
@@ -232,11 +233,11 @@ export async function runCommand({
           }, monitorIntervalMs)
         : null;
 
-    child.stdout.on("data", (chunk) => {
+    child.stdout?.on("data", (chunk) => {
       stdout += chunk.toString();
     });
 
-    child.stderr.on("data", (chunk) => {
+    child.stderr?.on("data", (chunk) => {
       stderr += chunk.toString();
     });
 
@@ -265,10 +266,14 @@ export async function runCommand({
       rejectOnce(error);
     });
 
-    if (input) {
-      child.stdin.write(input);
+    if (stdinMode === "pipe") {
+      if (child.stdin) {
+        if (input) {
+          child.stdin.write(input);
+        }
+        child.stdin.end();
+      }
     }
-    child.stdin.end();
 
     function clearTimers({ preserveForceKill = false }: { preserveForceKill?: boolean } = {}): void {
       if (timeout) {

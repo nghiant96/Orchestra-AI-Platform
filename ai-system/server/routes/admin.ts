@@ -3,6 +3,7 @@ import { roleCan } from "../../core/audit-log.js";
 import { aggregateProjectStats } from "../../core/server-analytics.js";
 import { appendProjectLesson, readProjectLessons } from "../../core/lessons.js";
 import { buildProjectRegistry } from "../../core/project-registry.js";
+import { registerWorkspaceRoot } from "../../core/workspace-registry.js";
 import { canPerformAction } from "../../core/permissions.js";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 
@@ -12,6 +13,29 @@ export const adminRoute: RouteHandler = {
       const projects = await buildProjectRegistry(ctx.allowedRoots, loadRules);
       ctx.respondJson(res, 200, { ok: true, version: 1, projects });
       return true;
+    }
+
+    if (url.pathname === "/workspaces" && req.method === "POST") {
+      if (!roleCan(ctx.actor, "operator")) {
+        ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
+        return true;
+      }
+      const payload = await readJsonBody(req);
+      const cwd = typeof payload?.cwd === "string" ? payload.cwd.trim() : "";
+      if (!cwd) {
+        ctx.respondJson(res, 400, { ok: false, error: "Workspace cwd is required" });
+        return true;
+      }
+      try {
+        const updatedRoots = await registerWorkspaceRoot(ctx.defaultCwd, cwd, ctx.allowedRoots);
+        ctx.allowedRoots.splice(0, ctx.allowedRoots.length, ...updatedRoots);
+        await ctx.auditLog.append({ actor: ctx.actor, action: "workspace.register", cwd: ctx.defaultCwd, details: { workspaceCwd: cwd } });
+        ctx.respondJson(res, 201, { ok: true, version: 1, allowedWorkdirs: ctx.allowedRoots });
+        return true;
+      } catch (error) {
+        ctx.respondJson(res, 400, { ok: false, error: (error as Error).message });
+        return true;
+      }
     }
 
     if (url.pathname === "/stats" && req.method === "GET") {

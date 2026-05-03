@@ -36,6 +36,7 @@ export default defineConfig(({ mode }) => {
         '/lessons': proxyOptions,
         '/queue': proxyOptions,
         '/work-items': proxyOptions,
+        '/workspaces': proxyOptions,
         '/projects': proxyOptions,
         '/run': proxyOptions,
       },

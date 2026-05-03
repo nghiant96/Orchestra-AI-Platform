@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
@@ -66,6 +66,10 @@ vi.mock('../hooks/useWorkItems', () => ({
 }));
 
 describe('Dashboard Smoke Test', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('renders the main dashboard layout and shows job data', () => {
     render(
       <MemoryRouter>
@@ -126,5 +130,17 @@ describe('Dashboard Smoke Test', () => {
     
     const workHeader = await screen.findByText(/Work Board/i);
     expect(workHeader).toBeDefined();
+  });
+
+  it('ignores stale local storage project paths outside allowed workdirs', () => {
+    localStorage.setItem('orchestra_ai_project', '/stale/workspace');
+
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByDisplayValue('/test')).toBeDefined();
   });
 });

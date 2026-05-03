@@ -142,3 +142,32 @@ the chosen and trimmed files explain themselves.
 **Rule**: When building a plan, emit a structured summary of selected and trimmed context files, including
 their inclusion or exclusion reason and budget counters. Context selection is only useful if the operator can
 see why a file made it in or got cut.
+
+## 2026-05-03: Dashboard must not trust stale workspace paths from local storage
+
+**Mistake**: The dashboard re-used `orchestra_ai_project` from local storage even when that path was no
+longer inside the server's `allowedWorkdirs`, which let a stale selection survive until submission time and
+trip the server-side cwd guard.
+
+**Rule**: Resolve the active workspace against the current `allowedWorkdirs` before rendering, polling, or
+submitting. If local storage contains a path outside the allowed roots, fall back to a safe allowed root and
+make the user-visible state match the actual request path.
+
+## 2026-05-03: Workspace registration must preserve a default root fallback
+
+**Mistake**: The first cut of the workspace registry merged env roots and persisted roots, but forgot to
+return `defaultCwd` when both sources were empty. That turned existing local flows into 403s even though the
+server was otherwise healthy.
+
+**Rule**: Any root registry helper that feeds authorization or workspace resolution must always return at
+least one safe default root. A registry feature cannot remove the system's own fallback workspace.
+
+## 2026-05-03: Provider failover should not hide startup and permission failures
+
+**Mistake**: `FailoverJsonProvider` would switch to a different provider on the first failure, even when the
+real problem was a non-retryable spawn or permission error. That turned a broken primary command into a
+different failure on the fallback provider and obscured the actual root cause.
+
+**Rule**: Only fail over on errors that are operationally retryable, such as quota or capacity failures.
+Startup, permission, and exec-format errors must surface from the original provider so the operator can fix
+the actual binary/config problem first.

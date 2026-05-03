@@ -1,5 +1,6 @@
+import { useState, type FormEvent } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Terminal, Activity, Settings, Search, RefreshCw, FolderTree, ChevronDown, BarChart3, ListChecks } from 'lucide-react';
+import { Terminal, Activity, Settings, Search, RefreshCw, FolderTree, ChevronDown, BarChart3, ListChecks, FolderPlus, X } from 'lucide-react';
 import { cn } from '../utils/cn';
 
 interface NavbarProps {
@@ -10,6 +11,7 @@ interface NavbarProps {
   allowedWorkdirs: string[];
   currentProject: string;
   onProjectChange: (path: string) => void;
+  onRegisterWorkspace: (path: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export const Navbar = ({
@@ -19,8 +21,33 @@ export const Navbar = ({
   loading,
   allowedWorkdirs,
   currentProject,
-  onProjectChange
+  onProjectChange,
+  onRegisterWorkspace
 }: NavbarProps) => {
+  const [isRegisterOpen, setRegisterOpen] = useState(false);
+  const [registerPath, setRegisterPath] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
+  const handleRegisterSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setRegisterError(null);
+    setRegistering(true);
+    try {
+      const result = await onRegisterWorkspace(registerPath);
+      if (result.ok) {
+        setRegisterOpen(false);
+        setRegisterPath('');
+      } else {
+        setRegisterError(result.error || 'Workspace registration failed');
+      }
+    } catch (error) {
+      setRegisterError(error instanceof Error ? error.message : 'Workspace registration failed');
+    } finally {
+      setRegistering(false);
+    }
+  };
+
   return (
     <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5 flex justify-between items-center">
@@ -62,6 +89,60 @@ export const Navbar = ({
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setRegisterOpen((open) => !open)}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-600 transition-colors hover:bg-slate-200 hover:text-slate-900"
+            >
+              <FolderPlus size={14} className="text-indigo-500" />
+              Register
+            </button>
+
+            {isRegisterOpen ? (
+              <div className="absolute left-0 top-full z-[110] mt-2 w-80 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl">
+                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Workspace Root</p>
+                    <p className="text-xs font-bold text-slate-700">Add an absolute path</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setRegisterOpen(false)}
+                    className="rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                    aria-label="Close workspace registration"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleRegisterSubmit} className="space-y-3 p-4">
+                  <input
+                    type="text"
+                    value={registerPath}
+                    onChange={(event) => setRegisterPath(event.target.value)}
+                    placeholder="/absolute/path/to/workspace"
+                    className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10"
+                  />
+                  {registerError ? (
+                    <p className="text-xs font-bold text-rose-600">{registerError}</p>
+                  ) : (
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Existing workspaces remain available after registration.
+                    </p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={registering || !registerPath.trim()}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-xs font-black uppercase tracking-widest text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {registering ? 'Registering...' : 'Register Workspace'}
+                  </button>
+                </form>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl">

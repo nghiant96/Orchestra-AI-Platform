@@ -201,6 +201,49 @@ test("project registry and audit log expose multi-project operations", async () 
   }
 });
 
+test("workspace registration persists and rehydrates on restart", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-workspace-register-"));
+  const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-workspace-register-other-"));
+  const firstServer = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(firstServer);
+    const registered = await requestJson(baseUrl, "POST", "/workspaces", { cwd: otherRoot }, 201, {
+      "x-ai-system-role": "operator",
+      "x-ai-system-actor": "dashboard"
+    });
+    assert.equal(registered.ok, true);
+    assert.ok(registered.allowedWorkdirs.includes(otherRoot));
+  } finally {
+    await closeServer(firstServer);
+  }
+
+  const secondServer = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(secondServer);
+    const health = await requestJson(baseUrl, "GET", "/health");
+    assert.ok(health.allowedWorkdirs.includes(otherRoot));
+
+    const projects = await requestJson(baseUrl, "GET", "/projects");
+    assert.ok(projects.projects.some((project: any) => project.cwd === otherRoot));
+  } finally {
+    await closeServer(secondServer);
+    await cleanupDir(repoRoot);
+    await cleanupDir(otherRoot);
+  }
+});
+
 test("project permissions gate sensitive actions and audit can be exported", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-permissions-"));
   await fs.writeFile(path.join(repoRoot, ".ai-system.json"), JSON.stringify({
