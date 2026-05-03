@@ -6,3 +6,4 @@
 .ai-system-server/
 *.log
 *.yaml
+.aider*

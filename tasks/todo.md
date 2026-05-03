@@ -175,6 +175,17 @@ Planning result:
 - Use `tasks/workspace-cli-implementation-plan.md` as the handoff source for Gemini CLI, DeepSeek, or other coding agents.
 - Cost policy target: simple deterministic tasks use Tier 0 with zero workspace model calls; common low/medium-risk workspace tasks stay around 5-20% token growth by using deterministic assessment, graph templates, cached project intelligence, summary-only artifact context, risk-scaled review, progressive model escalation, and CI repair limits.
 
+## Provider Router Refactor
+
+- [x] Split `ai-system/core/provider-router.ts` into shared helpers, signal heuristics, and adaptive history modules.
+- [x] Preserve the existing public routing API and behavior under `buildRoutingDecision`, `chooseProfile`, `resolveRoleProviders`, and `getRoutingProfile`.
+- [x] Run typecheck, lint, and routing-related tests after the split.
+
+Result:
+
+- `provider-router.ts` now delegates shared profile/provider helpers, signal heuristics, and adaptive history/scoring to focused modules.
+- Public routing behavior stayed intact; focused router tests and the full suite passed.
+
 ## Test Failure Triage - 2026-04-30
 
 - [x] Reproduce `tests/server-queue.test.ts` lifecycle crash.

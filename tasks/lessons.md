@@ -90,3 +90,11 @@ module shallow and hard to navigate even after smaller helpers were extracted.
 **Rule**: When a class owns two distinct lifecycle flows, move each flow into its own module and keep the
 class as a thin delegation seam. The delegate modules must be import-clean; otherwise the split just hides
 the same complexity behind dead imports.
+
+## 2026-05-03: Alias imported helpers when re-exporting the same public name
+
+**Mistake**: Re-exported `getRoutingProfile` from the same module name without aliasing the imported helper,
+which would have turned the public wrapper into a recursive self-call.
+
+**Rule**: When a file exports a wrapper with the same name as an imported helper, always alias the import
+first and call the alias from the wrapper. This avoids accidental recursion after module splits.
