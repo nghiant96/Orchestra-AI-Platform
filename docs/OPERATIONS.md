@@ -2,7 +2,7 @@
 
 Last updated: 2026-04-30
 
-This guide covers the local HTTP service and dashboard workflows for operating the AI Coding System after the v0.2-v0.7 roadmap implementation.
+This guide covers the local HTTP service and dashboard workflows for operating the AI Coding System (v0.9+).
 
 ## Start The Service
 

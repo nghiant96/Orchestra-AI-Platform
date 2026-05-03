@@ -287,7 +287,7 @@ pnpm run dashboard:dev
 pnpm run local:dev
 ```
 
-Open **http://localhost:5173** to access the dashboard.
+Open **http://localhost:5253** to access the dashboard.
 If you are running in server mode, place `AI_SYSTEM_SERVER_TOKEN` in the repo-root `.env` file so both the server and dashboard proxy use the same token.
 
 ---
@@ -404,125 +404,161 @@ The web dashboard provides real-time visibility into the system:
 
 ```
 orchestra-ai-platform/
-├── ai-system/                    # Core platform source
-│   ├── cli.ts                    # CLI entry point
-│   ├── server.ts                 # Server entry point
-│   ├── server-app.ts             # HTTP server factory
-│   ├── types.ts                  # Shared type definitions
+├── ai-system/                        # Core platform source
+│   ├── cli.ts                        # CLI entry point
+│   ├── server.ts                     # Server entry point
+│   ├── server-app.ts                 # HTTP server factory
+│   ├── types.ts                      # Shared type definitions
 │   │
-│   ├── cli/                      # CLI layer
-│   │   ├── arg-parser.ts         # Argument parsing + validation
-│   │   ├── presets.ts            # Provider preset management
-│   │   ├── interactive.ts        # REPL / chat mode
-│   │   ├── handlers/             # Command handlers
-│   │   │   ├── task-handler.ts   # ai "task" / ai implement
-│   │   │   ├── review-handler.ts # ai review
-│   │   │   ├── fix-handler.ts    # ai fix / ai fix-checks
-│   │   │   ├── config-handler.ts # ai config / ai setup / ai doctor
-│   │   │   ├── runs-handler.ts   # ai runs list
-│   │   │   └── work-handler.ts   # ai work (workspace commands)
-│   │   └── formatters/           # Output formatting
+│   ├── cli/                          # CLI layer
+│   │   ├── arg-parser.ts             # Argument parsing + validation
+│   │   ├── presets.ts                # Provider preset management
+│   │   ├── interactive.ts            # REPL / chat mode
+│   │   ├── setup.ts                  # Interactive setup wizard
+│   │   ├── handlers/                 # Command handlers
+│   │   │   ├── task-handler.ts       # ai "task" / ai implement
+│   │   │   ├── review-handler.ts     # ai review
+│   │   │   ├── fix-handler.ts        # ai fix / ai fix-checks
+│   │   │   ├── config-handler.ts     # ai config / ai setup / ai doctor
+│   │   │   ├── runs-handler.ts       # ai runs list
+│   │   │   └── work-handler.ts       # ai work (workspace commands)
+│   │   └── formatters/               # Output formatting
 │   │
-│   ├── core/                     # Orchestration engine
-│   │   ├── orchestrator.ts       # Orchestrator class (entry point)
-│   │   ├── orchestrator-run.ts   # Run flow (plan → generate → verify → review)
-│   │   ├── orchestrator-resume.ts# Resume from checkpoint
-│   │   ├── orchestrator-runtime.ts# Runtime setup (config, providers, tools)
-│   │   ├── run-executor.ts       # Iteration loop (generate → check → fix)
+│   ├── core/                         # Orchestration engine
+│   │   ├── orchestrator.ts           # Orchestrator class (entry point)
+│   │   ├── orchestrator-run.ts       # Run flow (plan → generate → verify → review)
+│   │   ├── orchestrator-shared.ts    # Shared orchestration utilities
+│   │   ├── orchestrator-resume.ts    # Resume from checkpoint
+│   │   ├── orchestrator-runtime.ts   # Runtime setup (config, providers, tools)
+│   │   ├── orchestrator-confirmation.ts # Human-in-the-loop approval gates
+│   │   ├── run-executor.ts           # Iteration loop (generate → check → fix)
 │   │   ├── execution-state-machine.ts # Stage transitions + timing
+│   │   ├── execution-summary.ts      # Run summary + metrics
 │   │   │
-│   │   ├── provider-router.ts    # Signal-based provider selection
+│   │   ├── provider-router.ts        # Signal-based provider selection
 │   │   ├── provider-router-adaptive.ts # Learning from past runs
-│   │   ├── provider-router-signals.ts  # Task/repo/plan signal builders
+│   │   ├── provider-router-signals.ts # Task/repo/plan signal builders
+│   │   ├── provider-router-utils.ts   # Provider utility functions
 │   │   │
-│   │   ├── tool-executor.ts      # Lint/typecheck/test runner
-│   │   ├── tool-scoping.ts       # Changed-file scoping for checks
-│   │   ├── tool-runner.ts        # Process spawning + output parsing
-│   │   ├── tool-sandbox.ts       # Docker sandbox management
-│   │   ├── tool-adapters.ts      # Project type detection
+│   │   ├── tool-executor.ts          # Lint/typecheck/test runner
+│   │   ├── tool-scoping.ts           # Changed-file scoping for checks
+│   │   ├── tool-runner.ts            # Process spawning + output parsing
+│   │   ├── tool-sandbox.ts           # Docker sandbox management
+│   │   ├── tool-adapters.ts          # Project type detection
+│   │   ├── builtin-tool-adapters.ts  # Built-in tool configurations
 │   │   │
-│   │   ├── context.ts            # File selection + ranking
-│   │   ├── context-intelligence.ts # Dependency graph + semantic search
-│   │   ├── vector-index.ts       # Local embedding index (@xenova)
-│   │   ├── dependency-graph.ts   # Import graph analysis
+│   │   ├── context.ts                # File selection + ranking
+│   │   ├── context-intelligence.ts   # Dependency graph + semantic search
+│   │   ├── vector-index.ts           # Local embedding index (@xenova)
+│   │   ├── dependency-graph.ts       # Import graph analysis
 │   │   │
-│   │   ├── artifacts.ts          # Artifact store (barrel export)
-│   │   ├── artifact-persistence.ts # Read/write/checkpoint
-│   │   ├── artifact-query.ts     # Search/list/filter
+│   │   ├── artifacts.ts              # Artifact store (barrel export)
+│   │   ├── artifact-persistence.ts   # Read/write/checkpoint
+│   │   ├── artifact-query.ts         # Search/list/filter
+│   │   ├── artifact-types.ts         # Artifact type definitions
+│   │   ├── artifact-utils.ts         # Artifact utility functions
+│   │   ├── artifact-apply.ts         # Atomic file write + apply
 │   │   │
-│   │   ├── risk-policy.ts        # Risk assessment + approval rules
-│   │   ├── reviewer.ts           # AI review orchestration
-│   │   ├── current-change-review.ts # Working-tree review mode
+│   │   ├── risk-policy.ts            # Risk assessment + approval rules
+│   │   ├── reviewer.ts               # AI review orchestration
+│   │   ├── current-change-review.ts  # Working-tree review mode
+│   │   ├── review-failing-checks.ts  # Failed check analysis
 │   │   │
-│   │   ├── job-queue.ts          # File-backed job queue
-│   │   ├── audit-log.ts          # File-backed audit log
-│   │   ├── permissions.ts        # RBAC action permissions
-│   │   ├── webhooks.ts           # Outbound webhook notifications
-│   │   └── server-analytics.ts   # Cost/latency/failure analytics
+│   │   ├── job-queue.ts              # File-backed job queue
+│   │   ├── audit-log.ts              # File-backed audit log
+│   │   ├── permissions.ts            # RBAC action permissions
+│   │   ├── webhooks.ts               # Outbound webhook notifications
+│   │   ├── server-analytics.ts       # Cost/latency/failure analytics
+│   │   │
+│   │   ├── task-requirements.ts      # Task requirement analysis
+│   │   ├── test-heuristics.ts        # Test generation heuristics
+│   │   ├── test-reconciliation.ts    # Test reconciliation utilities
+│   │   ├── blast-radius.ts           # Change impact analysis
+│   │   ├── refactor-analysis.ts      # Refactoring analysis
+│   │   ├── fix-checks.ts             # Automated fix checks
+│   │   ├── fix-from-run.ts           # Fix from previous run
+│   │   ├── git-workflow.ts           # Git workflow integration
+│   │   ├── manual-checkpoints.ts     # Manual checkpoint management
+│   │   ├── config-workflow.ts        # Config-driven workflow
+│   │   ├── external-task.ts          # External task integration
+│   │   ├── lessons.ts                # Lessons learned management
+│   │   ├── normalizers.ts            # Data normalization
+│   │   ├── plugins.ts                # Plugin system
+│   │   ├── project-registry.ts       # Multi-project registry
+│   │   ├── symbol-parsers.ts         # Code symbol parsing
+│   │   ├── workflow-modes.ts         # Workflow mode definitions
+│   │   └── extractors/               # Code extractors (API, config, tests, etc.)
 │   │
-│   ├── work/                     # Workspace engine
-│   │   ├── work-engine.ts        # WorkEngine class (assess, plan, execute, PR)
-│   │   ├── work-item.ts          # WorkItem data model
-│   │   ├── work-store.ts         # File-backed work item persistence
-│   │   ├── assessment.ts         # Risk/complexity/tier assessment
-│   │   ├── task-graph.ts         # DAG templates (bugfix, feature, review, docs)
-│   │   ├── checklist.ts          # Evidence-based checklist builder
-│   │   ├── scheduler.ts          # Tier-aware execution ordering
-│   │   ├── branch-manager.ts     # Git branch creation + safety
-│   │   ├── commit-pr.ts          # Commit + PR body generation
-│   │   ├── github-pr.ts          # gh CLI PR creation
-│   │   ├── ci.ts                 # CI status polling (gh pr checks)
-│   │   ├── inbox.ts              # GitHub URL import + dedup
-│   │   └── worktree-cleanup.ts   # Git worktree lifecycle
+│   ├── work/                         # Workspace engine (Preview / v1.0 Roadmap)
+│   │   ├── work-engine.ts            # WorkEngine class (assess, plan, execute, PR)
+│   │   ├── work-item.ts              # WorkItem data model
+│   │   ├── work-store.ts             # File-backed work item persistence
+│   │   ├── index.ts                  # Barrel export
+│   │   ├── assessment.ts             # Risk/complexity/tier assessment
+│   │   ├── task-graph.ts             # DAG templates (bugfix, feature, review, docs)
+│   │   ├── checklist.ts              # Evidence-based checklist builder
+│   │   ├── scheduler.ts              # Tier-aware execution ordering
+│   │   ├── branch-manager.ts         # Git branch creation + safety
+│   │   ├── worktree-manager.ts       # Git worktree lifecycle
+│   │   ├── worktree-cleanup.ts       # Git worktree cleanup
+│   │   ├── commit-pr.ts              # Commit + PR body generation
+│   │   ├── github-pr.ts              # gh CLI PR creation
+│   │   ├── ci.ts                     # CI status polling (gh pr checks)
+│   │   ├── inbox.ts                  # GitHub URL import + dedup
+│   │   └── normalizers.ts            # Work item data normalization
 │   │
-│   ├── providers/                # AI provider adapters
-│   │   ├── registry.ts           # Provider registry + detection
-│   │   ├── gemini-cli.ts         # Google Gemini CLI adapter
-│   │   ├── codex-cli.ts          # OpenAI Codex CLI adapter
-│   │   ├── claude-cli.ts         # Anthropic Claude CLI adapter
-│   │   └── openai-compatible.ts  # Generic OpenAI API adapter
+│   ├── providers/                    # AI provider adapters
+│   │   ├── registry.ts               # Provider registry + detection
+│   │   ├── gemini-cli.ts             # Google Gemini CLI adapter
+│   │   ├── codex-cli.ts              # OpenAI Codex CLI adapter
+│   │   ├── claude-cli.ts             # Anthropic Claude CLI adapter
+│   │   └── openai-compatible.ts      # Generic OpenAI API adapter
 │   │
-│   ├── server/                   # HTTP route modules
-│   │   ├── routes-context.ts     # Shared route types
+│   ├── server/                       # HTTP route modules
+│   │   ├── routes-context.ts         # Shared route types
 │   │   └── routes/
-│   │       ├── health.ts         # GET /health
-│   │       ├── jobs.ts           # Job CRUD, SSE, approval
-│   │       ├── config.ts         # Config read/update
-│   │       ├── admin.ts          # Audit, queue control, stats
-│   │       └── work-items.ts     # Work item CRUD, assess, run, handoff
+│   │       ├── health.ts             # GET /health
+│   │       ├── jobs.ts               # Job CRUD, SSE, approval
+│   │       ├── config.ts             # Config read/update
+│   │       ├── admin.ts              # Audit, queue control, stats
+│   │       └── work-items.ts         # Work item CRUD, assess, run, handoff
 │   │
-│   ├── prompts/                  # AI prompt templates
-│   ├── memory/                   # Conversation memory backends
-│   ├── agents/                   # Agent definitions
-│   ├── config/                   # Default configuration
-│   └── utils/                    # Shared utilities
+│   ├── prompts/                      # AI prompt templates
+│   ├── memory/                       # Conversation memory backends
+│   ├── agents/                       # Agent definitions (planner, generator, fixer, reviewer)
+│   ├── config/                       # Default configuration (rules.json)
+│   └── utils/                        # Shared utilities (logger, schema, config, etc.)
 │
-├── dashboard/                    # React + Vite web dashboard
+├── dashboard/                        # React + Vite web dashboard
 │   └── src/
-│       ├── App.tsx               # Main app shell + routing
-│       ├── components/           # 28 React components
-│       ├── hooks/                # Custom hooks (useJobs, useWorkItems, etc.)
-│       └── types/                # TypeScript type definitions
+│       ├── App.tsx                   # Main app shell + routing
+│       ├── components/               # React components
+│       ├── hooks/                    # Custom hooks (useJobs, useWorkItems, etc.)
+│       └── types/                    # TypeScript type definitions
 │
-├── tests/                        # Test suite (44 test files)
-│   ├── tool-executor.test.ts     # Tool execution tests
-│   ├── server-queue.test.ts      # Server + queue integration tests
-│   ├── orchestrator.resume.test.ts # Resume/checkpoint tests
-│   ├── workspace-baseline.test.ts # Workspace regression tests
-│   ├── workspace-workflow.test.ts # Work item lifecycle tests
+├── tests/                            # Test suite
+│   ├── tool-executor.test.ts         # Tool execution tests
+│   ├── server-queue.test.ts          # Server + queue integration tests
+│   ├── orchestrator.resume.test.ts   # Resume/checkpoint tests
 │   └── ...
 │
-├── docs/                         # Documentation
-│   ├── ARCHITECTURE.md           # Deep architecture guide
-│   ├── CLI.md                    # CLI reference
-│   ├── CONFIG.md                 # Configuration guide
-│   ├── SERVER.md                 # Server & API guide
-│   ├── WORKSPACE.md              # Workspace engine guide
-│   ├── OPERATIONS.md             # Operator runbook
-│   ├── SECURITY.md               # Security policy
-│   └── RELEASE_NOTES_v0.9.md    # Latest release notes
+├── docs/                             # Documentation
+│   ├── ARCHITECTURE.md               # Deep architecture guide
+│   ├── CLI.md                        # CLI reference
+│   ├── CONFIG.md                     # Configuration guide
+│   ├── SERVER.md                     # Server & API guide
+│   ├── WORKSPACE.md                  # Workspace engine guide
+│   ├── OPERATIONS.md                 # Operator runbook
+│   ├── SECURITY.md                   # Security policy
+│   └── RELEASE_NOTES_v0.9.md        # Latest release notes
 │
-├── package.json                  # v0.9.0
+├── tasks/                            # Project management
+│   ├── todo.md                       # Current task tracking
+│   ├── roadmap.md                    # Feature roadmap
+│   ├── lessons.md                    # Lessons learned
+│   └── ...
+│
+├── package.json                      # v0.9.0
 ├── tsconfig.json
 ├── Dockerfile
 └── docker-compose.yml
@@ -573,7 +609,13 @@ pnpm lint                     # ESLint
 ### Build dashboard
 
 ```bash
-pnpm run dashboard:build      # Production build
+pnpm run dashboard:build      # Production build (output to dashboard/dist/)
+```
+
+### Start dashboard (dev)
+
+```bash
+pnpm run dashboard:dev        # Dev server on http://localhost:5253
 ```
 
 ### Docker

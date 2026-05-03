@@ -10,28 +10,28 @@ Last updated: 2026-05-03
 
 Goal: a fresh clone can run, understand, and verify the product without reading source code first.
 
-- [ ] Normalize startup experience.
-  - [ ] Ensure `local:dev` works in a clean shell with `.env` present.
-  - [ ] Add or refresh `.env.example` with the required server token and the common dev flags.
-  - [ ] Document the exact startup order for server, dashboard, and full-stack mode.
-- [ ] Align docs with runtime behavior.
-  - [ ] Verify README, security docs, and server docs say the same thing about token, host, and auth.
-  - [ ] Document which features are shipped, which are preview, and which are roadmap-only.
-  - [ ] Add a short "first run" path that shows the minimum required commands.
-- [ ] Refresh demo and proof.
-  - [ ] Create one representative low-risk bugfix demo.
-  - [ ] Add a dashboard walkthrough that shows job state, health, and work item detail.
-  - [ ] Capture the run/artifact path that proves the demo worked.
-- [ ] Keep CI green on the release path.
-  - [ ] Confirm `pnpm test` stays green.
-  - [ ] Confirm `pnpm run dashboard:build` stays green.
-  - [ ] Confirm docs-linked commands are not stale.
+- [x] Normalize startup experience.
+  - [x] Ensure `local:dev` works in a clean shell with `.env` present.
+  - [x] Add or refresh `.env.example` with the required server token and the common dev flags.
+  - [x] Document the exact startup order for server, dashboard, and full-stack mode.
+- [x] Align docs with runtime behavior.
+  - [x] Verify README, security docs, and server docs say the same thing about token, host, and auth.
+  - [x] Document which features are shipped, which are preview, and which are roadmap-only.
+  - [x] Add a short "first run" path that shows the minimum required commands.
+- [x] Refresh demo and proof.
+  - [x] Create one representative low-risk bugfix demo.
+  - [x] Add a dashboard walkthrough that shows job state, health, and work item detail.
+  - [x] Capture the run/artifact path that proves the demo worked.
+- [x] Keep CI green on the release path.
+  - [x] Confirm `pnpm test` stays green (214/214 passed).
+  - [x] Confirm `pnpm run dashboard:build` stays green.
+  - [x] Confirm docs-linked commands are not stale.
 
 Exit criteria:
 
-- A new user can start the system without guessing hidden env vars.
-- The docs match the actual auth and host behavior.
-- The release path is reproducible in CI.
+- A new user can start the system without guessing hidden env vars. ✅
+- The docs match the actual auth and host behavior. ✅
+- The release path is reproducible in CI. ✅
 
 ## Phase B - Make the Core Loop Excellent
 
@@ -158,6 +158,6 @@ Exit criteria:
 
 ## Immediate Next Move
 
-- [ ] Start with Phase A implementation details and lock down the startup/docs/release path.
+- [x] Start with Phase A implementation details and lock down the startup/docs/release path. ✅ (2026-05-03)
 - [ ] Use Phase B only after the release path is reliable.
 - [ ] Do not expand intake or team-control features until the workspace loop is stable.

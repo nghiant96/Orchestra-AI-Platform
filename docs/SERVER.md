@@ -40,7 +40,7 @@ docker run --rm -it \
 |---|---|---|
 | `AI_SYSTEM_SERVER_MODE` | Enable server mode | `false` |
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for API auth | None (required in server mode) |
-| `AI_SYSTEM_SERVER_PORT` | HTTP port | `3927` |
+| `PORT` or `AI_SYSTEM_PORT` | HTTP port | `3927` |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated allowed directories | CWD only |
 
 ---

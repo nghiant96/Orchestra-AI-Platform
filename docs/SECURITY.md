@@ -28,7 +28,7 @@ The server can perform write operations on your local filesystem.
 
 ## Network Security
 
-- **Binding:** By default, the server binds to `0.0.0.0` inside Docker or `127.0.0.1` locally.
+- **Binding:** The server binds to `0.0.0.0`. When exposing over a network, always use a reverse proxy with TLS termination and a strong `AI_SYSTEM_SERVER_TOKEN`.
 - **SSL/TLS:** The built-in server does not handle HTTPS. We recommend running Orchestra behind a reverse proxy (like Nginx, Caddy, or Cloudflare Tunnel) if you need to expose it over a network.
 
 ## Auditing
