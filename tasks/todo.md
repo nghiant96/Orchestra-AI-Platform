@@ -37,28 +37,30 @@ Exit criteria:
 
 Goal: lower retry cost and make failures explain themselves.
 
-- [ ] Tighten run outputs.
-  - [ ] Improve run summaries so they point to the actual failure class.
-  - [ ] Keep retry hints short, actionable, and artifact-backed.
-  - [ ] Make JSON parsing and schema failures explicit.
-- [ ] Improve tool checks.
-  - [ ] Keep changed-file scoping reliable for lint/test/typecheck.
-  - [ ] Add fallback behavior when scoped checks are incomplete.
-  - [ ] Parse tool failures into structured issues instead of generic errors.
-- [ ] Improve context selection.
-  - [ ] Explain why files were included or excluded.
-  - [ ] Keep budget trimming deterministic and visible.
-  - [ ] Reuse cached project intelligence instead of replaying full context.
-- [ ] Budget repair loops.
-  - [ ] Keep retry counts bounded by error class.
-  - [ ] Avoid escalating model cost unless the failure class justifies it.
-  - [ ] Record why a stronger model or extra pass was spent.
+- [x] Tighten run outputs.
+  - [x] Improve run summaries so they point to the actual failure class.
+  - [x] Keep retry hints short, actionable, and artifact-backed.
+  - [x] Make JSON parsing and schema failures explicit.
+- [x] Improve tool checks.
+  - [x] Keep changed-file scoping reliable for lint/test/typecheck.
+  - [x] Add fallback behavior when scoped checks are incomplete.
+  - [x] Parse tool failures into structured issues instead of generic errors.
+- [x] Improve context selection.
+  - [x] Explain why files were included or excluded.
+  - [x] Keep budget trimming deterministic and visible.
+  - [x] Reuse cached project intelligence instead of replaying full context.
+- [x] Budget repair loops.
+  - [x] Keep retry counts bounded by error class.
+  - [x] Avoid escalating model cost unless the failure class justifies it.
+  - [x] Record why a stronger model or extra pass was spent.
 
 Exit criteria:
 
 - Simple bugfixes need fewer blind retries.
 - Tool failures point to the real cause.
 - Low-risk tasks stay cheap.
+
+Phase B status: done.
 
 ## Phase C - Finish Workspace Engine v1 Preview
 
@@ -159,5 +161,5 @@ Exit criteria:
 ## Immediate Next Move
 
 - [x] Start with Phase A implementation details and lock down the startup/docs/release path. ✅ (2026-05-03)
-- [ ] Use Phase B only after the release path is reliable.
+- [x] Use Phase B only after the release path is reliable. ✅
 - [ ] Do not expand intake or team-control features until the workspace loop is stable.

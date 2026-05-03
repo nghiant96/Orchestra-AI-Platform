@@ -2,6 +2,7 @@ import type {
   ArtifactSummary,
   ApprovalPolicyDecision,
   ContextSelectionCandidate,
+  ContextSelectionSummary,
   ExecutionSummary,
   ExecutionTransition,
   FileGenerationResult,
@@ -46,6 +47,7 @@ export interface PersistedRunState {
   latestToolResults?: ToolExecutionResult[];
   latestVectorMatches?: VectorSearchMatch[];
   latestContextRanking?: ContextSelectionCandidate[];
+  latestContextSelection?: ContextSelectionSummary[];
   execution?: ExecutionSummary | null;
   approvalPolicy?: ApprovalPolicyDecision | null;
   executionTransitions?: ExecutionTransition[];
@@ -65,6 +67,7 @@ export interface RecentRunSummary {
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
+    latestContextSelection?: ContextSelectionSummary[];
     execution?: ExecutionSummary | null;
     approvalPolicy?: ApprovalPolicyDecision | null;
     executionTransitions?: ExecutionTransition[];
@@ -84,6 +87,7 @@ export interface RecentRunSummary {
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
+    latestContextSelection?: ContextSelectionSummary[];
     iterationCount?: number;
     stepPaths?: Record<string, string>;
     execution?: ExecutionSummary | null;

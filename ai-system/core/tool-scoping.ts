@@ -152,6 +152,32 @@ export async function resolveToolCommand(options: {
   return null;
 }
 
+export function resolveFullScopeFallback(options: {
+  repoRoot: string;
+  toolName: ToolExecutionName;
+  toolConfig: ToolCommandConfig | undefined;
+  packageScripts: Record<string, string>;
+  packageManager: "pnpm" | "yarn" | "npm";
+  changedPaths: string[];
+  adapterContexts: ToolAdapterContext[];
+  sandbox: ReturnType<typeof resolveToolSandbox>;
+  projectType: string;
+}): ResolvedToolCommand | null {
+  const scriptName = resolveToolScriptName(options.toolName, options.toolConfig, options.packageScripts);
+  if (scriptName) {
+    return buildScriptCommand(options.toolName, scriptName, options.packageManager, options.toolConfig, options.changedPaths, {
+      cwd: options.repoRoot,
+      scope: "full",
+      sandbox: options.sandbox
+    });
+  }
+  const adapterCommand = resolveAdapterToolCommand(options.toolName, options.adapterContexts, options.toolConfig, options.changedPaths, options.sandbox);
+  if (adapterCommand && adapterCommand.scope !== "full") {
+    return { ...adapterCommand, scope: "full", scopedToChangedFiles: false };
+  }
+  return null;
+}
+
 function resolveAdapterToolCommand(
   toolName: ToolExecutionName,
   adapterContexts: ToolAdapterContext[],

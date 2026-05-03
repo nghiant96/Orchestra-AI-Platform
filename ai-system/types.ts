@@ -1,13 +1,13 @@
 export type { WorkflowMode } from "./core/workflow-modes.js";
 export type JsonSchema =
   | {
-      type?: string;
-      additionalProperties?: boolean;
-      properties?: Record<string, JsonSchema>;
-      required?: string[];
-      items?: JsonSchema;
-      enum?: Array<string | number | boolean | null>;
-    }
+    type?: string;
+    additionalProperties?: boolean;
+    properties?: Record<string, JsonSchema>;
+    required?: string[];
+    items?: JsonSchema;
+    enum?: Array<string | number | boolean | null>;
+  }
   | undefined;
 
 export type JsonObject = Record<string, unknown>;
@@ -169,6 +169,13 @@ export interface ToolExecutionConfig {
   [key: string]: unknown;
 }
 
+export type ToolCheckStatus = "skipped" | "passed" | "failed" | "unavailable";
+
+export interface ToolCheckFailureClass {
+  class: "missing-file" | "tool-crash" | "tool-output-error" | "unknown";
+  reason: string;
+}
+
 export interface ToolExecutionResult {
   name: ToolExecutionName;
   kind: ToolExecutionKind;
@@ -187,6 +194,9 @@ export interface ToolExecutionResult {
   exitCode?: number | null;
   stdout?: string;
   stderr?: string;
+  checkStatus?: ToolCheckStatus;
+  failureClass?: ToolCheckFailureClass | null;
+  scopeFallback?: boolean;
 }
 
 export interface ToolExecutionSummary {
@@ -246,7 +256,14 @@ export type FailureClass =
   | "tool-execution-failed"
   | "context-overflow"
   | "user-cancelled"
-  | "internal-error";
+  | "internal-error"
+  | "missing-file"
+  | "tool-crash"
+  | "partial-generation"
+  | "schema-failure"
+  | "tool-output-error"
+  | "budget-exceeded"
+  | "retry-limit-reached";
 
 export type LegacyFailureClass =
   | "provider_timeout"
@@ -291,6 +308,7 @@ export interface ExecutionBudgetConfig {
   max_cost_units?: number;
   max_daily_cost_units?: number;
   max_single_run_cost_units?: number;
+  max_retries?: number;
 }
 
 export interface ExecutionBudgetSummary {
@@ -299,6 +317,9 @@ export interface ExecutionBudgetSummary {
   totalDurationMs: number;
   totalCostUnits: number;
   exceeded: "duration" | "cost" | null;
+  retryCount: number;
+  cumulativeCostUnits: number;
+  maxRetries: number | null;
 }
 
 export interface ProviderUsageMetric {
@@ -635,6 +656,7 @@ export interface ArtifactSummary {
   latestToolResults?: ToolExecutionResult[];
   latestVectorMatches?: VectorSearchMatch[];
   latestContextRanking?: ContextSelectionCandidate[];
+  latestContextSelection?: ContextSelectionSummary[];
   execution?: ExecutionSummary | null;
 }
 
@@ -681,8 +703,26 @@ export interface VectorSearchMatch {
 
 export interface ContextSelectionCandidate {
   path: string;
+  inclusionReason?: string;
+  exclusionReason?: string;
   score: number;
   sources: string[];
+}
+
+export interface ContextSelectionSummary {
+  path: string;
+  score: number;
+  sources: string[];
+  inclusionReason?: string;
+  exclusionReason?: string;
+}
+
+export interface ContextBudgetSummary {
+  maxExpandedFiles: number;
+  maxContextBytes: number;
+  selectedCount: number;
+  trimmedCount: number;
+  selectedBytes: number;
 }
 
 export type RunStatus =

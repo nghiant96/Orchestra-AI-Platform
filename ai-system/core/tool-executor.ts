@@ -3,8 +3,8 @@ import path from "node:path";
 import { runCommandWithRetry } from "../utils/api.js";
 import { truncate } from "../utils/string.js";
 import { detectToolAdapterContexts } from "./tool-adapters.js";
-import { buildToolInvocation, applyResolvedSandboxImage, buildToolIssue, looksLikeMissingExecutable, preflightDockerSandbox, runJsonValidation } from "./tool-runner.js";
-import { resolveToolCommand } from "./tool-scoping.js";
+import { buildToolInvocation, applyResolvedSandboxImage, buildToolIssue, classifyToolFailure, looksLikeMissingExecutable, preflightDockerSandbox, runJsonValidation } from "./tool-runner.js";
+import { resolveFullScopeFallback, resolveToolCommand } from "./tool-scoping.js";
 import { resolveToolSandbox } from "./tool-sandbox.js";
 import type {
   CliCommandError,
@@ -12,6 +12,8 @@ import type {
   Logger,
   ReviewIssue,
   RulesConfig,
+  ToolCheckStatus,
+  ToolCheckFailureClass,
   ToolConfigurationSummary,
   ToolExecutionName,
   ToolExecutionResult,
@@ -78,7 +80,9 @@ export async function runToolChecks({
         skipped: true,
         issueCount: 0,
         durationMs: 0,
-        summary: `Skipped ${toolName}: no configured or detected command.`
+        summary: `Skipped ${toolName}: no configured or detected command.`,
+        checkStatus: "unavailable" as ToolCheckStatus,
+        failureClass: null
       });
       continue;
     }
@@ -105,7 +109,9 @@ export async function runToolChecks({
           sandboxMode: resolved.sandboxMode,
           sandboxImage: resolved.image,
           sandboxImageProfile: resolved.imageProfile,
-          workingDirectory: resolved.workingDirectory
+          workingDirectory: resolved.workingDirectory,
+          checkStatus: "unavailable" as ToolCheckStatus,
+          failureClass: null
         });
         continue;
       }
@@ -140,7 +146,9 @@ export async function runToolChecks({
         workingDirectory: resolved.workingDirectory,
         exitCode: commandResult.code,
         stdout: truncate(commandResult.stdout.trim(), 1200),
-        stderr: truncate(commandResult.stderr.trim(), 1200)
+        stderr: truncate(commandResult.stderr.trim(), 1200),
+        checkStatus: "passed" as ToolCheckStatus,
+        failureClass: null
       });
     } catch (error) {
       if (looksLikeMissingExecutable(error)) {
@@ -160,7 +168,9 @@ export async function runToolChecks({
           sandboxMode: resolved.sandboxMode,
           sandboxImage: resolved.image,
           sandboxImageProfile: resolved.imageProfile,
-          workingDirectory: resolved.workingDirectory
+          workingDirectory: resolved.workingDirectory,
+          checkStatus: "unavailable" as ToolCheckStatus,
+          failureClass: null
         });
         continue;
       }
@@ -168,6 +178,68 @@ export async function runToolChecks({
       const issue = buildToolIssue(toolName, error);
       issues.push(issue);
       const normalized = error as CliCommandError | undefined;
+      const failureClass: ToolCheckFailureClass | null = classifyToolFailure(error, resolved.sandboxMode);
+      // B2: scope fallback — if scoped check failed, retry with full scope
+      let fallbackResult: ToolCheckFailureClass | null = failureClass;
+      let scopeFallback = false;
+      if (resolved.scopedToChangedFiles || resolved.scope === "changed-files" || resolved.scope === "package") {
+        const fallbackResolved = await resolveFullScopeFallback({
+          repoRoot,
+          toolName,
+          toolConfig: tools.commands?.[toolName],
+          packageScripts,
+          packageManager,
+          changedPaths: [],
+          adapterContexts,
+          sandbox,
+          projectType
+        });
+        if (fallbackResolved) {
+          logger?.step(`Falling back to full-scope check: ${fallbackResolved.display}${fallbackResolved.sandboxMode === "docker" ? " [sandbox=docker]" : ""}`);
+          scopeFallback = true;
+          try {
+            const fbInvoke = buildToolInvocation(fallbackResolved, repoRoot);
+            const fbResult = await runCommandWithRetry({
+              command: fbInvoke.command,
+              args: fbInvoke.args,
+              cwd: fbInvoke.cwd,
+              env: fbInvoke.env,
+              timeoutMs: fallbackResolved.timeoutMs,
+              retries: fallbackResolved.retries,
+              baseDelayMs: fallbackResolved.baseDelayMs,
+              label: fallbackResolved.display,
+              signal
+            });
+            results.push({
+              name: toolName,
+              kind: "command",
+              ok: true,
+              skipped: false,
+              issueCount: 0,
+              durationMs: Date.now() - startedAt,
+              summary: `${toolName} passed (full-scope fallback).`,
+              command: fallbackResolved.command,
+              args: fallbackResolved.args,
+              scope: fallbackResolved.scope,
+              sandboxMode: fallbackResolved.sandboxMode,
+              sandboxImage: fallbackResolved.image,
+              sandboxImageProfile: fallbackResolved.imageProfile,
+              workingDirectory: fallbackResolved.workingDirectory,
+              exitCode: fbResult.code,
+              stdout: truncate(fbResult.stdout.trim(), 1200),
+              stderr: truncate(fbResult.stderr.trim(), 1200),
+              checkStatus: "passed" as ToolCheckStatus,
+              failureClass: null,
+              scopeFallback: true
+            });
+            continue;
+          } catch {
+            // fallback also failed — keep original failure
+            fallbackResult = classifyToolFailure(error, fallbackResolved.sandboxMode);
+          }
+        }
+      }
+
       results.push({
         name: toolName,
         kind: "command",
@@ -175,7 +247,7 @@ export async function runToolChecks({
         skipped: false,
         issueCount: 1,
         durationMs: Date.now() - startedAt,
-        summary: `${toolName} failed.`,
+        summary: scopeFallback ? `${toolName} failed (full-scope fallback also failed).` : `${toolName} failed.`,
         command: resolved.command,
         args: resolved.args,
         scope: resolved.scope,
@@ -185,7 +257,10 @@ export async function runToolChecks({
         workingDirectory: resolved.workingDirectory,
         exitCode: typeof normalized?.code === "number" ? normalized.code : null,
         stdout: truncate(`${normalized?.stdout ?? ""}`.trim(), 1200),
-        stderr: truncate(`${normalized?.stderr ?? ""}`.trim(), 1200)
+        stderr: truncate(`${normalized?.stderr ?? ""}`.trim(), 1200),
+        checkStatus: "failed" as ToolCheckStatus,
+        failureClass: fallbackResult,
+        scopeFallback
       });
     }
   }

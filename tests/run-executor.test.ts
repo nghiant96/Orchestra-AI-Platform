@@ -11,6 +11,7 @@ import {
   sanitizeGeneratedFiles,
   shouldUseStrictReview
 } from "../ai-system/core/run-executor.js";
+import { getExecutionBudgetSummary } from "../ai-system/core/run-executor-utils.js";
 import { createArtifactState } from "../ai-system/core/artifacts.js";
 import { createLogger } from "../ai-system/utils/logger.js";
 
@@ -87,6 +88,25 @@ describe("Run Executor Core", () => {
     ];
 
     assert.deepEqual(findMissingPlannedWriteTargets(files as any, plan as any), ["src/two.ts"]);
+  });
+
+  it("getExecutionBudgetSummary counts previous iterations as retries", () => {
+    const artifactState = createArtifactState(process.cwd(), { artifacts: { enabled: true, data_dir: ".ai-system-artifacts" } } as any);
+    const state: any = {
+      iterationResults: [{ iteration: 1 }, { iteration: 2 }],
+      executionMachine: createExecutionStateMachine(artifactState)
+    };
+    const runtime: any = {
+      plannerProvider: { id: "planner" },
+      reviewerProvider: { id: "reviewer" },
+      generatorProvider: { id: "generator" },
+      fixerProvider: { id: "fixer" },
+      providerSummary: { planner: "planner", reviewer: "reviewer", generator: "generator", fixer: "fixer" }
+    };
+
+    const budget = getExecutionBudgetSummary(state, runtime, { max_retries: 3 } as any);
+    assert.equal(budget?.retryCount, 2);
+    assert.equal(budget?.maxRetries, 3);
   });
 
   it("executeGenerationLoop skips tool checks until every planned write target exists", async () => {

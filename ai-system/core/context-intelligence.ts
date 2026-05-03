@@ -10,8 +10,26 @@ export interface ContextExpansionResult {
   dependencyFiles: string[];
   changedHintFiles: string[];
   budgetTrimmedFiles: string[];
+  selectionSummary: ContextSelectionSummary[];
+  budgetSummary: ContextBudgetSummary;
   vectorMatches: VectorSearchMatch[];
   rankedCandidates: ContextSelectionCandidate[];
+}
+
+export interface ContextSelectionSummary {
+  path: string;
+  score: number;
+  sources: string[];
+  inclusionReason?: string;
+  exclusionReason?: string;
+}
+
+export interface ContextBudgetSummary {
+  maxExpandedFiles: number;
+  maxContextBytes: number;
+  selectedCount: number;
+  trimmedCount: number;
+  selectedBytes: number;
 }
 
 export async function expandContextReadFiles({
@@ -91,12 +109,38 @@ export async function expandContextReadFiles({
     maxExpandedFiles,
     maxContextBytes: rules.max_context_bytes
   });
+  const selectedCandidateMap = new Map(rankedCandidates.map((entry) => [entry.path, entry]));
+  const selectionSummary = [
+    ...budgetedSelection.selectedPaths.map((path) => {
+      const candidate = selectedCandidateMap.get(path);
+      return {
+        path,
+        score: candidate?.score ?? 0,
+        sources: candidate?.sources ?? [],
+        inclusionReason: candidate?.inclusionReason
+      };
+    }),
+    ...budgetedSelection.trimmedSummaries.map((entry) => ({
+      path: entry.path,
+      score: selectedCandidateMap.get(entry.path)?.score ?? 0,
+      sources: selectedCandidateMap.get(entry.path)?.sources ?? [],
+      exclusionReason: entry.reason
+    }))
+  ];
 
   return {
     readFiles: budgetedSelection.selectedPaths,
     dependencyFiles,
     changedHintFiles,
     budgetTrimmedFiles: budgetedSelection.trimmedPaths,
+    selectionSummary,
+    budgetSummary: {
+      maxExpandedFiles,
+      maxContextBytes: rules.max_context_bytes,
+      selectedCount: budgetedSelection.selectedPaths.length,
+      trimmedCount: budgetedSelection.trimmedPaths.length,
+      selectedBytes: budgetedSelection.selectedBytes
+    },
     vectorMatches,
     rankedCandidates: rankedCandidates.filter((entry) => budgetedSelection.selectedPaths.includes(entry.path))
   };
@@ -117,19 +161,35 @@ export function rankContextCandidates({
 }): ContextSelectionCandidate[] {
   const candidates = new Map<string, ContextSelectionCandidate>();
 
+  const SOURCE_LABELS: Record<string, string> = {
+    planner: "explicitly requested by planner",
+    "write-target": "target of a planned write operation",
+    "changed-file": "detected as changed in working tree",
+    dependency: "identified as a dependency of planned files",
+    semantic: "matched by semantic similarity search"
+  };
+
   const upsert = (path: string, score: number, source: string) => {
     const existing = candidates.get(path);
+    const label = SOURCE_LABELS[source] ?? `matched by ${source} heuristic`;
     if (existing) {
       existing.score = Math.max(existing.score, score);
       if (!existing.sources.includes(source)) {
         existing.sources.push(source);
+      }
+      // Upgrade inclusion reason to strongest source
+      const existingPriority = Object.keys(SOURCE_LABELS).indexOf(existing.inclusionReason?.split("; ")[0] ?? "");
+      const newPriority = Object.keys(SOURCE_LABELS).indexOf(source);
+      if (newPriority >= 0 && (existingPriority < 0 || newPriority < existingPriority)) {
+        existing.inclusionReason = label;
       }
       return;
     }
     candidates.set(path, {
       path,
       score,
-      sources: [source]
+      sources: [source],
+      inclusionReason: label
     });
   };
 
@@ -210,9 +270,9 @@ export async function trimRankedCandidatesByBudget({
   rankedCandidates: ContextSelectionCandidate[];
   maxExpandedFiles: number;
   maxContextBytes: number;
-}): Promise<{ selectedPaths: string[]; trimmedPaths: string[] }> {
+}): Promise<{ selectedPaths: string[]; trimmedPaths: string[]; trimmedSummaries: Array<{ path: string; reason: string }>; selectedBytes: number }> {
   if (rankedCandidates.length === 0) {
-    return { selectedPaths: [], trimmedPaths: [] };
+    return { selectedPaths: [], trimmedPaths: [], trimmedSummaries: [], selectedBytes: 0 };
   }
 
   const fileSizes = new Map<string, number>();
@@ -229,11 +289,15 @@ export async function trimRankedCandidatesByBudget({
   const optional = rankedCandidates.filter((entry) => !pinned.includes(entry));
   const selected = new Set<string>();
   const trimmed: string[] = [];
+  const trimmedSummaries: Array<{ path: string; reason: string }> = [];
   let totalBytes = 0;
 
   for (const entry of pinned) {
     if (selected.size >= maxExpandedFiles) {
+      const reason = `exceeded max file count (${maxExpandedFiles})`;
+      entry.exclusionReason = reason;
       trimmed.push(entry.path);
+      trimmedSummaries.push({ path: entry.path, reason });
       continue;
     }
     selected.add(entry.path);
@@ -256,13 +320,19 @@ export async function trimRankedCandidatesByBudget({
 
   for (const entry of optionalByDensity) {
     if (selected.size >= maxExpandedFiles) {
+      const reason = `exceeded max file count (${maxExpandedFiles})`;
+      entry.exclusionReason = reason;
       trimmed.push(entry.path);
+      trimmedSummaries.push({ path: entry.path, reason });
       continue;
     }
 
     const size = fileSizes.get(entry.path) ?? 0;
     if (selected.size > 0 && totalBytes + size > maxContextBytes) {
+      const reason = `exceeded context budget (${maxContextBytes} bytes); file size ${size} would push total to ${totalBytes + size}`;
+      entry.exclusionReason = reason;
       trimmed.push(entry.path);
+      trimmedSummaries.push({ path: entry.path, reason });
       continue;
     }
 
@@ -272,7 +342,12 @@ export async function trimRankedCandidatesByBudget({
 
   const selectedPaths = rankedCandidates.map((entry) => entry.path).filter((path) => selected.has(path));
   const trimmedPaths = rankedCandidates.map((entry) => entry.path).filter((path) => !selected.has(path));
-  return { selectedPaths, trimmedPaths: [...new Set(trimmedPaths.concat(trimmed))] };
+  return {
+    selectedPaths,
+    trimmedPaths: [...new Set(trimmedPaths.concat(trimmed))],
+    trimmedSummaries,
+    selectedBytes: totalBytes
+  };
 }
 
 function parseGitStatusPaths(output: string): string[] {

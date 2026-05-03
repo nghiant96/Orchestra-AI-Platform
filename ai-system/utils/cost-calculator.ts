@@ -53,10 +53,10 @@ export function estimateProviderCost({
   const prompt = Math.max(0, promptTokens);
   const completion = Math.max(0, completionTokens);
   const totalTokens = prompt + completion;
-  
+
   // Find pricing
   const pricing = MODEL_PRICING[model || ""] || PROVIDER_DEFAULT_PRICING[provider] || MODEL_PRICING["default"];
-  
+
   const estimatedCostUnits = Number(
     ((prompt / 1_000_000) * pricing.input + (completion / 1_000_000) * pricing.output).toFixed(6)
   );
@@ -88,7 +88,7 @@ export function estimateRunCostFromPlan({
   const taskTokens = estimateTokenCount(task);
   const planTokens = estimateTokenCount(JSON.stringify(plan));
   const contextTokens = contextFiles.reduce((total, file) => total + estimateTokenCount(file.content), 0);
-  
+
   // Rules of thumb for estimation
   const toolAndReviewTokens = Math.max(500, Math.ceil((planTokens + contextTokens) * 0.4));
   const generatedTokens = Math.max(500, Math.ceil(contextTokens * 0.3));
@@ -110,11 +110,11 @@ export function estimateRunCostFromPlan({
 
   const maxDurationMs = normalizeBudgetNumber(rules.execution?.budgets?.max_duration_ms);
   const maxCostUnits = normalizeBudgetNumber(rules.execution?.budgets?.max_cost_units);
-  
+
   const totalCostUnits = Number(
     usageMetrics.reduce((total, metric) => total + Math.max(0, metric.estimatedCostUnits || 0), 0).toFixed(4)
   );
-  
+
   return {
     usageMetrics,
     budget: {
@@ -122,7 +122,10 @@ export function estimateRunCostFromPlan({
       maxCostUnits,
       totalDurationMs: 0,
       totalCostUnits,
-      exceeded: maxCostUnits !== null && totalCostUnits > maxCostUnits ? "cost" : null
+      exceeded: maxCostUnits !== null && totalCostUnits > maxCostUnits ? "cost" : null,
+      retryCount: 0,
+      cumulativeCostUnits: totalCostUnits,
+      maxRetries: null
     }
   };
 }

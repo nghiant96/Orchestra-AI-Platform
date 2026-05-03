@@ -52,6 +52,9 @@ describe("Context Intelligence Core", () => {
     
     assert.equal(result.trimmedPaths.length, 1);
     assert.ok(result.trimmedPaths.includes("dep1.ts")); // Removed due to budget limit
+    assert.equal(result.selectedBytes, 200);
+    assert.equal(result.trimmedSummaries[0]?.path, "dep1.ts");
+    assert.match(result.trimmedSummaries[0]?.reason ?? "", /context budget/);
   });
   
   it("trimRankedCandidatesByBudget removes files when file count limit is exceeded", async () => {
@@ -76,5 +79,32 @@ describe("Context Intelligence Core", () => {
     
     assert.equal(result.trimmedPaths.length, 1);
     assert.ok(result.trimmedPaths.includes("dep1.ts"));
+    assert.equal(result.selectedBytes, 20);
+    assert.equal(result.trimmedSummaries[0]?.path, "dep1.ts");
+    assert.match(result.trimmedSummaries[0]?.reason ?? "", /max file count/);
+  });
+
+  it("rankContextCandidates and budget trimming expose inclusion and exclusion reasons", async () => {
+    mock.method(fs, "stat", async () => ({ size: 100 }));
+
+    const rankedCandidates = rankContextCandidates({
+      initialReadFiles: ["initial.ts"],
+      dependencyFiles: ["dep1.ts"],
+      writeTargetReads: ["target.ts"],
+      changedHintFiles: [],
+      vectorMatches: []
+    });
+
+    const result = await trimRankedCandidatesByBudget({
+      repoRoot: "/mock",
+      rankedCandidates,
+      maxExpandedFiles: 2,
+      maxContextBytes: 150
+    });
+
+    const selected = rankedCandidates.find((entry) => entry.path === "target.ts");
+    const trimmed = result.trimmedSummaries.find((entry) => entry.path === "dep1.ts");
+    assert.equal(selected?.inclusionReason, "target of a planned write operation");
+    assert.equal(trimmed?.reason.includes("context budget") || trimmed?.reason.includes("max file count"), true);
   });
 });

@@ -125,3 +125,20 @@ appear one poll later under CI timing differences.
 
 **Rule**: When polling a file-backed job queue, retry transient 404s for a short window before failing.
 Treat a missing job as eventual consistency unless the system has already proven the job cannot exist.
+
+## 2026-05-03: Budget retry counts must reflect actual prior iterations
+
+**Mistake**: Execution budget summaries were built with a default retry count of zero, which made retry-limit
+classification and budget hints less accurate than the real run history.
+
+**Rule**: Derive retry count from the execution state before classifying budget failure or generating a
+retry hint. If the run has already consumed iterations, the budget summary must say so.
+
+## 2026-05-03: Context selection should expose inclusion and exclusion reasons
+
+**Mistake**: Context ranking kept reasons on candidate objects, but the plan and artifact outputs did not make
+the chosen and trimmed files explain themselves.
+
+**Rule**: When building a plan, emit a structured summary of selected and trimmed context files, including
+their inclusion or exclusion reason and budget counters. Context selection is only useful if the operator can
+see why a file made it in or got cut.

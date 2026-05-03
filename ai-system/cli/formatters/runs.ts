@@ -87,7 +87,15 @@ export function printRecentRunSummary(summary: RecentRunSummary): void {
   if (latestContextRanking.length > 0) {
     console.log("- ranked context:");
     for (const entry of latestContextRanking.slice(0, 8)) {
-      console.log(`  - ${entry.path} (score=${entry.score.toFixed(1)}, sources=${entry.sources.join("+")})`);
+      const reasonPieces: string[] = [];
+      if (entry.inclusionReason) {
+        reasonPieces.push(entry.inclusionReason);
+      }
+      if (entry.exclusionReason) {
+        reasonPieces.push(`EXCLUDED: ${entry.exclusionReason}`);
+      }
+      const reasonSuffix = reasonPieces.length > 0 ? `, reason=${reasonPieces.join("; ")}` : "";
+      console.log(`  - ${entry.path} (score=${entry.score.toFixed(1)}, sources=${entry.sources.join("+")}${reasonSuffix})`);
     }
   }
   if (summary.runState.latestReviewSummary) {

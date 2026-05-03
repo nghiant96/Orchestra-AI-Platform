@@ -40,7 +40,8 @@ export function getExecutionBudgetSummary(
       providers: runtime.providerSummary,
       usageMetrics: collectProviderUsageMetrics(runtime)
     }).providerMetrics ?? [],
-    budgetConfig
+    budgetConfig,
+    retryCount: Math.max(0, state.iterationResults.length)
   });
 }
 
@@ -48,7 +49,11 @@ export function createBudgetRetryHint(
   state: LoopExecutionState,
   budget: ExecutionBudgetSummary,
   nextIteration: number
-): RetryHint {
+): RetryHint | null {
+  if (budget.maxRetries !== null && budget.retryCount >= budget.maxRetries) {
+    return null;
+  }
+
   if (state.currentResult && !hasBlockingIssues(state.acceptedIssues)) {
     return {
       stage: "write-files",

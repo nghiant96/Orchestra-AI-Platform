@@ -9,6 +9,8 @@ import type {
   IterationResult,
   Logger,
   ContextSelectionCandidate,
+  ContextSelectionSummary,
+  ContextBudgetSummary,
   PlanResult,
   ProviderSummary,
   RoutingDecision,
@@ -62,6 +64,8 @@ export async function persistPlanArtifacts(
     plan: PlanResult;
     vectorMatches?: VectorSearchMatch[];
     rankedCandidates?: ContextSelectionCandidate[];
+    selectionSummary?: ContextSelectionSummary[];
+    budgetSummary?: ContextBudgetSummary;
     provider: string;
     durationMs?: number;
     externalTask?: import("../types.js").ExternalTaskRef;
@@ -83,6 +87,8 @@ export async function persistPlanArtifacts(
     normalizedPlan: payload.plan,
     vectorMatches: payload.vectorMatches ?? [],
     rankedCandidates: payload.rankedCandidates ?? [],
+    selectionSummary: payload.selectionSummary ?? [],
+    budgetSummary: payload.budgetSummary ?? null,
     externalTask: payload.externalTask,
     refactorAnalysis: payload.refactorAnalysis
   };
@@ -103,6 +109,7 @@ export async function persistPlanArtifacts(
     latestProvider: payload.provider,
     latestVectorMatches: payload.vectorMatches ?? [],
     latestContextRanking: payload.rankedCandidates ?? [],
+    latestContextSelection: payload.selectionSummary ?? [],
     externalTask: payload.externalTask
   });
   logger?.info(`Saved planner checkpoint at ${stepPath}`);
@@ -340,6 +347,7 @@ export async function persistRunState(
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
+    latestContextSelection?: ContextSelectionSummary[];
     execution?: ExecutionSummary | null;
     approvalPolicy?: import("../types.js").ApprovalPolicyDecision | null;
     executionSteps?: import("../types.js").ExecutionStepSummary[];
@@ -362,6 +370,7 @@ export async function persistRunState(
     : null;
   const explicitVectorMatches = payload.latestVectorMatches;
   const explicitContextRanking = payload.latestContextRanking;
+  const explicitContextSelection = payload.latestContextSelection;
   const artifactVectorMatches =
     Array.isArray(payload.artifacts?.latestVectorMatches) && payload.artifacts.latestVectorMatches.length > 0
       ? payload.artifacts.latestVectorMatches
@@ -370,9 +379,15 @@ export async function persistRunState(
     Array.isArray(payload.artifacts?.latestContextRanking) && payload.artifacts.latestContextRanking.length > 0
       ? payload.artifacts.latestContextRanking
       : undefined;
+  const artifactContextSelection =
+    Array.isArray(payload.artifacts?.latestContextSelection) && payload.artifacts.latestContextSelection.length > 0
+      ? payload.artifacts.latestContextSelection
+      : undefined;
   const effectiveVectorMatches = explicitVectorMatches ?? artifactVectorMatches ?? existingIndex?.latestVectorMatches ?? [];
   const effectiveContextRanking =
     explicitContextRanking ?? artifactContextRanking ?? existingIndex?.latestContextRanking ?? [];
+  const effectiveContextSelection =
+    explicitContextSelection ?? artifactContextSelection ?? existingIndex?.latestContextSelection ?? [];
   const serializable = {
     version: 1,
     status: payload.status ?? (payload.ok ? "completed" : "failed"),
@@ -416,6 +431,7 @@ export async function persistRunState(
     latestToolResults: payload.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
+    latestContextSelection: effectiveContextSelection,
     approvalPolicy: payload.approvalPolicy ?? null,
     externalTask: payload.externalTask,
     externalUpdatePreviews: payload.externalUpdatePreviews,
@@ -460,6 +476,13 @@ export async function persistRunState(
             path: entry.path,
             score: entry.score,
             sources: entry.sources
+          })),
+          latestContextSelection: (serializable.latestContextSelection ?? []).map((entry) => ({
+            path: entry.path,
+            score: entry.score,
+            sources: entry.sources,
+            inclusionReason: entry.inclusionReason,
+            exclusionReason: entry.exclusionReason
           }))
         }
       });
@@ -472,6 +495,7 @@ export async function persistRunState(
     latestToolResults: serializable.latestToolResults ?? [],
     latestVectorMatches: effectiveVectorMatches,
     latestContextRanking: effectiveContextRanking,
+    latestContextSelection: effectiveContextSelection,
     execution: serializable.execution ?? null,
     approvalPolicy: serializable.approvalPolicy,
     externalTask: serializable.externalTask
@@ -669,6 +693,7 @@ export async function writeArtifactIndex(
     latestToolResults?: ToolExecutionResult[];
     latestVectorMatches?: VectorSearchMatch[];
     latestContextRanking?: ContextSelectionCandidate[];
+    latestContextSelection?: ContextSelectionSummary[];
     execution?: ExecutionSummary | null;
     approvalPolicy?: import("../types.js").ApprovalPolicyDecision | null;
     externalTask?: import("../types.js").ExternalTaskRef;
@@ -702,6 +727,7 @@ export async function writeArtifactIndex(
     latestToolResults: payload.latestToolResults ?? [],
     latestVectorMatches: payload.latestVectorMatches ?? existingIndex?.latestVectorMatches ?? [],
     latestContextRanking: payload.latestContextRanking ?? existingIndex?.latestContextRanking ?? [],
+    latestContextSelection: payload.latestContextSelection ?? existingIndex?.latestContextSelection ?? [],
     execution: payload.execution ?? null,
     approvalPolicy: payload.approvalPolicy ?? existingIndex?.approvalPolicy ?? null,
     externalTask: payload.externalTask ?? existingIndex?.externalTask ?? null,

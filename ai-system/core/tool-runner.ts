@@ -2,7 +2,7 @@ import path from "node:path";
 import { runCommandWithRetry } from "../utils/api.js";
 import { truncate } from "../utils/string.js";
 import { resolveSandboxImage, resolveToolSandbox } from "./tool-sandbox.js";
-import type { CliCommandError, GeneratedFile, ReviewIssue, ToolExecutionName, ToolExecutionResult } from "../types.js";
+import type { CliCommandError, GeneratedFile, ReviewIssue, ToolCheckFailureClass, ToolExecutionName, ToolExecutionResult } from "../types.js";
 import type { ResolvedToolCommand } from "./tool-scoping.js";
 
 const DEFAULT_TOOL_TIMEOUT_MS: Record<string, number> = {
@@ -187,6 +187,37 @@ export function buildToolIssue(toolName: ToolExecutionName, error: unknown): Rev
 export function looksLikeMissingExecutable(error: unknown): boolean {
   const message = `${(error as Error | undefined)?.message ?? ""}`.toLowerCase();
   return message.includes("failed to start") || message.includes("enoent");
+}
+
+export function classifyToolFailure(error: unknown, sandboxMode?: string): ToolCheckFailureClass | null {
+  const normalized = error as CliCommandError | undefined;
+  const stderr = ((normalized?.stderr as string) ?? "").toLowerCase();
+  const message = (normalized?.message ?? "").toLowerCase();
+  const combined = `${stderr} ${message}`;
+
+  if (normalized?.code === null && (combined.includes("enoent") || combined.includes("command not found"))) {
+    if (sandboxMode === "docker") {
+      return { class: "tool-crash", reason: "Docker tool execution failed — command not found or not in PATH." };
+    }
+    return { class: "tool-crash", reason: "Command not found or not available in PATH." };
+  }
+
+  if (combined.includes("no such file") || combined.includes("cannot find module") || combined.includes("file not found")) {
+    return { class: "missing-file", reason: "Required file or module not found during tool execution." };
+  }
+
+  if (combined.includes("segmentation fault") || combined.includes("fatal error") || combined.includes("core dump") || combined.includes("internal error")) {
+    return { class: "tool-crash", reason: "Tool crashed with a fatal internal error." };
+  }
+
+  if (
+    (normalized?.code !== null && normalized?.code !== 0) &&
+    (!combined.includes("error") && !combined.includes("fail") && !combined.includes("failed"))
+  ) {
+    return { class: "tool-output-error", reason: "Tool exited with non-zero code but no recognizable error output." };
+  }
+
+  return null;
 }
 
 function formatCommandOutput(error: unknown): string {

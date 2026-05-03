@@ -7,6 +7,7 @@ import type {
   ExecutionProviderMetric,
   ExecutionTransition,
   ExecutionSummary,
+  FailureClass,
   FailureSummary,
   IterationResult,
   ProviderSummary,
@@ -111,21 +112,27 @@ export function buildExecutionSummary({
 export function buildExecutionBudgetSummary({
   totalDurationMs,
   providerMetrics,
-  budgetConfig
+  budgetConfig,
+  retryCount = 0,
+  cumulativeCostUnits = 0
 }: {
   totalDurationMs: number;
   providerMetrics: ExecutionProviderMetric[];
   budgetConfig?: ExecutionBudgetConfig | null;
+  retryCount?: number;
+  cumulativeCostUnits?: number;
 }): ExecutionBudgetSummary | null {
   const maxDurationMs = normalizeBudgetNumber(budgetConfig?.max_duration_ms);
   const maxCostUnits = normalizeBudgetNumber(budgetConfig?.max_cost_units);
-  if (maxDurationMs === null && maxCostUnits === null) {
+  const maxRetries = normalizeBudgetNumber(budgetConfig?.max_retries);
+  if (maxDurationMs === null && maxCostUnits === null && maxRetries === null) {
     return null;
   }
 
-  const totalCostUnits = Number(
+  const runCostUnits = Number(
     providerMetrics.reduce((total, metric) => total + Math.max(0, metric.estimatedCostUnits || 0), 0).toFixed(3)
   );
+  const totalCostUnits = Number((cumulativeCostUnits + runCostUnits).toFixed(3));
   const exceeded =
     maxDurationMs !== null && totalDurationMs > maxDurationMs
       ? "duration"
@@ -138,7 +145,10 @@ export function buildExecutionBudgetSummary({
     maxCostUnits,
     totalDurationMs: Math.max(0, Math.round(totalDurationMs)),
     totalCostUnits,
-    exceeded
+    exceeded,
+    retryCount,
+    cumulativeCostUnits: totalCostUnits,
+    maxRetries
   };
 }
 
@@ -276,6 +286,12 @@ function classifyRunFailure({
   }
 
   if (budget?.exceeded === "duration") {
+    if (budget.maxRetries !== null && budget.retryCount >= budget.maxRetries) {
+      return {
+        class: "retry-limit-reached",
+        reason: `Retry limit (${budget.maxRetries}/${budget.maxRetries}) reached after duration budget exceeded.`
+      };
+    }
     return {
       class: "duration-budget-exceeded",
       reason: `Run exceeded the duration budget (${budget.totalDurationMs}ms > ${budget.maxDurationMs}ms).`
@@ -283,14 +299,40 @@ function classifyRunFailure({
   }
 
   if (budget?.exceeded === "cost") {
+    if (budget.maxRetries !== null && budget.retryCount >= budget.maxRetries) {
+      return {
+        class: "retry-limit-reached",
+        reason: `Retry limit (${budget.maxRetries}/${budget.maxRetries}) reached after cost budget exceeded.`
+      };
+    }
     return {
       class: "cost-budget-exceeded",
       reason: `Run exceeded the cost budget (${budget.totalCostUnits.toFixed(2)} > ${budget.maxCostUnits?.toFixed(2)} units).`
     };
   }
 
+  // NEW: classify failed tools with structured check
   const failedTools = latestToolResults.filter((tool) => !tool.skipped && !tool.ok);
   if (failedTools.length > 0) {
+    const toolClasses = new Set(failedTools.map((t) => t.failureClass?.class).filter(Boolean) as FailureClass[]);
+    if (toolClasses.has("missing-file")) {
+      return {
+        class: "missing-file",
+        reason: `Generated files are missing or could not be found for checks: ${failedTools.map((tool) => tool.name).join(", ")}.`
+      };
+    }
+    if (toolClasses.has("tool-crash")) {
+      return {
+        class: "tool-crash",
+        reason: `One or more tool checks crashed: ${failedTools.map((tool) => tool.name).join(", ")}.`
+      };
+    }
+    if (toolClasses.has("tool-output-error")) {
+      return {
+        class: "tool-output-error",
+        reason: `Tool checks produced unexpected output: ${failedTools.map((tool) => tool.name).join(", ")}.`
+      };
+    }
     return {
       class: "tool-check-failed",
       reason: `Tool checks failed: ${failedTools.map((tool) => tool.name).join(", ")}.`
@@ -304,6 +346,14 @@ function classifyRunFailure({
     return {
       class: "validation-failed",
       reason: `Generated output failed validation with ${blockingValidationIssues.length} blocking issue(s).`
+    };
+  }
+
+  // NEW: detect partial generation
+  if (finalIssues.some((issue) => issue.category === "generation" && issue.severity === "high")) {
+    return {
+      class: "partial-generation",
+      reason: `Generation incomplete — ${finalIssues.filter((i) => i.category === "generation" && i.severity === "high").length} file(s) not generated.`
     };
   }
 
@@ -324,7 +374,7 @@ function classifyRunFailure({
   if (status === "failed") {
     return {
       class: "unknown",
-      reason: "Run failed without a classified tool or review cause."
+      reason: "Run failed without a classified tool or cause."
     };
   }
 

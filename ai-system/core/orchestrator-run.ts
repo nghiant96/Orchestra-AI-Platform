@@ -149,19 +149,31 @@ export async function runOrchestrator(
     writeTargets,
     notes: [
       ...(Array.isArray(rawPlan.notes) ? rawPlan.notes : []),
-      ...(contextExpansion.rankedCandidates.length > 0
+      ...(contextExpansion.selectionSummary.length > 0
         ? [
-            `Context ranking: ${contextExpansion.rankedCandidates
+            `Context selected: ${contextExpansion.selectionSummary
+              .filter((entry) => !entry.exclusionReason)
               .slice(0, 5)
-              .map((entry) => `${entry.path} [${entry.sources.join("+")}]`)
+              .map((entry) => `${entry.path} [${entry.sources.join("+")}${entry.inclusionReason ? `; ${entry.inclusionReason}` : ""}]`)
+              .join(", ")}`
+          ]
+        : []),
+      ...(contextExpansion.selectionSummary.some((entry) => entry.exclusionReason)
+        ? [
+            `Context trimmed: ${contextExpansion.selectionSummary
+              .filter((entry) => entry.exclusionReason)
+              .slice(0, 5)
+              .map((entry) => `${entry.path} (${entry.exclusionReason})`)
               .join(", ")}`
           ]
         : []),
       ...(contextExpansion.changedHintFiles.length > 0
         ? [`Changed-file hints: ${contextExpansion.changedHintFiles.join(", ")}`]
         : []),
-      ...(contextExpansion.budgetTrimmedFiles.length > 0
-        ? [`Context budget trimmed: ${contextExpansion.budgetTrimmedFiles.join(", ")}`]
+      ...(contextExpansion.budgetSummary.trimmedCount > 0
+        ? [
+            `Context budget: selected ${contextExpansion.budgetSummary.selectedCount}/${contextExpansion.budgetSummary.maxExpandedFiles} file(s), ${contextExpansion.budgetSummary.selectedBytes} bytes kept, ${contextExpansion.budgetSummary.trimmedCount} trimmed`
+          ]
         : []),
       ...(contextExpansion.vectorMatches.length > 0
         ? [
@@ -209,6 +221,8 @@ export async function runOrchestrator(
       plan,
       vectorMatches: contextExpansion.vectorMatches,
       rankedCandidates: contextExpansion.rankedCandidates,
+      selectionSummary: contextExpansion.selectionSummary,
+      budgetSummary: contextExpansion.budgetSummary,
       provider: runtime.plannerProvider.id,
       durationMs: plannerStep.durationMs,
       refactorAnalysis
