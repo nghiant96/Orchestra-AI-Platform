@@ -8,7 +8,7 @@ import type { ChecklistItem, ExecutionGraphNode, WorkItem } from "./work-item.js
 import { prepareWorkItemBranch } from "./branch-manager.js";
 import { commitWorkItemChanges, generateWorkItemPRBody } from "./commit-pr.js";
 import { watchCiForWorkItem } from "./ci.js";
-import { createGhPR } from "./gh-pr.js";
+import { createGhPR } from "./github-pr.js";
 
 export interface WorkNodeExecutionRequest {
   nodeId: string;

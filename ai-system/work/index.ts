@@ -10,3 +10,4 @@ export * from "./inbox.js";
 export * from "./ci.js";
 export * from "./scheduler.js";
 export * from "./worktree-cleanup.js";
+export * from "./github-pr.js";
