@@ -98,3 +98,22 @@ which would have turned the public wrapper into a recursive self-call.
 
 **Rule**: When a file exports a wrapper with the same name as an imported helper, always alias the import
 first and call the alias from the wrapper. This avoids accidental recursion after module splits.
+
+## 2026-05-03: Separate server-mode auth from local embedded permissions
+
+**Mistake**: Treated server auth and embedded/local server permissions as one model, which would have broken
+existing unauthenticated test flows while trying to harden server mode.
+
+**Rule**: Gate server-mode requests with the configured token first, then resolve actor permissions differently
+for local embedded mode versus authenticated server mode. Keep local test ergonomics permissive, but never
+weaken the strict server-mode path.
+
+## 2026-05-03: Dashboard API calls must share one auth-aware client
+
+**Mistake**: Individual dashboard components fetched server routes directly and assumed `/health` always
+returned a full payload. When server auth started rejecting unauthenticated requests, the UI crashed on
+missing `health.queue`.
+
+**Rule**: Route all dashboard API calls through a shared helper that adds auth headers when available and
+normalize failed responses into `null`/empty states before rendering. UI state should tolerate 401s and
+degraded server mode without throwing.

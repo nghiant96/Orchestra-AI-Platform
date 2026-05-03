@@ -139,6 +139,31 @@ test("health and queued jobs expose effective approval mode", async () => {
   }
 });
 
+test("server mode requires auth for health and protected routes", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-auth-"));
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    authToken: "test-token",
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult({ task, cwd, dryRun, ok: true })
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const unauthorized = await requestJson(baseUrl, "GET", "/health", undefined, 401);
+    assert.equal(unauthorized.ok, false);
+    assert.equal(unauthorized.error, "Unauthorized");
+
+    const authorized = await requestJson(baseUrl, "GET", "/health", undefined, 200, {
+      Authorization: "Bearer test-token"
+    });
+    assert.equal(authorized.ok, true);
+  } finally {
+    await closeServer(server);
+    await cleanupDir(repoRoot);
+  }
+});
+
 test("project registry and audit log expose multi-project operations", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-registry-"));
   const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-registry-other-"));

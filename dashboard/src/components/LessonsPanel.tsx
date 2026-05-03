@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Lightbulb, RefreshCw } from 'lucide-react';
+import { apiJson } from '../utils/api';
 
 interface Lesson {
   title: string;
@@ -13,8 +14,7 @@ export const LessonsPanel = ({ currentProject }: { currentProject: string }) => 
 
   useEffect(() => {
     let active = true;
-    fetch(`/lessons?cwd=${encodeURIComponent(currentProject)}&t=${Date.now()}`)
-      .then((res) => res.json())
+    apiJson<{ lessons?: Lesson[]; proposals?: Lesson[] }>(`/lessons?cwd=${encodeURIComponent(currentProject)}&t=${Date.now()}`)
       .then((data) => {
         if (!active) return;
         setLessons(Array.isArray(data.lessons) ? data.lessons : []);

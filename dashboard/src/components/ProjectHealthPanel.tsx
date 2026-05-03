@@ -41,9 +41,9 @@ export const ProjectHealthPanel = ({ health, jobs }: { health: SystemHealth | nu
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-9">
         <HealthTile label="Engine" value={health?.status || 'offline'} ok={Boolean(health?.ok)} />
-        <HealthTile label="Queue" value={`${health?.queue.activeCount ?? 0} active`} ok={(health?.queue.activeCount ?? 0) >= 0} />
-        <HealthTile label="Approval" value={health?.queue.approvalMode === 'auto' ? 'auto' : 'manual'} ok={health?.queue.approvalMode !== undefined} />
-        <HealthTile label="Policy" value={health?.queue.approvalPolicy?.riskClass || 'unknown'} ok={health?.queue.approvalPolicy !== undefined} />
+        <HealthTile label="Queue" value={`${health?.queue?.activeCount ?? 0} active`} ok={(health?.queue?.activeCount ?? 0) >= 0} />
+        <HealthTile label="Approval" value={health?.queue?.approvalMode === 'auto' ? 'auto' : 'manual'} ok={health?.queue?.approvalMode !== undefined} />
+        <HealthTile label="Policy" value={health?.queue?.approvalPolicy?.riskClass || 'unknown'} ok={health?.queue?.approvalPolicy !== undefined} />
         {baselineChecks.map((name) => (
           <CheckTile key={name} name={name} result={latestChecks[name]} />
         ))}

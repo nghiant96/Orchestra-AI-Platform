@@ -21,7 +21,7 @@
     "format": "prettier --write .",
     "dashboard:dev": "cd dashboard && pnpm dev",
     "dashboard:build": "cd dashboard && pnpm build",
-    "local:dev": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=dev-token node --import tsx ai-system/server.ts & pnpm run dashboard:dev"
+    "local:dev": "AI_SYSTEM_SERVER_MODE=true node --import tsx ai-system/server.ts & pnpm run dashboard:dev"
   },
   "bin": {
     "ai": "./bin/ai.js",
@@ -42,6 +42,8 @@
     "@types/node": "^20.0.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",

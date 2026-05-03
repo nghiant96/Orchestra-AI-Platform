@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Cell } from 'recharts';
 import { cn } from '../utils/cn';
+import { apiFetch } from '../utils/api';
 import type { Job } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { FileDiffView } from './FileDiffView';
@@ -44,7 +45,7 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
   const handleApproval = async (approve: boolean) => {
     setActioning(true);
     try {
-      const res = await fetch(`/jobs/${job.jobId}/${approve ? 'approve' : 'reject'}`, { method: 'POST' });
+      const res = await apiFetch(`/jobs/${job.jobId}/${approve ? 'approve' : 'reject'}`, { method: 'POST' });
       if (res.ok) {
         onRefresh();
       }

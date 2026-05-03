@@ -31,6 +31,8 @@ export interface ServerAppOptions {
 
 export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const defaultCwd = path.resolve(options.defaultCwd);
+  const authToken = options.authToken?.trim() || "";
+  const requiresAuth = authToken.length > 0;
   const allowedRoots = normalizeAllowedWorkdirs(options.allowedWorkdirs, defaultCwd);
   const logClients = new Set<http.ServerResponse>();
   const originalOnLog = options.logger.onLog;
@@ -198,7 +200,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         defaultCwd,
         allowedRoots,
         options: {
-          authToken: options.authToken,
+          authToken,
           queueConcurrency: options.queueConcurrency,
           logger: { info: options.logger.info.bind(options.logger), warn: options.logger.warn.bind(options.logger) }
         },
@@ -208,18 +210,23 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         pendingApprovals,
         currentGlobalRules,
         globalRulesPromise,
-        actor: parseAuditActor(req.headers, currentGlobalRules ?? (await globalRulesPromise).rules),
+        actor: resolveRouteActor(
+          req.headers,
+          currentGlobalRules ?? (await globalRulesPromise).rules,
+          requiresAuth
+        ),
         broadcastLog,
         resolveRequestedCwd,
         resolveOptionalRequestedCwd,
-        isAuthorized: (request) => isAuthorized(request, options.authToken || ""),
+        isAuthorized: (request) => isAuthorized(request, authToken),
         respondJson
       };
-      const routeHandlers: RouteHandler[] = [healthRoute, adminRoute, jobsRoute, configRoute, workItemsRoute];
-      for (const route of routeHandlers) {
-        if (await route.handle(req, res, url, routeContext)) {
-          return;
-        }
+
+      if (requiresAuth && !isAuthorized(req, authToken)) {
+        return respondJson(res, 401, {
+          ok: false,
+          error: "Unauthorized"
+        });
       }
 
       if (url.pathname === "/logs" && req.method === "GET") {
@@ -236,11 +243,17 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         return;
       }
 
-      if (!isAuthorized(req, options.authToken || "")) {
-        return respondJson(res, 401, {
-          ok: false,
-          error: "Unauthorized"
-        });
+      if (url.pathname === "/health" && req.method === "GET") {
+        if (await healthRoute.handle(req, res, url, routeContext)) {
+          return;
+        }
+      }
+
+      const routeHandlers: RouteHandler[] = [adminRoute, jobsRoute, configRoute, workItemsRoute];
+      for (const route of routeHandlers) {
+        if (await route.handle(req, res, url, routeContext)) {
+          return;
+        }
       }
 
       return respondJson(res, 404, {
@@ -298,6 +311,29 @@ function isAuthorized(req: http.IncomingMessage, token: string): boolean {
 
   const header = req.headers.authorization || req.headers["x-api-key"];
   return header === `Bearer ${token}` || header === token;
+}
+
+function resolveRouteActor(
+  headers: http.IncomingMessage["headers"],
+  rules: RulesConfig,
+  requiresAuth: boolean
+): ReturnType<typeof parseAuditActor> {
+  const actor = parseAuditActor(headers, rules);
+  if (requiresAuth) {
+    return actor;
+  }
+
+  const actorId = firstHeader(headers["x-ai-system-actor"]) || "dashboard";
+  const roleHeader = firstHeader(headers["x-ai-system-role"]);
+  if (roleHeader || rules.auth?.role_mapping?.[actorId]) {
+    return actor;
+  }
+
+  return { ...actor, role: "operator" };
+}
+
+function firstHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: boolean; pauseAfterPlan: boolean } {

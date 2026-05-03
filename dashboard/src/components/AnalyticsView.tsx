@@ -8,6 +8,7 @@ import {
 import { TrendingUp, Clock, Download, PieChart as PieIcon, LayoutDashboard } from 'lucide-react';
 import { StatCard } from './StatCard';
 import type { WorkspaceStats } from '../types/index.js';
+import { apiJson } from '../utils/api';
 
 export const AnalyticsView = ({ currentProject }: { currentProject: string }) => {
   const [data, setData] = useState<WorkspaceStats | null>(null);
@@ -20,8 +21,7 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
     // Use a small delay or a ref if needed, but for now just avoid sync setState
     // Actually, we can just check if data is null or project matches
     
-    fetch(`/stats?cwd=${encodeURIComponent(currentProject)}&t=${Date.now()}`)
-      .then(res => res.json())
+    apiJson<WorkspaceStats>(`/stats?cwd=${encodeURIComponent(currentProject)}&t=${Date.now()}`)
       .then(d => {
         if (active) {
           setData(d);
@@ -56,8 +56,7 @@ export const AnalyticsView = ({ currentProject }: { currentProject: string }) =>
   const handleExport = async () => {
     if (!data) return;
     try {
-      const auditRes = await fetch(`/audit/export?format=json&t=${Date.now()}`);
-      const auditData = await auditRes.json();
+      const auditData = await apiJson(`/audit/export?format=json&t=${Date.now()}`);
       const blob = new Blob([JSON.stringify({ stats: data, audit: auditData }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

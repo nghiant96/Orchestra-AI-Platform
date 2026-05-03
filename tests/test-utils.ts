@@ -44,18 +44,27 @@ export async function listen(server: http.Server): Promise<string> {
   return baseUrl;
 }
 
-export async function waitForHttpReady(baseUrl: string, readyPath = "/health"): Promise<void> {
+export async function waitForHttpReady(
+  baseUrl: string,
+  readyPath = "/health",
+  extraHeaders: Record<string, string> = {}
+): Promise<void> {
   const maxAttempts = 20;
 
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const statusCode = await new Promise<number>((resolve, reject) => {
-        const req = http.get(new URL(readyPath, baseUrl), (res) => {
-          res.resume();
-          resolve(res.statusCode || 0);
-        });
+        const req = http.get(
+          new URL(readyPath, baseUrl),
+          {
+            headers: extraHeaders
+          },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode || 0);
+          }
+        );
         req.on("error", reject);
-        req.end();
       });
       if (statusCode >= 200 && statusCode < 500) {
         return;

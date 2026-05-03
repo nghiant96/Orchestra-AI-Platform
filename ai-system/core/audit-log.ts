@@ -102,9 +102,9 @@ export function parseAuditActor(
   }
 
   // 2. Fallback to header or default
-  const role: AuditRole = roleHeader === "viewer" || roleHeader === "operator" || roleHeader === "admin"
+  const role: AuditRole = roleHeader === "admin" || roleHeader === "operator" || roleHeader === "viewer"
     ? roleHeader
-    : "admin";
+    : "viewer";
 
   return {
     id: actorId,

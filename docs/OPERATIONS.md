@@ -9,10 +9,10 @@ This guide covers the local HTTP service and dashboard workflows for operating t
 Run the server from the repository root:
 
 ```bash
-AI_SYSTEM_SERVER_MODE=true \
-AI_SYSTEM_SERVER_TOKEN=change-me \
 pnpm run server
 ```
+
+`pnpm run server` reads a repo-root `.env` file before startup, so you can place `AI_SYSTEM_SERVER_TOKEN` there instead of exporting it in the shell.
 
 For multi-project operation, set `AI_SYSTEM_ALLOWED_WORKDIRS` to a comma-separated list of absolute repository paths. Requests with `cwd` outside those roots are rejected.
 
@@ -34,11 +34,11 @@ For local development and testing, you can start both the server and dashboard w
 pnpm run local:dev
 ```
 
-This uses a default `dev-token` and starts the server in the background.
+This starts the server and dashboard together. Put `AI_SYSTEM_SERVER_TOKEN` in the repo-root `.env` file so both processes use the same token source.
 
 ## Authentication And Roles
 
-All API routes except the health/log preflight paths require the configured bearer token or server auth mechanism used by `isAuthorized`.
+When `AI_SYSTEM_SERVER_TOKEN` is configured, all API routes including `/health` and `/logs` require the bearer token.
 
 Role-sensitive write actions read actor headers through `parseAuditActor`:
 

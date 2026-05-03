@@ -20,6 +20,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { cn } from '../utils/cn';
+import { apiFetch } from '../utils/api';
 import type { SystemConfig, ConfigFormData } from '../types';
 import { StatCard } from './StatCard';
 import { OperationsControl } from './OperationsControl';
@@ -83,7 +84,7 @@ export const ConfigView = ({ config, onUpdate, health, onRefreshHealth, currentP
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch('/config', {
+      const res = await apiFetch('/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)

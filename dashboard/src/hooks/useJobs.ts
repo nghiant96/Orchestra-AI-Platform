@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import type { Job } from '../types/index.js';
+import { apiFetch, apiJson } from '../utils/api';
 
 export const useJobs = (projectPath?: string) => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -14,8 +15,7 @@ export const useJobs = (projectPath?: string) => {
       ? `/jobs?cwd=${encodeURIComponent(projectPath)}&t=${Date.now()}` 
       : `/jobs?t=${Date.now()}`;
       
-    fetch(url)
-      .then(res => res.json())
+    apiJson<{ jobs?: Job[] } | Job[]>(url)
       .then(data => {
         // Đảm bảo lấy được mảng jobs dù cấu trúc data như thế nào
         const jobsArray = Array.isArray(data) ? data : (data.jobs || []);
@@ -60,7 +60,7 @@ export const useJobs = (projectPath?: string) => {
 
     setSubmitting(true);
     try {
-      const response = await fetch('/jobs', {
+      const response = await apiFetch('/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task, cwd, dryRun })
@@ -83,7 +83,7 @@ export const useJobs = (projectPath?: string) => {
 
   const cancelJob = async (jobId: string) => {
     try {
-      const response = await fetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
+      const response = await apiFetch(`/jobs/${jobId}/cancel`, { method: 'POST' });
       if (response.ok) {
         fetchJobs();
         toast.info(`Job cancellation requested`);
@@ -98,7 +98,7 @@ export const useJobs = (projectPath?: string) => {
 
   const resumeJob = async (jobId: string) => {
     try {
-      const response = await fetch(`/jobs/${jobId}/resume`, { method: 'POST' });
+      const response = await apiFetch(`/jobs/${jobId}/resume`, { method: 'POST' });
       if (response.ok) {
         fetchJobs();
         toast.success(`Job resumed from last checkpoint`);

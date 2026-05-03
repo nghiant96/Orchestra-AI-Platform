@@ -1,42 +1,49 @@
+import path from 'node:path';
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { loadEnv } from 'vite';
 
 // https://vite.dev/config/
-export default defineConfig({
-  plugins: [
-    react(),
-    tailwindcss(),
-  ],
-  server: {
-    port: 5253,
-    proxy: {
-      '/jobs': {
-        target: 'http://localhost:3927',
-        changeOrigin: true,
-      },
-      '/config': {
-        target: 'http://localhost:3927',
-        changeOrigin: true,
-      },
-      '/logs': {
-        target: 'http://localhost:3927',
-        changeOrigin: true,
-        ws: true,
-      },
-      '/health': {
-        target: 'http://localhost:3927',
-        changeOrigin: true,
-      },
-      '/stats': {
-        target: 'http://localhost:3927',
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const repoRoot = path.resolve(process.cwd(), '..');
+  const repoEnv = loadEnv(mode, repoRoot, '');
+  const dashboardEnv = loadEnv(mode, process.cwd(), 'VITE_');
+  const authToken = dashboardEnv.VITE_AI_SYSTEM_SERVER_TOKEN || repoEnv.AI_SYSTEM_SERVER_TOKEN || repoEnv.VITE_AI_SYSTEM_SERVER_TOKEN || process.env.AI_SYSTEM_SERVER_TOKEN || '';
+
+  const proxyTarget = 'http://localhost:3927';
+  const proxyHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : undefined;
+  const proxyOptions = {
+    target: proxyTarget,
+    changeOrigin: true,
+    headers: proxyHeaders,
+  };
+
+  return {
+    plugins: [
+      react(),
+      tailwindcss(),
+    ],
+    server: {
+      port: 5253,
+      proxy: {
+        '/jobs': proxyOptions,
+        '/config': proxyOptions,
+        '/logs': { ...proxyOptions, ws: true },
+        '/health': proxyOptions,
+        '/stats': proxyOptions,
+        '/audit': proxyOptions,
+        '/lessons': proxyOptions,
+        '/queue': proxyOptions,
+        '/work-items': proxyOptions,
+        '/projects': proxyOptions,
+        '/run': proxyOptions,
       },
     },
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-  },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['./src/test/setup.ts'],
+    },
+  };
 })

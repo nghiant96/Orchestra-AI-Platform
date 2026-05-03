@@ -186,6 +186,29 @@ Result:
 - `provider-router.ts` now delegates shared profile/provider helpers, signal heuristics, and adaptive history/scoring to focused modules.
 - Public routing behavior stayed intact; focused router tests and the full suite passed.
 
+## Server Auth Hardening
+
+- [x] Enforce `AI_SYSTEM_SERVER_TOKEN` in `server.ts` for server mode startup.
+- [x] Require auth for all server-mode routes, including `/health` and `/logs`.
+- [x] Preserve permissive local embedded-server behavior when no auth token is configured.
+- [x] Add regression coverage for authenticated and unauthenticated server modes.
+
+Result:
+
+- Server mode now matches the security doc: token required at startup and every route is gated when token is configured.
+- Local embedded tests keep operator-default behavior so existing queue/admin smoke tests remain usable without a token.
+
+## Dashboard Auth Recovery
+
+- [x] Add a shared dashboard API client that injects bearer auth when configured.
+- [x] Make dashboard health and queue UI tolerate 401 / missing payloads without crashing.
+- [x] Proxy dashboard dev traffic with the server token from repo-root `.env`.
+
+Result:
+
+- Dashboard no longer crashes when `/health` is unauthorized.
+- Local dashboard dev and `local:dev` now read the same repo-root token source as the server.
+
 ## Test Failure Triage - 2026-04-30
 
 - [x] Reproduce `tests/server-queue.test.ts` lifecycle crash.

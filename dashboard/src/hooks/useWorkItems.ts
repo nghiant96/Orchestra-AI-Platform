@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { WorkItem } from '../types/index.js';
+import { apiFetch, apiJson } from '../utils/api';
 
 function parseExternalUrl(url: string): { title: string; source: 'github_issue' | 'github_pr' } | null {
   try {
@@ -26,8 +27,7 @@ export const useWorkItems = (projectPath?: string) => {
       ? `/work-items?cwd=${encodeURIComponent(projectPath)}&t=${Date.now()}`
       : `/work-items?t=${Date.now()}`;
 
-    fetch(url)
-      .then((res) => res.json())
+    apiJson<{ workItems?: WorkItem[] } | WorkItem[]>(url)
       .then((data) => {
         setWorkItems(Array.isArray(data) ? data : (data.workItems || []));
         setLoading(false);
@@ -46,7 +46,7 @@ export const useWorkItems = (projectPath?: string) => {
 
   const action = useCallback(async (id: string, verb: string, body?: unknown) => {
     const url = `/work-items/${encodeURIComponent(id)}/${verb}`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -83,7 +83,7 @@ export const useWorkItems = (projectPath?: string) => {
     if (!parsed) {
       throw new Error('Invalid GitHub issue or PR URL');
     }
-    const res = await fetch('/work-items', {
+    const res = await apiFetch('/work-items', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

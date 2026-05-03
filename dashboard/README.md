@@ -21,7 +21,7 @@ From the project root:
 pnpm run local:dev
 ```
 
-This will start the AI System server and the dashboard development server concurrently.
+This will start the AI System server and the dashboard development server concurrently. The dashboard proxy reads `AI_SYSTEM_SERVER_TOKEN` from the repo-root `.env` file when present.
 
 ### Production Build
 

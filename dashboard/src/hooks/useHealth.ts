@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ApprovalPolicyDecision } from '../types/index.js';
+import { apiJson } from '../utils/api';
 
 export interface SystemHealth {
   ok: boolean;
@@ -26,10 +27,12 @@ export const useHealth = () => {
   const [health, setHealth] = useState<SystemHealth | null>(null);
 
   const fetchHealth = useCallback(() => {
-    fetch(`/health?t=${Date.now()}`)
-      .then(res => res.json())
-      .then(data => setHealth(data))
-      .catch(err => console.error('Failed to fetch health:', err));
+    apiJson<SystemHealth>(`/health?t=${Date.now()}`)
+      .then((data) => setHealth(data))
+      .catch((err) => {
+        console.error('Failed to fetch health:', err);
+        setHealth(null);
+      });
   }, []);
 
   useEffect(() => {

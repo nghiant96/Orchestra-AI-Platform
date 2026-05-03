@@ -17,6 +17,8 @@ pnpm run server          # API server on :3927
 pnpm run dashboard:dev   # Dashboard on :5173
 ```
 
+`pnpm run server` loads a repo-root `.env` file automatically before reading server settings.
+
 ### Docker
 
 ```bash
@@ -37,7 +39,7 @@ docker run --rm -it \
 | Variable | Description | Default |
 |---|---|---|
 | `AI_SYSTEM_SERVER_MODE` | Enable server mode | `false` |
-| `AI_SYSTEM_SERVER_TOKEN` | Bearer token for API auth | None (no auth) |
+| `AI_SYSTEM_SERVER_TOKEN` | Bearer token for API auth | None (required in server mode) |
 | `AI_SYSTEM_SERVER_PORT` | HTTP port | `3927` |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated allowed directories | CWD only |
 

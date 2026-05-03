@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ArrowRight, TrendingDown, TrendingUp, Clock, FileCode } from 'lucide-react';
 import type { Job } from '../types';
+import { apiJson } from '../utils/api';
 
 interface JobComparisonViewProps {
   currentJob: Job;
@@ -19,8 +20,7 @@ export const JobComparisonView = ({ currentJob }: JobComparisonViewProps) => {
 
   useEffect(() => {
     let active = true;
-    fetch(`/jobs?cwd=${encodeURIComponent(currentJob.cwd)}&t=${Date.now()}`)
-      .then(res => res.json())
+    apiJson<{ jobs?: Job[] }>(`/jobs?cwd=${encodeURIComponent(currentJob.cwd)}&t=${Date.now()}`)
       .then(data => {
         if (active) {
           const jobs = data.jobs || [];

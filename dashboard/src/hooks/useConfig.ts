@@ -1,15 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import type { SystemConfig, ConfigFormData } from '../types/index.js';
+import { apiFetch, apiJson } from '../utils/api';
 
 export const useConfig = () => {
   const [config, setConfig] = useState<SystemConfig | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchConfig = useCallback(() => {
-    fetch(`/config?t=${Date.now()}`)
-      .then(res => res.json())
-      .then(data => {
+    apiJson<SystemConfig>(`/config?t=${Date.now()}`)
+      .then((data) => {
         setConfig(data);
         setLoading(false);
       })
@@ -25,7 +25,7 @@ export const useConfig = () => {
 
   const updateConfig = async (formData: ConfigFormData) => {
     try {
-      const res = await fetch('/config', {
+      const res = await apiFetch('/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData)

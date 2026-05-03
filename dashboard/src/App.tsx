@@ -374,7 +374,7 @@ function App() {
             <div className="hidden sm:flex items-center gap-4">
               <div className="flex items-center gap-2">
                 <Server size={12} className="text-indigo-400" />
-                Queue: {health?.queue.activeCount || 0} active / {health?.queue.queuedCount || 0} queued
+                Queue: {health?.queue?.activeCount || 0} active / {health?.queue?.queuedCount || 0} queued
               </div>
               <div className="flex items-center gap-2 border-l border-slate-200 pl-4">
                 <ShieldCheck size={12} className="text-indigo-400" />

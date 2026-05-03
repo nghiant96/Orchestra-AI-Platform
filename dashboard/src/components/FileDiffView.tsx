@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { XCircle, FileJson } from 'lucide-react';
 import { cn } from '../utils/cn';
+import { apiFetch, apiJson } from '../utils/api';
 
 interface FileDiffViewProps {
   jobId: string;
@@ -18,16 +19,15 @@ export const FileDiffView = ({ jobId, path, onClose }: FileDiffViewProps) => {
     const fetchContents = async () => {
       try {
         const [origRes, genRes] = await Promise.all([
-          fetch(`/jobs/${jobId}/files/content?path=${encodeURIComponent(path)}&type=original`),
-          fetch(`/jobs/${jobId}/files/content?path=${encodeURIComponent(path)}&type=generated`)
+          apiFetch(`/jobs/${jobId}/files/content?path=${encodeURIComponent(path)}&type=original`),
+          apiJson<{ ok: boolean; content?: string; error?: string }>(`/jobs/${jobId}/files/content?path=${encodeURIComponent(path)}&type=generated`)
         ]);
 
-        const origData = origRes.ok ? await origRes.json() : { ok: true, content: '' };
-        const genData = await genRes.json();
-
-        if (origData.ok) setOriginal(origData.content || '');
-        if (genData.ok) setGenerated(genData.content);
-        if (!genData.ok) setError(genData.error || 'Failed to load generated content');
+        if (origRes.ok) {
+          const origData = await origRes.json();
+          if (origData.ok) setOriginal(origData.content || '');
+        }
+        if (genRes.ok) setGenerated(genRes.content || '');
       } catch {
         setError('Failed to fetch file contents');
       } finally {

@@ -7,7 +7,7 @@ Turn Codex, Gemini, and Claude CLIs into a coordinated, governed coding workflow
 [![CI](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-local--first-blue)](docs/SECURITY.md)
 [![Node.js](https://img.shields.io/badge/node-20%2B-green)](https://nodejs.org)
-[![License](https://img.shields.io/badge/license-Private-red)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
@@ -285,6 +285,7 @@ pnpm run local:dev
 ```
 
 Open **http://localhost:5173** to access the dashboard.
+If you are running in server mode, place `AI_SYSTEM_SERVER_TOKEN` in the repo-root `.env` file so both the server and dashboard proxy use the same token.
 
 ---
 
@@ -613,4 +614,4 @@ pnpm run docker:logs          # Follow logs
 
 ## License
 
-Private — All rights reserved.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
