@@ -14,7 +14,7 @@ pnpm run local:dev
 
 # Or separately:
 pnpm run server          # API server on :3927
-pnpm run dashboard:dev   # Dashboard on :5173
+pnpm run dashboard:dev   # Dashboard on :5253
 ```
 
 `pnpm run server` loads a repo-root `.env` file automatically before reading server settings.
@@ -127,7 +127,7 @@ data: {"level":"success","message":"All checks passed","timestamp":"..."}
 
 ## Dashboard
 
-The web dashboard (React + Vite) is available at `http://localhost:5173` when running `dashboard:dev`.
+The web dashboard (React + Vite) is available at `http://localhost:5253` when running `dashboard:dev`.
 
 ### Panels
 

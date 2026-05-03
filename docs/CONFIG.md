@@ -206,7 +206,7 @@ AI_SYSTEM_DISABLE_TUI=true            # Disable interactive UI
 ```bash
 AI_SYSTEM_SERVER_MODE=true            # Enable server mode
 AI_SYSTEM_SERVER_TOKEN=my-secret      # API auth token
-AI_SYSTEM_SERVER_PORT=3927            # HTTP port
+PORT=3927                             # HTTP port (or AI_SYSTEM_PORT)
 AI_SYSTEM_ALLOWED_WORKDIRS=/repo1,/repo2  # Allowed directories
 ```
 

@@ -230,7 +230,7 @@ If the server crashes, queued and running jobs remain in `.ai-system-server/jobs
 #### Artifact Cleanup
 Artifacts are stored in `.ai-system-artifacts/` within each project.
 - **Manual Cleanup:** Safe to delete old run directories if history is no longer needed.
-- **Automation:** (Planned for v1.0) Automatic retention policy.
+- **Automation:** Automatic retention cleanup runs daily when the server is active. Configure `retention.artifact_days` in `.ai-system.json` to control the retention window.
 
 #### Audit Review
 All operator actions are logged.

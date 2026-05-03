@@ -1,6 +1,19 @@
 import type http from "node:http";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 import { resolveApprovalPolicy } from "../../core/risk-policy.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkgVersion: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "../../../package.json"), "utf8"));
+    return pkg.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 export const healthRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
@@ -14,7 +27,7 @@ export const healthRoute: RouteHandler = {
     res.end(JSON.stringify({
       ok: true,
       status: "online",
-      version: "2.0.0",
+      version: pkgVersion,
       cwd: ctx.defaultCwd,
       allowedWorkdirs: ctx.allowedRoots,
       queue: {
