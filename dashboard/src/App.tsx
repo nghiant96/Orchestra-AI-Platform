@@ -10,11 +10,12 @@ import {
   Info,
   Settings,
   Server,
-  ListChecks
+  ListChecks,
+  Inbox
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster, toast } from 'sonner';
-import type { Job } from './types';
+import type { Job, WorkItem } from './types';
 import { cn } from './utils/cn';
 import { StatCard } from './components/StatCard';
 import { Navbar } from './components/Navbar';
@@ -26,9 +27,11 @@ import { useConfig } from './hooks/useConfig';
 import { useHealth } from './hooks/useHealth';
 import { useWorkItems } from './hooks/useWorkItems';
 import { WorkBoardPanel } from './components/WorkBoardPanel';
+import { InboxPanel } from './components/InboxPanel';
 
 // Lazy loaded components for code splitting
 const JobDetailModal = lazy(() => import('./components/JobDetailModal').then(m => ({ default: m.JobDetailModal })));
+const WorkItemDetailModal = lazy(() => import('./components/WorkItemDetailModal').then(m => ({ default: m.WorkItemDetailModal })));
 const ConfigView = lazy(() => import('./components/ConfigView').then(m => ({ default: m.ConfigView })));
 const AnalyticsView = lazy(() => import('./components/AnalyticsView').then(m => ({ default: m.AnalyticsView })));
 
@@ -41,7 +44,7 @@ const ViewLoading = () => (
 
 function App() {
   const { health, fetchHealth } = useHealth();
-  
+
   const [selectedProject, setSelectedProject] = useState<string>(() => {
     return localStorage.getItem('orchestra_ai_project') || '';
   });
@@ -66,7 +69,7 @@ function App() {
     resumeJob,
     jobs
   } = useJobs(currentProject);
-  const { workItems, loading: workLoading, stats: workStats } = useWorkItems(currentProject);
+  const { workItems, loading: workLoading, stats: workStats, fetchWorkItems, assess, run, cancel, retry, importWorkItem } = useWorkItems(currentProject);
 
   const statusCounts = useMemo(() => {
     return jobs.reduce<Record<string, number>>((counts, job) => {
@@ -85,6 +88,7 @@ function App() {
   const [formCwd, setFormCwd] = useState('');
   const [dryRun, setDryRun] = useState(true);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [selectedWorkItem, setSelectedWorkItem] = useState<WorkItem | null>(null);
 
   // Sync form CWD with current project if it changes and form is empty or matches previous project
   const displayCwd = useMemo(() => {
@@ -135,6 +139,26 @@ function App() {
     rerunJob(job);
   };
 
+  const handleWorkItemClick = (item: WorkItem) => {
+    setSelectedWorkItem(item);
+  };
+
+  const handleWorkItemAssess = async (item: WorkItem) => {
+    try { await assess(item); fetchWorkItems(); toast.success(`Assessing: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+  };
+
+  const handleWorkItemRun = async (item: WorkItem) => {
+    try { await run(item); fetchWorkItems(); toast.success(`Running: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+  };
+
+  const handleWorkItemCancel = async (item: WorkItem) => {
+    try { await cancel(item); fetchWorkItems(); toast.success(`Cancelled: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+  };
+
+  const handleWorkItemRetry = async (item: WorkItem) => {
+    try { await retry(item); fetchWorkItems(); toast.success(`Retrying: ${item.title}`); } catch (e: any) { toast.error(e.message); }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] font-sans text-slate-900 antialiased pb-20">
       <Navbar
@@ -172,7 +196,7 @@ function App() {
 
                 <ProjectHealthPanel health={health} jobs={jobs} />
                 <div className="mb-8">
-                  <WorkBoardPanel workItems={workItems} loading={workLoading} />
+                  <WorkBoardPanel workItems={workItems} loading={workLoading} onItemClick={handleWorkItemClick} />
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -273,6 +297,18 @@ function App() {
                 currentProject={currentProject}
               />
             } />
+            <Route path="/inbox" element={
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+              >
+                <InboxPanel
+                  onImport={importWorkItem}
+                  onRefresh={fetchWorkItems}
+                />
+              </motion.div>
+            } />
             <Route path="/analytics" element={
               <AnalyticsView currentProject={currentProject} />
             } />
@@ -284,7 +320,7 @@ function App() {
                   <StatCard title="Workspace Done" value={workStats.done} icon={ShieldCheck} color="bg-emerald-50 text-emerald-600" />
                   <StatCard title="Workspace Failed" value={workStats.failed} icon={AlertCircle} color="bg-rose-50 text-rose-600" />
                 </div>
-                <WorkBoardPanel workItems={workItems} loading={workLoading} />
+                <WorkBoardPanel workItems={workItems} loading={workLoading} onItemClick={handleWorkItemClick} />
               </div>
             } />
             <Route path="*" element={
@@ -301,13 +337,26 @@ function App() {
       <AnimatePresence>
         {selectedJob && (
           <Suspense fallback={null}>
-            <JobDetailModal 
-              job={selectedJob} 
-              onClose={() => setSelectedJobId(null)} 
+            <JobDetailModal
+              job={selectedJob}
+              onClose={() => setSelectedJobId(null)}
               onRefresh={fetchJobs}
               onRetry={rerunJob}
               onResume={(job) => resumeJob(job.jobId)}
               onCancel={(job) => cancelJob(job.jobId)}
+            />
+          </Suspense>
+        )}
+        {selectedWorkItem && (
+          <Suspense fallback={null}>
+            <WorkItemDetailModal
+              workItem={selectedWorkItem}
+              onClose={() => setSelectedWorkItem(null)}
+              onRefresh={fetchWorkItems}
+              onAssess={handleWorkItemAssess}
+              onRun={handleWorkItemRun}
+              onCancel={handleWorkItemCancel}
+              onRetry={handleWorkItemRetry}
             />
           </Suspense>
         )}
@@ -335,11 +384,11 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-6">
-             <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-               <Info size={14} className="text-indigo-400" />
-               Build {health?.version || '2.0.0'}
-             </div>
-             <Settings size={16} className="text-slate-400 hover:text-slate-600 cursor-pointer transition-colors" />
+            <div className="flex items-center gap-2 text-[10px] font-black text-slate-500 uppercase tracking-widest">
+              <Info size={14} className="text-indigo-400" />
+              Build {health?.version || '2.0.0'}
+            </div>
+            <Settings size={16} className="text-slate-400 hover:text-slate-600 cursor-pointer transition-colors" />
           </div>
         </div>
       </footer>

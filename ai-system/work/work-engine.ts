@@ -5,6 +5,10 @@ import { assessWorkItem } from "./assessment.js";
 import { buildChecklist } from "./checklist.js";
 import { buildTaskGraph } from "./task-graph.js";
 import type { ChecklistItem, ExecutionGraphNode, WorkItem } from "./work-item.js";
+import { prepareWorkItemBranch } from "./branch-manager.js";
+import { commitWorkItemChanges, generateWorkItemPRBody } from "./commit-pr.js";
+import { watchCiForWorkItem } from "./ci.js";
+import { createGhPR } from "./gh-pr.js";
 
 export interface WorkNodeExecutionRequest {
   nodeId: string;
@@ -19,7 +23,7 @@ export interface WorkNodeRunAssignment {
 }
 
 export class WorkEngine {
-  constructor(private readonly rules: RulesConfig) {}
+  constructor(private readonly rules: RulesConfig) { }
 
   async assess(workItem: WorkItem): Promise<WorkItem> {
     const assessment = assessWorkItem(workItem, this.rules);
@@ -60,12 +64,12 @@ export class WorkEngine {
     const linkedRuns = Array.from(new Set([...workItem.linkedRuns, ...assignments.map((assignment) => assignment.runId)]));
     const graph = workItem.graph
       ? {
-          ...workItem.graph,
-          nodes: workItem.graph.nodes.map((node) => {
-            const runId = assignmentByNode.get(node.id);
-            return runId ? { ...node, status: "running" as const, assignedRunId: runId } : node;
-          })
-        }
+        ...workItem.graph,
+        nodes: workItem.graph.nodes.map((node) => {
+          const runId = assignmentByNode.get(node.id);
+          return runId ? { ...node, status: "running" as const, assignedRunId: runId } : node;
+        })
+      }
       : workItem.graph;
     const checklist = updateChecklistForAssignments(workItem.checklist ?? [], assignments);
     return {
@@ -98,6 +102,89 @@ export class WorkEngine {
       checklist,
       updatedAt: new Date().toISOString()
     };
+  }
+
+  /**
+   * Hand off a completed work item to a pull request.
+   * Transitions through: committing → pushing → creating_pr → watching_ci → ready_for_review.
+   * Returns the updated work item at whatever stage it reaches.
+   */
+  async handoffToPR(
+    repoRoot: string,
+    workItem: WorkItem,
+    options: { draft?: boolean; base?: string } = {}
+  ): Promise<WorkItem> {
+    let item = { ...workItem };
+
+    // 1. Ensure branch exists
+    if (!item.branch) {
+      const branch = await prepareWorkItemBranch(repoRoot, item, item.id, item.externalTask);
+      item = { ...item, branch: branch.branchName, updatedAt: new Date().toISOString() };
+    }
+
+    const appliedFiles = item.appliedFiles ?? [];
+    if (appliedFiles.length === 0) {
+      return { ...item, status: "failed", updatedAt: new Date().toISOString() };
+    }
+
+    // 2. Commit
+    item = { ...item, status: "committing", updatedAt: new Date().toISOString() };
+    const commitPlan = await commitWorkItemChanges(repoRoot, item, appliedFiles, { push: false });
+    item = {
+      ...item,
+      commitHash: commitPlan.subject,
+      appliedFiles: commitPlan.filesChanged,
+      updatedAt: new Date().toISOString()
+    };
+
+    // 3. Push (transition to pushing status)
+    item = { ...item, status: "pushing", updatedAt: new Date().toISOString() };
+    await commitWorkItemChanges(repoRoot, item, appliedFiles, { push: true });
+    item = { ...item, updatedAt: new Date().toISOString() };
+
+    // 4. Create PR
+    item = { ...item, status: "creating_pr", updatedAt: new Date().toISOString() };
+    const prPlan = generateWorkItemPRBody(item, item.branch!, appliedFiles, {
+      draft: options.draft ?? true,
+      base: options.base
+    });
+    const pr = await createGhPR(repoRoot, {
+      title: prPlan.title,
+      head: prPlan.head,
+      base: prPlan.base,
+      draft: prPlan.draft,
+      body: prPlan.body
+    });
+    item = {
+      ...item,
+      status: "watching_ci",
+      pullRequest: {
+        provider: "github",
+        number: pr.number,
+        url: pr.url,
+        branch: pr.branch,
+        base: pr.base
+      },
+      updatedAt: new Date().toISOString()
+    };
+
+    // 5. Watch CI — initial check
+    const ciResult = await watchCiForWorkItem(item, repoRoot);
+    item = {
+      ...item,
+      ci: {
+        lastCheckedAt: new Date().toISOString(),
+        status: ciResult.status,
+        summary: ciResult.summary,
+        failingChecks: ciResult.failingChecks,
+        repairAttempts: 0,
+        maxRepairAttempts: 2
+      },
+      status: ciResult.status === "passing" ? "ready_for_review" : "watching_ci",
+      updatedAt: new Date().toISOString()
+    };
+
+    return item;
   }
 }
 

@@ -182,6 +182,14 @@ export interface WorkItem {
   createdAt: string;
   updatedAt: string;
   linkedRuns: string[];
+  branch?: string;
+  pullRequest?: {
+    provider: string;
+    number: number;
+    url: string;
+    branch: string;
+    base: string;
+  };
   assessment?: {
     complexity: 'small' | 'medium' | 'large';
     risk: 'low' | 'medium' | 'high' | 'blocked';
@@ -199,7 +207,20 @@ export interface WorkItem {
     nodes: Array<{ id: string; kind: string; title: string; goal: string; status: string; dependsOn: string[]; assignedRunId?: string }>;
     edges: Array<{ from: string; to: string; kind: string }>;
   };
-  checklist?: Array<{ id: string; text: string; required: boolean; status: string }>;
+  checklist?: Array<{
+    id: string;
+    text: string;
+    required: boolean;
+    status: string;
+    evidence?: {
+      type: string;
+      ref: string;
+      metadata?: Record<string, unknown>;
+    };
+    waivedBy?: string;
+    waiveReason?: string;
+    waivedAt?: string;
+  }>;
 }
 
 export interface PluginManifest {

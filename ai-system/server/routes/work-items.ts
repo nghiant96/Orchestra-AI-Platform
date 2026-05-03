@@ -54,7 +54,7 @@ export const workItemsRoute: RouteHandler = {
       return true;
     }
 
-    const workItemMatch = /^\/work-items\/([^/]+)(?:\/(assess|run|cancel|retry))?$/.exec(url.pathname);
+    const workItemMatch = /^\/work-items\/([^/]+)(?:\/(assess|run|cancel|retry|handoff))?$/.exec(url.pathname);
     if (workItemMatch && req.method === "GET" && !workItemMatch[2]) {
       const workItemId = workItemMatch[1] ?? "";
       const cwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
@@ -137,6 +137,18 @@ export const workItemsRoute: RouteHandler = {
           details: { workItemId, jobIds: jobs.map((job) => job.jobId), nodeIds: requests.map((request) => request.nodeId) }
         });
         ctx.respondJson(res, 202, { ok: true, workItem: updated, job: jobs[0], jobs });
+        return true;
+      }
+      if (action === "handoff") {
+        const engine = new WorkEngine(rules);
+        const reconciled = await reconcileWorkItem(workItem, engine, ctx);
+        const handedOff = await engine.handoffToPR(cwd, reconciled, {
+          draft: payload?.draft !== false,
+          base: typeof payload?.base === "string" ? payload.base : undefined
+        });
+        await store.save(handedOff);
+        await ctx.auditLog.append({ actor: ctx.actor, action: "work_item.handoff", cwd, details: { workItemId, prNumber: handedOff.pullRequest?.number } });
+        ctx.respondJson(res, 200, { ok: true, workItem: handedOff });
         return true;
       }
       const updated = { ...workItem, status: action === "cancel" ? "cancelled" as const : "created" as const, updatedAt: new Date().toISOString() };

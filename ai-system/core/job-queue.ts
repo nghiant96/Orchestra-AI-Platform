@@ -3,6 +3,9 @@ import path from "node:path";
 import { normalizeQueueJob } from "./normalizers.js";
 import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
+import { scheduleWorkItems } from "../work/scheduler.js";
+import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
+import type { WorkItem } from "../work/work-item.js";
 
 export type QueueJobStatus = "queued" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled";
 
@@ -74,7 +77,7 @@ export class FileBackedJobQueue {
       logger?: Logger;
       retentionDays?: number;
     } = {}
-  ) {}
+  ) { }
 
   setPaused(paused: boolean): void {
     this.isPaused = paused;
@@ -115,6 +118,44 @@ export class FileBackedJobQueue {
     this.scheduleDrain();
     void this.cleanupOldJobs();
     return job;
+  }
+
+  /**
+   * Enqueue work items in batch, running them through the scheduler first.
+   * Only ready items are enqueued; blocked items are logged and skipped.
+   * Returns the scheduler plan for diagnostics.
+   */
+  async enqueueBatch(
+    workItems: WorkItem[],
+    baseInput: Omit<JobQueueRunInput, "jobId">,
+    schedulerOptions: SchedulerOptions = {}
+  ): Promise<{ plan: SchedulerPlan; jobs: QueueJob[] }> {
+    const plan = scheduleWorkItems(workItems, schedulerOptions);
+
+    if (plan.blocked.length > 0) {
+      this.options.logger?.info(
+        `Scheduler blocked ${plan.blocked.length} work item(s): ${plan.blocked
+          .map((b) => `${b.workItem.id} (${b.conflicts.map((c) => c.reason).join("; ")})`)
+          .join(", ")}`
+      );
+    }
+
+    const jobs: QueueJob[] = [];
+    for (const item of plan.ready) {
+      const job = await this.enqueue({
+        task: `[${item.id}] ${item.title}`,
+        cwd: baseInput.cwd,
+        dryRun: baseInput.dryRun,
+        resume: baseInput.resume,
+        workflowMode: baseInput.workflowMode,
+        approvalMode: baseInput.approvalMode,
+        approvalPolicy: baseInput.approvalPolicy,
+        externalTask: item.externalTask ?? baseInput.externalTask
+      });
+      jobs.push(job);
+    }
+
+    return { plan, jobs };
   }
 
   async get(jobId: string): Promise<QueueJob | null> {
@@ -321,12 +362,12 @@ export class FileBackedJobQueue {
         latestToolResults: result.latestToolResults,
         execution: result.execution
           ? {
-              transitions: result.execution.transitions,
-              providerMetrics: result.execution.providerMetrics,
-              budget: result.execution.budget,
-              totalDurationMs: result.execution.totalDurationMs,
-              retryHint: result.execution.retryHint ?? null
-            }
+            transitions: result.execution.transitions,
+            providerMetrics: result.execution.providerMetrics,
+            budget: result.execution.budget,
+            totalDurationMs: result.execution.totalDurationMs,
+            retryHint: result.execution.retryHint ?? null
+          }
           : undefined
       });
     } catch (error) {

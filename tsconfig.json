@@ -16,6 +16,7 @@
   "exclude": [
     "node_modules",
     "dist",
+    "dashboard",
     ".ai-system-artifacts",
     ".ai-system-memory",
     "$tmpdir"

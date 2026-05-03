@@ -207,7 +207,7 @@ export async function handleWorkCommand(
       const store = new WorkStore(cwd, rules);
       const workItem = await store.load(command.target);
       if (!workItem) throw new Error(`Work item not found: ${command.target}`);
-      const report = watchCiForWorkItem(workItem);
+      const report = await watchCiForWorkItem(workItem, cwd);
       const updated = { ...workItem, ci: { ...(workItem.ci ?? {}), ...report, lastCheckedAt: new Date().toISOString() }, updatedAt: new Date().toISOString() };
       await store.save(updated);
       if (outputJson) {
@@ -222,7 +222,7 @@ export async function handleWorkCommand(
       const store = new WorkStore(cwd, rules);
       const workItem = await store.load(command.target);
       if (!workItem) throw new Error(`Work item not found: ${command.target}`);
-      const report = watchCiForWorkItem(workItem);
+      const report = await watchCiForWorkItem(workItem, cwd);
       const task = proposeCiRepairTask(workItem, report);
       const updated = { ...workItem, description: `${workItem.description}\n\nCI repair task: ${task}`, status: "running_checks" as const, ci: { ...(workItem.ci ?? {}), ...report, repairAttempts: (workItem.ci?.repairAttempts ?? 0) + 1, lastCheckedAt: new Date().toISOString() }, updatedAt: new Date().toISOString() };
       await store.save(updated);
