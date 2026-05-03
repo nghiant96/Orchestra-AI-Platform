@@ -183,6 +183,7 @@ export async function executeGenerationLoop({
   approvalPolicy = null,
   externalTask = null,
   externalUpdatePreviews = [],
+  toolChecks = runToolChecks,
   signal
 }: {
   startIteration: number;
@@ -210,6 +211,7 @@ export async function executeGenerationLoop({
   approvalPolicy?: ApprovalPolicyDecision | null;
   externalTask?: import("../types.js").ExternalTaskRef | null;
   externalUpdatePreviews?: import("../types.js").ExternalTaskUpdatePreview[];
+  toolChecks?: typeof runToolChecks;
   signal?: AbortSignal;
 }): Promise<{ result: OrchestratorResult | null; state: LoopExecutionState }> {
   if (signal?.aborted) throw new Error('AbortError');
@@ -306,6 +308,63 @@ export async function executeGenerationLoop({
       content: originals.get(file.path)
     }));
     state.diffSummaries = buildDiffSummaries(originalFiles, state.currentResult.files);
+
+    const missingWriteTargets = findMissingPlannedWriteTargets(state.currentResult.files, plan);
+    if (missingWriteTargets.length > 0) {
+      const incompleteSummary = `Generation incomplete: missing planned write target(s): ${missingWriteTargets.join(", ")}.`;
+      const incompleteIssue = buildIncompleteGenerationIssue(missingWriteTargets);
+      state.latestReviewSummary = incompleteSummary;
+      state.acceptedIssues = mergeIssues(state.acceptedIssues, [incompleteIssue]);
+
+      const incompleteDurationMs = Date.now() - iterationStartedAt;
+      const artifactInfo = await persistIterationArtifacts(
+        artifactState,
+        {
+          iteration,
+          task,
+          dryRun,
+          plan,
+          provider: iteration === 1 ? runtime.generatorProvider.id : runtime.fixerProvider.id,
+          resultSummary: incompleteSummary,
+          candidateFiles: state.currentResult.files,
+          originalFiles,
+          diffSummaries: state.diffSummaries,
+          toolResults: [],
+          preReviewIssues: [incompleteIssue],
+          reviewSummary: incompleteSummary,
+          issues: state.acceptedIssues,
+          durationMs: incompleteDurationMs
+        },
+        logger
+      );
+
+      state.iterationResults.push({
+        iteration,
+        summary: incompleteSummary,
+        issues: state.acceptedIssues,
+        toolResults: [],
+        missingTests: [],
+        durationMs: incompleteDurationMs,
+        artifactPath: artifactInfo?.iterationPath ?? null
+      });
+      logger.warn(incompleteSummary);
+      logger.dashboard?.({
+        message: `Iteration ${iteration} incomplete: waiting for ${missingWriteTargets.length} missing write target(s).`,
+        artifactPath: artifactInfo?.iterationPath ?? artifactState.latestIterationPath,
+        currentFiles: state.currentResult.files.map((file) => file.path),
+        diffSummaries: state.diffSummaries,
+        providerMetrics: buildExecutionSummary({
+          steps: state.executionMachine.getSteps(),
+          transitions: state.executionMachine.getTransitions(),
+          providers: runtime.providerSummary,
+          usageMetrics: collectProviderUsageMetrics(runtime)
+        }).providerMetrics ?? [],
+        budget: getExecutionBudgetSummary(state, runtime, budgetConfig)
+      });
+      pendingResumeStage = undefined;
+      continue;
+    }
+
     const validationIssues = [
       ...validateCandidateFiles(state.currentResult.files),
       ...(plan.contracts?.length
@@ -317,7 +376,7 @@ export async function executeGenerationLoop({
       "iteration-tools",
       async () => {
         if (!dryRun) {
-          return await runToolChecks({
+          return await toolChecks({
             repoRoot,
             changedFiles: state.currentResult!.files,
             rules,
@@ -1034,6 +1093,26 @@ export function sanitizeGeneratedFiles(files: unknown, plan: PlanResult, rules: 
   }
 
   return dedupeByPath(safeFiles).slice(0, rules.max_write_files ?? 8);
+}
+
+export function findMissingPlannedWriteTargets(files: GeneratedFile[], plan: PlanResult): string[] {
+  if (!Array.isArray(plan.writeTargets) || plan.writeTargets.length === 0) {
+    return [];
+  }
+
+  const generatedPaths = new Set(files.map((file) => file.path));
+  return [...new Set(plan.writeTargets)].filter((target) => !generatedPaths.has(target));
+}
+
+function buildIncompleteGenerationIssue(missingWriteTargets: string[]): ReviewIssue {
+  return {
+    severity: "high",
+    category: "generation",
+    path: missingWriteTargets[0] ?? "",
+    description: `The candidate is incomplete and does not include all planned write targets: ${missingWriteTargets.join(", ")}.`,
+    risk: "Tool checks must not run until all planned write targets are generated.",
+    suggestedFix: "Generate the missing planned write targets before running lint, typecheck, or review."
+  };
 }
 
 function dedupeByPath(files: GeneratedFile[]): GeneratedFile[] {

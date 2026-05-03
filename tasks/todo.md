@@ -219,6 +219,18 @@ Result:
 - [x] Phase 1.5.4: Add Project Health from existing health/artifact data.
 - [x] Phase 3.1-3.3: Add explainable risk policy and show approval decisions (high-risk strict review complete).
 
+## Systemic Incomplete-Generation Guard
+
+- [x] Add a hard gate before `iteration-tools` so runs cannot reach lint/typecheck when planned write targets are still missing.
+- [x] Add regression coverage for partial generation that should continue into the fix loop instead of failing as a tool check.
+- [x] Verify the fix with focused tests and the full baseline gates.
+
+Result:
+
+- The run loop now detects incomplete generation before tool checks and re-enters the fix loop with a blocking generation issue.
+- `tests/run-executor.test.ts` covers both the missing-target detector and the orchestration gate.
+- Verification passed: `pnpm exec node --import tsx --test tests/run-executor.test.ts`, `pnpm run typecheck`, `pnpm run lint`, `pnpm test`.
+
 ## Tool Executor Refactor - 2026-05-02
 
 - [x] Move JSON validation, tool invocation, Docker sandbox preflight, sandbox image shaping, and issue normalization into `ai-system/core/tool-runner.ts`.

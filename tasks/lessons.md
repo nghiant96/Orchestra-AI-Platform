@@ -63,3 +63,12 @@ had already said to proceed autonomously.
 **Rule**: For concrete implementation tasks with clear acceptance criteria, continue through code changes and
 verification without asking for another go-ahead. Only stop for user input when local context cannot resolve a
 material product or safety decision.
+
+## 2026-05-03: Do not let partial generation fall through to tool checks
+
+**Mistake**: The run loop treated a partially generated candidate as if it were ready for lint/typecheck,
+which turned a missing-write-target problem into a misleading tool failure.
+
+**Rule**: Before running any repository tool checks, verify that every planned write target has been produced
+or explicitly accounted for. If targets are missing, mark the iteration incomplete and re-enter the fix loop
+instead of validating an unfinished candidate.
