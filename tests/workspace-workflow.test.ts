@@ -106,8 +106,15 @@ function createResult(task: string, cwd: string, dryRun: boolean) {
 
 async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`);
-    if (job.status === status) return job;
+    try {
+      const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`);
+      if (job.status === status) return job;
+    } catch (error) {
+      const message = (error as Error).message;
+      if (!message.includes("HTTP 404")) {
+        throw error;
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);

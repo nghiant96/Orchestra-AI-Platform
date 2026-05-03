@@ -399,7 +399,10 @@ export class FileBackedJobQueue {
 
   private async writeJob(job: QueueJob): Promise<void> {
     await fs.mkdir(this.jobsDir, { recursive: true });
-    await fs.writeFile(this.jobPath(job.jobId), `${JSON.stringify(job, null, 2)}\n`, "utf8");
+    const targetPath = this.jobPath(job.jobId);
+    const tempPath = `${targetPath}.tmp.${Date.now()}`;
+    await fs.writeFile(tempPath, `${JSON.stringify(job, null, 2)}\n`, "utf8");
+    await fs.rename(tempPath, targetPath);
   }
 
   private jobPath(jobId: string): string {

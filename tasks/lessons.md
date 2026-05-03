@@ -117,3 +117,11 @@ missing `health.queue`.
 **Rule**: Route all dashboard API calls through a shared helper that adds auth headers when available and
 normalize failed responses into `null`/empty states before rendering. UI state should tolerate 401s and
 degraded server mode without throwing.
+
+## 2026-05-03: Job status polls should tolerate transient 404s
+
+**Mistake**: A workflow test treated the first `GET /jobs/:id` 404 as fatal even though file-backed jobs can
+appear one poll later under CI timing differences.
+
+**Rule**: When polling a file-backed job queue, retry transient 404s for a short window before failing.
+Treat a missing job as eventual consistency unless the system has already proven the job cannot exist.
