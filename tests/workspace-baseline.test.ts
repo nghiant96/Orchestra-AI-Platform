@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, waitForHttpReady, closeServer, silentLogger, requestJson } from "./test-utils.js";
 
 // Phase W0 workspace baseline smoke tests.
 // These tests verify that the existing server/CLI behavior is unchanged
@@ -46,6 +46,7 @@ test("Phase W0 — server jobs API remains functional", async () => {
 
     try {
         const baseUrl = await listen(server);
+        await waitForHttpReady(baseUrl);
 
         // /jobs POST
         const created = await requestJson(baseUrl, "POST", "/jobs", { task: "w0 smoke task", dryRun: true }, 202);
@@ -68,7 +69,7 @@ test("Phase W0 — server jobs API remains functional", async () => {
         assert.equal(Array.isArray(audit.events), true);
     } finally {
         await closeServer(server);
-        await fs.rm(repoRoot, { recursive: true, force: true });
+        await cleanupDir(repoRoot);
     }
 });
 test("Phase W0 — workspace artifacts can coexist with run artifacts", async () => {
@@ -108,6 +109,20 @@ test("Phase W0 — workspace artifacts can coexist with run artifacts", async ()
         await fs.rm(repoRoot, { recursive: true, force: true });
     }
 });
+
+async function cleanupDir(dir: string): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await fs.rm(dir, { recursive: true, force: true });
+            return;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+    }
+}
 
 test("Phase W0 — docs/WORKSPACE.md exists and contains key domain terms", async () => {
     const workspaceDocPath = path.resolve(

@@ -72,3 +72,12 @@ which turned a missing-write-target problem into a misleading tool failure.
 **Rule**: Before running any repository tool checks, verify that every planned write target has been produced
 or explicitly accounted for. If targets are missing, mark the iteration incomplete and re-enter the fix loop
 instead of validating an unfinished candidate.
+
+## 2026-05-03: Separate server readiness from HTTP readiness in tests
+
+**Mistake**: A shared `listen()` helper assumed every test server exposed `/health`, which broke raw HTTP
+servers and still left teardown races in queue-backed tests.
+
+**Rule**: Use socket/listen readiness as the default helper and reserve HTTP probing for servers that expose
+that endpoint. For queue-backed or filesystem-backed tests, close the server first and then retry cleanup
+until the artifact directory is actually gone.

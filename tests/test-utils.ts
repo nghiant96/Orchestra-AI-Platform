@@ -39,19 +39,18 @@ export async function listen(server: http.Server): Promise<string> {
   assert.ok(address && typeof address === "object");
   const baseUrl = `http://127.0.0.1:${(address as AddressInfo).port}`;
 
-  await waitForHttpReady(baseUrl);
   readyServers.add(server);
 
   return baseUrl;
 }
 
-async function waitForHttpReady(baseUrl: string): Promise<void> {
+export async function waitForHttpReady(baseUrl: string, readyPath = "/health"): Promise<void> {
   const maxAttempts = 20;
 
   for (let i = 0; i < maxAttempts; i++) {
     try {
       const statusCode = await new Promise<number>((resolve, reject) => {
-        const req = http.get(`${baseUrl}/health`, (res) => {
+        const req = http.get(new URL(readyPath, baseUrl), (res) => {
           res.resume();
           resolve(res.statusCode || 0);
         });

@@ -8,7 +8,7 @@ import { assessWorkItem } from "../ai-system/work/assessment.js";
 import { buildChecklist } from "../ai-system/work/checklist.js";
 import { buildTaskGraph } from "../ai-system/work/task-graph.js";
 import type { RulesConfig } from "../ai-system/types.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, waitForHttpReady, closeServer, silentLogger, requestJson } from "./test-utils.js";
 
 test("workspace assessment, graph, and checklist are generated deterministically", async () => {
   const rules = { artifacts: { data_dir: ".artifacts" } } as RulesConfig;
@@ -45,6 +45,7 @@ test("workspace API can create assess run and list work items", async () => {
 
   try {
     const baseUrl = await listen(server);
+    await waitForHttpReady(baseUrl);
     const created = await requestJson(baseUrl, "POST", "/work-items", { cwd: repoRoot, title: "Fix signup flow", description: "Adjust auth callback" }, 201);
     assert.equal(created.ok, true);
     assert.equal(created.workItem.status, "created");

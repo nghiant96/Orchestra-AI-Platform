@@ -102,8 +102,8 @@ Một số file core quá lớn, khó maintain:
 | File | Lines | Assessment |
 |------|-------|------------|
 | [tool-executor.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/tool-executor.ts) | **1,490** | 🔴 Cần tách — sandbox, scoping, adapters nên là modules riêng |
-| [artifacts.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/artifacts.ts) | **1,202** | 🟡 Có thể tách persistence vs query |
-| [run-executor.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/run-executor.ts) | **1,126** | 🟡 Loop execution đã được extract, nhưng vẫn lớn |
+| [artifacts.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/artifacts.ts) | **110** | ✅ **Done** — Đã tách thành Persistence, Query, Types, và Utils |
+| [run-executor.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/run-executor.ts) | **260** | ✅ **Done** — Đã tách thành States, Steps, Loops, Finalize, và Utils |
 | [orchestrator.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/orchestrator.ts) | **1,031** | 🟡 Đã tách runtime, nhưng run+resume vẫn cùng file |
 | [server-app.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/server-app.ts) | **1,016** | 🔴 Monolithic HTTP handler — cần tách routes |
 | [provider-router.ts](file:///Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/provider-router.ts) | **849** | 🟡 Routing logic phức tạp nhưng chấp nhận được |
