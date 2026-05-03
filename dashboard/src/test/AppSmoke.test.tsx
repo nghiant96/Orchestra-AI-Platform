@@ -51,6 +51,20 @@ vi.mock('../hooks/useConfig', () => ({
   })
 }));
 
+vi.mock('../hooks/useWorkItems', () => ({
+  useWorkItems: () => ({
+    workItems: [],
+    loading: false,
+    stats: { total: 0, active: 0, done: 0, failed: 0 },
+    fetchWorkItems: vi.fn(),
+    assess: vi.fn(),
+    run: vi.fn(),
+    cancel: vi.fn(),
+    retry: vi.fn(),
+    importWorkItem: vi.fn()
+  })
+}));
+
 describe('Dashboard Smoke Test', () => {
   it('renders the main dashboard layout and shows job data', () => {
     render(
@@ -71,7 +85,6 @@ describe('Dashboard Smoke Test', () => {
   });
 
   it('can navigate to config view', async () => {
-    // This is more of an integration test, but good for smoke
     render(
       <MemoryRouter initialEntries={['/config']}>
         <App />
@@ -80,5 +93,38 @@ describe('Dashboard Smoke Test', () => {
     
     const configHeader = await screen.findByText(/System Registry/i);
     expect(configHeader).toBeDefined();
+  });
+
+  it('can navigate to inbox view', async () => {
+    render(
+      <MemoryRouter initialEntries={['/inbox']}>
+        <App />
+      </MemoryRouter>
+    );
+    
+    const inboxHeader = await screen.findByText(/Import External Task/i);
+    expect(inboxHeader).toBeDefined();
+  });
+
+  it('can navigate to analytics view', async () => {
+    render(
+      <MemoryRouter initialEntries={['/analytics']}>
+        <App />
+      </MemoryRouter>
+    );
+    
+    const analyticsHeader = await screen.findByText(/Analytics/i);
+    expect(analyticsHeader).toBeDefined();
+  });
+
+  it('can navigate to work view', async () => {
+    render(
+      <MemoryRouter initialEntries={['/work']}>
+        <App />
+      </MemoryRouter>
+    );
+    
+    const workHeader = await screen.findByText(/Work Board/i);
+    expect(workHeader).toBeDefined();
   });
 });
