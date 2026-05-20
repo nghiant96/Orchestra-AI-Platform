@@ -31,7 +31,7 @@ export function printInteractiveHelp(): void {
   console.log("- /resume /absolute/or/relative/path/to/run-or-run-state.json");
   console.log("- /resume-last");
   console.log("- /resume clear");
-  console.log("- /provider local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli");
+  console.log("- /provider local-cli|9router|openai-compatible|agy-cli|claude-cli|codex-cli");
   console.log("- /provider clear");
   console.log("- /cwd /absolute/or/relative/path");
   console.log("- /config /absolute/or/relative/path/to/config.json");
@@ -139,7 +139,7 @@ Examples:
   echo "Fix retry handling in api client" | ai
 
 Interactive mode:
-  Run \`ai\` with no task to open a session, similar to Gemini CLI.
+  Run \`ai\` with no task to open a session, similar to Agy CLI.
   Use --chat explicitly if you want chat mode.
   Use --interactive to confirm the AI plan before changes are generated.
   Use --pause-after-plan to stop after the planner checkpoint.
@@ -166,7 +166,7 @@ Provider presets:
   --provider local-cli
   --provider 9router
   --provider openai-compatible
-  --provider gemini-cli
+  --provider agy-cli
   --provider claude-cli
   --provider codex-cli
   --9router is a shortcut for --provider 9router
@@ -193,10 +193,10 @@ Project config:
   Add \`--save /path/to/file.json\` together with \`--json\` when you want the CLI to write the JSON payload directly to disk.
 
 Environment overrides:
-  AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|gemini-cli|claude-cli|codex-cli
+  AI_SYSTEM_PROVIDER=local-cli|9router|openai-compatible|agy-cli|claude-cli|codex-cli
   AI_SYSTEM_MEMORY=local|openmemory|off
-  AI_SYSTEM_PLANNER_PROVIDER=gemini-cli|claude-cli|openai-compatible
-  AI_SYSTEM_REVIEWER_PROVIDER=gemini-cli|claude-cli|openai-compatible
+  AI_SYSTEM_PLANNER_PROVIDER=agy-cli|claude-cli|openai-compatible
+  AI_SYSTEM_REVIEWER_PROVIDER=agy-cli|claude-cli|openai-compatible
   AI_SYSTEM_GENERATOR_PROVIDER=codex-cli|claude-cli|openai-compatible
   AI_SYSTEM_FIXER_PROVIDER=codex-cli|claude-cli|openai-compatible
   AI_SYSTEM_GENERATOR_TIMEOUT_MS=0    # disable timeout

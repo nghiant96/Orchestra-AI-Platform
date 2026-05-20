@@ -2,7 +2,7 @@
 
 **Local-first control plane for AI coding agents.**
 
-Turn Codex, Gemini, and Claude CLIs into a coordinated, governed coding workflow with planning, automated checks, self-repair loops, and human-in-the-loop approvals.
+Turn Codex, Antigravity, and Claude CLIs into a coordinated, governed coding workflow with planning, automated checks, self-repair loops, and human-in-the-loop approvals.
 
 [![CI](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-local--first-blue)](docs/SECURITY.md)
@@ -42,7 +42,7 @@ graph LR
 
 ## Architecture Overview
 
-Orchestra does **not** generate code itself. It orchestrates a fleet of AI CLIs (Gemini, Codex, Claude) through standard streams (STDIN/STDOUT), assigning each a specialized role:
+Orchestra does **not** generate code itself. It orchestrates a fleet of AI CLIs (Antigravity, Codex, Claude) through standard streams (STDIN/STDOUT), assigning each a specialized role:
 
 ```mermaid
 graph TD
@@ -61,7 +61,7 @@ graph TD
 
     subgraph "AI Provider Fleet"
         direction LR
-        Gemini["Gemini CLI"]
+        Agy["Antigravity CLI"]
         Codex["Codex CLI"]
         Claude["Claude CLI"]
         OpenAI["OpenAI-Compatible API"]
@@ -87,7 +87,7 @@ graph TD
 
     Orchestrator --> Router
     Orchestrator --> ESM
-    Router --> Gemini
+    Router --> Agy
     Router --> Codex
     Router --> Claude
     Router --> OpenAI
@@ -111,19 +111,19 @@ Orchestra communicates with AI agents via **standard streams** — it doesn't us
 sequenceDiagram
     participant O as Orchestrator
     participant R as Provider Router
-    participant G as Gemini CLI
+    participant A as Antigravity CLI
     participant C as Codex CLI
     participant CL as Claude CLI
     participant T as Tool Executor
 
     Note over O: Task received
     O->>R: Select providers for roles
-    R-->>O: {planner: gemini, generator: codex, reviewer: claude}
+    R-->>O: {planner: agy, generator: codex, reviewer: claude}
 
     rect rgb(40, 40, 60)
-        Note over O,G: Stage 1 — Planning
-        O->>G: spawn gemini "Analyze repo and select files..."
-        G-->>O: Plan {writeTargets, readFiles, risk}
+        Note over O,A: Stage 1 — Planning
+        O->>A: spawn agy "Analyze repo and select files..."
+        A-->>O: Plan {writeTargets, readFiles, risk}
     end
 
     Note over O: Context Intelligence expands file list<br/>Dependency graph + Vector search
@@ -193,7 +193,7 @@ graph LR
     C --> P & G & R & F
 ```
 
-Each profile maps roles to specific providers. For example, `quality` might assign Claude as both reviewer and generator, while `speed` uses Gemini for everything.
+Each profile maps roles to specific providers. For example, `quality` might assign Claude as both reviewer and generator, while `speed` uses Antigravity for everything.
 
 ---
 
@@ -509,7 +509,7 @@ orchestra-ai-platform/
 │   │
 │   ├── providers/                    # AI provider adapters
 │   │   ├── registry.ts               # Provider registry + detection
-│   │   ├── gemini-cli.ts             # Google Gemini CLI adapter
+│   │   ├── agy-cli.ts                # Antigravity CLI adapter
 │   │   ├── codex-cli.ts              # OpenAI Codex CLI adapter
 │   │   ├── claude-cli.ts             # Anthropic Claude CLI adapter
 │   │   └── openai-compatible.ts      # Generic OpenAI API adapter
@@ -650,7 +650,7 @@ pnpm run docker:logs          # Follow logs
 - **Node.js** 20+ (tested on Node 24)
 - **pnpm** 8+
 - At least one installed and authenticated AI CLI:
-  - `gemini` — Google Gemini CLI
+  - `agy` — Antigravity CLI
   - `codex` — OpenAI Codex CLI
   - `claude` — Anthropic Claude CLI
 - **Docker** (optional) — For sandboxed tool execution

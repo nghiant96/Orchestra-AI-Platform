@@ -25,7 +25,7 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
 
 export const PROVIDER_DEFAULT_PRICING: Record<string, { input: number; output: number }> = {
   "codex-cli": { input: 1.0, output: 5.0 },
-  "gemini-cli": { input: 0.5, output: 2.0 },
+  "agy-cli": { input: 0.5, output: 2.0 },
   "claude-cli": { input: 3.0, output: 15.0 },
   "openai-compatible": { input: 2.0, output: 10.0 }
 };

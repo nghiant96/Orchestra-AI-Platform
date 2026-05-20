@@ -19,8 +19,8 @@ export async function runStaticAnalysis(
       retry_base_delay_ms: 500,
       memory: { enabled: false, backend: "local-file" },
       providers: {
-        planner: { type: "gemini-cli" },
-        reviewer: { type: "gemini-cli" },
+        planner: { type: "agy-cli" },
+        reviewer: { type: "agy-cli" },
         generator: { type: "codex-cli" },
         fixer: { type: "codex-cli" }
       }

@@ -35,7 +35,7 @@ export function applyProviderPreset(preset: string | null): void {
     return;
   }
 
-  if (["openai-compatible", "gemini-cli", "claude-cli", "codex-cli"].includes(normalized)) {
+  if (["openai-compatible", "agy-cli", "claude-cli", "codex-cli"].includes(normalized)) {
     setManagedEnv("AI_SYSTEM_PROVIDER", normalized);
     return;
   }

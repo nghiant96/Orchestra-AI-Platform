@@ -1226,8 +1226,8 @@ function createRules(override: Partial<RulesConfig> = {}): RulesConfig {
       backend: "local-file"
     },
     providers: {
-      planner: { type: "gemini-cli" },
-      reviewer: { type: "gemini-cli" },
+      planner: { type: "agy-cli" },
+      reviewer: { type: "agy-cli" },
       generator: { type: "codex-cli" },
       fixer: { type: "codex-cli" }
     },

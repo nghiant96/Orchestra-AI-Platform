@@ -10,10 +10,10 @@ import type { RulesConfig } from "../ai-system/types.js";
 
 const DEFAULT_RULES: RulesConfig = {
   providers: {
-    planner: { type: "gemini-cli" },
+    planner: { type: "agy-cli" },
     reviewer: { type: "codex-cli" },
     generator: { type: "claude-cli" },
-    fixer: { type: "gemini-cli" }
+    fixer: { type: "agy-cli" }
   },
   routing: {
     enabled: true,
@@ -50,7 +50,7 @@ describe("Provider Router Core", () => {
       null,
       [{ name: "plan:docs-only", matched: true }]
     );
-    // Profile balanced default reviewer is gemini-cli, but docs-only forces codex-cli if available
+    // Profile balanced default reviewer is agy-cli, but docs-only forces codex-cli if available
     // Assuming our rules has codex-cli
     assert.equal(roleProviders.reviewer, "codex-cli");
   });

@@ -5,12 +5,12 @@
   },
   "providers": {
     "planner": {
-      "type": "gemini-cli",
+      "type": "agy-cli",
       "timeout_ms": 0,
       "retries": 2
     },
     "reviewer": {
-      "type": "gemini-cli",
+      "type": "agy-cli",
       "timeout_ms": 0,
       "retries": 2
     },

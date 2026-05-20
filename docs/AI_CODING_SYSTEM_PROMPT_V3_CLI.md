@@ -6,7 +6,7 @@ Goal
 
 Create a local CLI tool that orchestrates:
 
-- Gemini CLI for planning and review by default
+- Antigravity (agy) CLI for planning and review by default
 - Codex CLI for code generation and fixing by default
 - Claude CLI as a supported alternate provider for future use
 
@@ -94,14 +94,14 @@ Provider rules:
 
 Default provider mapping
 
-- planner: `gemini-cli`
-- reviewer: `gemini-cli`
+- planner: `agy-cli`
+- reviewer: `agy-cli`
 - generator: `codex-cli`
 - fixer: `codex-cli`
 
 Supported provider types:
 
-- `gemini-cli`
+- `agy-cli`
 - `codex-cli`
 - `claude-cli`
 
@@ -111,7 +111,7 @@ Default memory backend
 
 CLI invocation rules
 
-- `gemini-cli` must use headless mode and JSON output mode.
+- `agy-cli` must use JSON output mode.
 - `codex-cli` must use `exec` in non-interactive mode and structured output via schema file.
 - `claude-cli` must use print mode with JSON output and JSON schema support.
 
@@ -123,7 +123,7 @@ Runtime rules
 - Use ESM consistently across the whole project.
 - `package.json` must set `"type": "module"`.
 - Using `child_process` is allowed for invoking local AI CLIs.
-- Do not require `OPENAI_API_KEY` or `GEMINI_API_KEY` to run the default path.
+- Do not require `OPENAI_API_KEY` to run the default path.
 - The user is expected to authenticate each CLI separately using its own login flow.
 - Default memory must not require any external service.
 
@@ -283,7 +283,7 @@ The repository is complete when:
 - the system uses installed AI CLIs rather than direct vendor APIs,
 - provider adapters are isolated from the orchestrator,
 - memory is isolated behind a vendor-neutral adapter,
-- Codex CLI and Gemini CLI are wired as defaults,
+- Codex CLI and Antigravity (agy) CLI are wired as defaults,
 - Claude CLI is supported as an alternate adapter,
 - the default memory backend works locally without extra services,
 - the review loop is implemented,

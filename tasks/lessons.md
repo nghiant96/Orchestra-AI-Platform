@@ -171,3 +171,12 @@ different failure on the fallback provider and obscured the actual root cause.
 **Rule**: Only fail over on errors that are operationally retryable, such as quota or capacity failures.
 Startup, permission, and exec-format errors must surface from the original provider so the operator can fix
 the actual binary/config problem first.
+
+## 2026-05-20: Verify official config paths before renaming brand strings
+
+**Mistake**: Treated `~/.gemini/...` and `gemini-*` strings as stale rename leftovers without checking the
+official Antigravity CLI docs first. Those paths and model families are still part of the supported runtime.
+
+**Rule**: Before removing a "legacy" brand string, confirm whether it is an official config path, storage
+location, or supported model family. A rename can be incomplete without being wrong, and not every `gemini`
+string in the repo is a CLI naming bug.

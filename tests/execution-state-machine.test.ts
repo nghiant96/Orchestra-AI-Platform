@@ -8,7 +8,7 @@ test("ExecutionStateMachine records explicit transitions and derives steps", asy
   const machine = new ExecutionStateMachine();
 
   const stage = await machine.runStage("planner", async () => ({ prompt: "task" }), {
-    detail: "Planner provider: gemini-cli."
+    detail: "Planner provider: agy-cli."
   });
 
   assert.equal(stage.result.prompt, "task");
@@ -54,7 +54,7 @@ test("buildExecutionSummary uses provider usage cost while preserving duration m
       { name: "iteration-review", durationMs: 2000, status: "completed" }
     ],
     providers: {
-      planner: "gemini-cli",
+      planner: "agy-cli",
       reviewer: "claude-cli",
       generator: "codex-cli",
       fixer: "codex-cli"
@@ -62,7 +62,7 @@ test("buildExecutionSummary uses provider usage cost while preserving duration m
     usageMetrics: [
       {
         role: "planner",
-        provider: "gemini-cli",
+        provider: "agy-cli",
         promptTokens: 1000,
         completionTokens: 500,
         totalTokens: 1500,
@@ -116,7 +116,7 @@ test("cost calculator estimates provider usage and pre-generation budget", () =>
       }
     ],
     providerSummary: {
-      planner: "gemini-cli",
+      planner: "agy-cli",
       reviewer: "claude-cli",
       generator: "codex-cli",
       fixer: "codex-cli"
@@ -135,7 +135,7 @@ test("cost calculator estimates provider usage and pre-generation budget", () =>
       },
       memory: { enabled: false, backend: "local-file" },
       providers: {
-        planner: { type: "gemini-cli" },
+        planner: { type: "agy-cli" },
         reviewer: { type: "claude-cli" },
         generator: { type: "codex-cli" },
         fixer: { type: "codex-cli" }

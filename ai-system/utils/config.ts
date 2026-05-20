@@ -27,8 +27,8 @@ const PROJECT_CONFIG_PRESETS: Record<ProjectConfigPresetName, Partial<RulesConfi
       enabled: true
     },
     providers: {
-      planner: { type: "gemini-cli" },
-      reviewer: { type: "gemini-cli" },
+      planner: { type: "agy-cli" },
+      reviewer: { type: "agy-cli" },
       generator: { type: "codex-cli" },
       fixer: { type: "codex-cli" }
     }
@@ -38,7 +38,7 @@ const PROJECT_CONFIG_PRESETS: Record<ProjectConfigPresetName, Partial<RulesConfi
       enabled: false
     },
     providers: {
-      planner: { type: "gemini-cli" },
+      planner: { type: "agy-cli" },
       reviewer: { type: "claude-cli" },
       generator: { type: "codex-cli" },
       fixer: { type: "codex-cli" }
@@ -126,8 +126,8 @@ export function getProjectConfigPreset(name?: string | null): { name: ProjectCon
 export function listProjectConfigPresets(): Array<{ name: ProjectConfigPresetName; summary: string }> {
   return [
     { name: "codex-all", summary: "Use Codex for planner, reviewer, generator, and fixer. Disable dynamic routing." },
-    { name: "hybrid", summary: "Use Gemini for planning/review and Codex for generation/fixes. Keep dynamic routing enabled." },
-    { name: "safe-review", summary: "Use Gemini planning, Claude review, and Codex generation/fixes. Disable dynamic routing." }
+    { name: "hybrid", summary: "Use Agy for planning/review and Codex for generation/fixes. Keep dynamic routing enabled." },
+    { name: "safe-review", summary: "Use Agy planning, Claude review, and Codex generation/fixes. Disable dynamic routing." }
   ];
 }
 

@@ -23,7 +23,7 @@ import { createRuntimeDependencies, type RuntimeDependencies } from "./run-execu
 const PROVIDER_ROLES: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
 const ROUTING_CONTROL_KEYS = ["timeout_ms", "retries", "base_delay_ms", "monitor_interval_ms", "temperature", "response_format"] as const;
 const DEFAULT_PROVIDER_COMMANDS: Record<string, string> = {
-  "gemini-cli": "agy",
+  "agy-cli": "agy",
   "claude-cli": "claude",
   "codex-cli": "codex"
 };
@@ -326,8 +326,8 @@ function applySimpleProviderEnv(rules: RulesConfig, provider?: string): void {
     case "default":
     case "local":
     case "local-cli":
-      rules.providers.planner = buildProviderConfigForType(rules, "planner", "gemini-cli");
-      rules.providers.reviewer = buildProviderConfigForType(rules, "reviewer", "gemini-cli");
+      rules.providers.planner = buildProviderConfigForType(rules, "planner", "agy-cli");
+      rules.providers.reviewer = buildProviderConfigForType(rules, "reviewer", "agy-cli");
       rules.providers.generator = buildProviderConfigForType(rules, "generator", "codex-cli");
       rules.providers.fixer = buildProviderConfigForType(rules, "fixer", "codex-cli");
       return;
@@ -338,7 +338,7 @@ function applySimpleProviderEnv(rules: RulesConfig, provider?: string): void {
       }
       return;
     case "openai-compatible":
-    case "gemini-cli":
+    case "agy-cli":
     case "claude-cli":
     case "codex-cli":
       applyProviderTypeToAllRoles(rules, normalized);

@@ -72,7 +72,7 @@ test("writeProjectPreset preserves unrelated config and clears legacy provider o
           enabled: true
         },
         providers: {
-          planner: { type: "gemini-cli" }
+          planner: { type: "agy-cli" }
         }
       },
       null,
@@ -133,7 +133,7 @@ test("loadRules applies global config defaults before project overrides", async 
     JSON.stringify(
       {
         providers: {
-          reviewer: { type: "gemini-cli" }
+          reviewer: { type: "agy-cli" }
         }
       },
       null,
@@ -147,7 +147,7 @@ test("loadRules applies global config defaults before project overrides", async 
     assert.equal(resolvedGlobalConfigPath, globalConfigPath);
     assert.equal(configPath, path.join(repoRoot, ".ai-system.json"));
     assert.equal(rules.providers.planner.type, "codex-cli");
-    assert.equal(rules.providers.reviewer.type, "gemini-cli");
+    assert.equal(rules.providers.reviewer.type, "agy-cli");
     assert.equal(rules.providers.generator.type, "codex-cli");
     assert.equal(rules.memory.backend, "openmemory");
     assert.equal(rules.routing?.enabled, false);
@@ -181,7 +181,7 @@ test("loadRules can inspect the global layer without mixing in project overrides
     JSON.stringify(
       {
         providers: {
-          reviewer: { type: "gemini-cli" }
+          reviewer: { type: "agy-cli" }
         }
       },
       null,
@@ -212,7 +212,7 @@ test("applySetupChoices writes codex/openmemory project defaults and env values"
         choices: {
           providers: {
             planner: "auto",
-            reviewer: "gemini-cli",
+            reviewer: "agy-cli",
             generator: "codex-cli",
             fixer: "claude-cli"
           },
@@ -247,7 +247,7 @@ test("applySetupChoices writes codex/openmemory project defaults and env values"
 
       assert.equal("profile" in config, false);
       assert.deepEqual(config.providers, {
-        reviewer: { type: "gemini-cli" },
+        reviewer: { type: "agy-cli" },
         generator: { type: "codex-cli" },
         fixer: { type: "claude-cli" }
       });
@@ -314,7 +314,7 @@ test("runSetupCheck reports OpenMemory probe failures against the configured env
         explicitGlobalConfigPath: path.join(repoRoot, "missing-global-config.json")
       });
       assert.equal(result.inspection.profile, null);
-      assert.equal(result.inspection.effectiveRules.providers.planner.type, "gemini-cli");
+      assert.equal(result.inspection.effectiveRules.providers.planner.type, "agy-cli");
       assert.equal(result.inspection.effectiveRules.providers.reviewer.type, "claude-cli");
       assert.equal(result.inspection.effectiveRules.routing?.enabled, true);
       assert.ok(result.inspection.toolSummaries.some((entry) => entry.name === "lint"));
@@ -395,7 +395,7 @@ test("project-configured providers stay pinned while auto roles remain routable"
 
       assert.equal(inspection.effectiveRules.providers.reviewer.type, "claude-cli");
       assert.equal(inspection.effectiveRules.providers.generator.type, "codex-cli");
-      assert.equal(inspection.effectiveRules.providers.planner.type, "gemini-cli");
+      assert.equal(inspection.effectiveRules.providers.planner.type, "agy-cli");
       assert.equal(inspection.effectiveRules.providers.fixer.type, "codex-cli");
       assert.ok(inspection.toolSummaries.length >= 4);
     } finally {

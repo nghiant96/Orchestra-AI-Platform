@@ -98,9 +98,9 @@ ai config use <preset>              # Switch provider preset
 | Preset | Description |
 |---|---|
 | `codex-all` | Use Codex for all roles |
-| `gemini-all` | Use Gemini for all roles |
+| `agy-all` | Use Antigravity for all roles |
 | `claude-all` | Use Claude for all roles |
-| `hybrid` | Gemini for planning/review, Codex for generation |
+| `hybrid` | Antigravity for planning/review, Codex for generation |
 | `safe-review` | Enhanced review settings for high-risk changes |
 
 ### `ai work` — Workspace Commands
@@ -142,7 +142,7 @@ ai work metrics                                       # Show workspace metrics
 
 | Variable | Description | Default |
 |---|---|---|
-| `AI_SYSTEM_PROVIDER` | Force a specific provider (`gemini-cli`, `codex-cli`, `claude-cli`, `9router`) | Auto-detected |
+| `AI_SYSTEM_PROVIDER` | Force a specific provider (`agy-cli`, `codex-cli`, `claude-cli`, `9router`) | Auto-detected |
 | `AI_SYSTEM_ROUTING_PROFILE` | Force routing profile (`balanced`, `quality`, `speed`, `cost`) | `balanced` |
 | `AI_SYSTEM_ROUTING_ENABLED` | Enable/disable dynamic routing | `true` |
 | `AI_SYSTEM_RISK_PROFILE` | Override risk profile | None |

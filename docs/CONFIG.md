@@ -52,7 +52,7 @@ Orchestra loads configuration in this priority order (later overrides earlier):
     "default_profile": "balanced",
     "profiles": {
       "balanced": {
-        "planner": "gemini-cli",
+        "planner": "agy-cli",
         "generator": "codex-cli",
         "reviewer": "claude-cli",
         "fixer": "codex-cli"
@@ -165,10 +165,10 @@ ai config use <preset>
 | Preset | Planner | Generator | Reviewer | Fixer |
 |---|---|---|---|---|
 | `codex-all` | codex-cli | codex-cli | codex-cli | codex-cli |
-| `gemini-all` | gemini-cli | gemini-cli | gemini-cli | gemini-cli |
+| `agy-all` | agy-cli | agy-cli | agy-cli | agy-cli |
 | `claude-all` | claude-cli | claude-cli | claude-cli | claude-cli |
-| `hybrid` | gemini-cli | codex-cli | claude-cli | codex-cli |
-| `safe-review` | gemini-cli | codex-cli | claude-cli | claude-cli |
+| `hybrid` | agy-cli | codex-cli | claude-cli | codex-cli |
+| `safe-review` | agy-cli | codex-cli | claude-cli | claude-cli |
 
 ---
 
@@ -177,7 +177,7 @@ ai config use <preset>
 ### Provider Configuration
 
 ```bash
-AI_SYSTEM_PROVIDER=gemini-cli         # Force specific provider for all roles
+AI_SYSTEM_PROVIDER=agy-cli         # Force specific provider for all roles
 AI_SYSTEM_ROUTING_PROFILE=quality     # Force routing profile
 AI_SYSTEM_ROUTING_ENABLED=false       # Disable dynamic routing
 AI_SYSTEM_RISK_PROFILE=high           # Override risk profile
@@ -250,7 +250,7 @@ This shows the resolved configuration after merging all sources and validates th
 
 | Issue | Solution |
 |---|---|
-| "Provider not found" | Ensure the CLI is installed: `which gemini`, `which codex` |
+| "Provider not found" | Ensure the CLI is installed: `which agy`, `which codex` |
 | "Docker sandbox failed" | Check Docker is running: `docker info` |
 | "Vector search slow" | First run builds the index; subsequent runs use cache |
 | "Permission denied" | Check `AI_SYSTEM_ALLOWED_WORKDIRS` includes your repo |

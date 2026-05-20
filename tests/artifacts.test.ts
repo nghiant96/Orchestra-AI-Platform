@@ -363,7 +363,7 @@ test("persistRoutingArtifacts writes stage-specific routing manifests", async ()
     profile: "safe",
     reason: "Plan targets risky paths.",
     roleProviders: {
-      planner: "gemini-cli",
+      planner: "agy-cli",
       reviewer: "claude-cli",
       generator: "codex-cli",
       fixer: "codex-cli"
@@ -415,7 +415,7 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     files: [{ path: "src/auth.ts", action: "update", content: "export const auth = true;\n" }]
   };
   const providers: ProviderSummary = {
-    planner: "gemini-cli",
+    planner: "agy-cli",
     reviewer: "claude-cli",
     generator: "codex-cli",
     fixer: "codex-cli"
@@ -446,8 +446,8 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     profile: "balanced",
     reason: "score-based routing",
     roleProviders: {
-      planner: "gemini-cli",
-      reviewer: "gemini-cli",
+      planner: "agy-cli",
+      reviewer: "agy-cli",
       generator: "codex-cli",
       fixer: "codex-cli"
     },
@@ -461,7 +461,7 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     profile: "safe",
     reason: "Plan targets risky paths.",
     roleProviders: {
-      planner: "gemini-cli",
+      planner: "agy-cli",
       reviewer: "claude-cli",
       generator: "codex-cli",
       fixer: "codex-cli"
@@ -700,8 +700,8 @@ function createRules(): RulesConfig {
       backend: "local-file"
     },
     providers: {
-      planner: { type: "gemini-cli" },
-      reviewer: { type: "gemini-cli" },
+      planner: { type: "agy-cli" },
+      reviewer: { type: "agy-cli" },
       generator: { type: "codex-cli" },
       fixer: { type: "codex-cli" }
     }

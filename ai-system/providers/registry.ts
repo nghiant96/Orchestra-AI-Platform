@@ -1,5 +1,5 @@
 import { CodexCliProvider } from "./codex-cli.js";
-import { GeminiCliProvider } from "./gemini-cli.js";
+import { AgyCliProvider } from "./agy-cli.js";
 import { ClaudeCliProvider } from "./claude-cli.js";
 import { OpenAICompatibleProvider } from "./openai-compatible.js";
 import { estimateProviderCost } from "../utils/cost-calculator.js";
@@ -114,8 +114,8 @@ export class FailoverJsonProvider implements JsonProvider {
       return null;
     }
 
-    // Prefer gemini-cli as a safe fallback if available, else pick the first one
-    const preferredFallback = allProviders.includes("gemini-cli") ? "gemini-cli" : allProviders[0];
+    // Prefer agy-cli as a safe fallback if available, else pick the first one
+    const preferredFallback = allProviders.includes("agy-cli") ? "agy-cli" : allProviders[0];
     if (!preferredFallback) return null;
 
     const config = Object.values(this.rules.providers).find(p => p.type === preferredFallback);
@@ -147,8 +147,8 @@ function createBaseProvider(type: string, config: any, logger?: Logger): JsonPro
   switch (type) {
     case "codex-cli":
       return new CodexCliProvider({ config, logger });
-    case "gemini-cli":
-      return new GeminiCliProvider({ config, logger });
+    case "agy-cli":
+      return new AgyCliProvider({ config, logger });
     case "claude-cli":
       return new ClaudeCliProvider({ config, logger });
     case "openai-compatible":

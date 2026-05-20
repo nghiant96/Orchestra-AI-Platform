@@ -16,7 +16,7 @@ RUN apt-get update \
 
 # Install the CLI providers this project supports by default.
 RUN npm install -g \
-  @google/gemini-cli \
+  agy-cli \
   @openai/codex \
   @anthropic-ai/claude-code
 

@@ -46,7 +46,7 @@ test("prepareRuntimeRules routes risky tasks to the safe profile using provider 
       assert.equal(decision.profile, "safe");
       assert.equal(rules.providers.reviewer.type, "claude-cli");
       assert.equal(rules.providers.reviewer.command, "claude");
-      assert.equal(rules.providers.planner.type, "gemini-cli");
+      assert.equal(rules.providers.planner.type, "agy-cli");
       assert.equal(rules.providers.generator.type, "codex-cli");
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
@@ -103,7 +103,7 @@ test("AI_SYSTEM_ROUTING_PROFILE forces the requested routing profile", async () 
 });
 
 test("AI_SYSTEM_PROVIDER rebuilds all role configs from matching provider templates", async () => {
-  await withEnv({ AI_SYSTEM_PROVIDER: "gemini-cli" }, async () => {
+  await withEnv({ AI_SYSTEM_PROVIDER: "agy-cli" }, async () => {
     const rules = createRules();
     const repoRoot = await createTempRepo();
     await prepareRuntimeRules({
@@ -115,11 +115,11 @@ test("AI_SYSTEM_PROVIDER rebuilds all role configs from matching provider templa
     });
 
     try {
-      assert.equal(rules.providers.planner.type, "gemini-cli");
+      assert.equal(rules.providers.planner.type, "agy-cli");
       assert.equal(rules.providers.planner.command, "agy");
-      assert.equal(rules.providers.generator.type, "gemini-cli");
+      assert.equal(rules.providers.generator.type, "agy-cli");
       assert.equal(rules.providers.generator.command, "agy");
-      assert.equal(rules.providers.fixer.type, "gemini-cli");
+      assert.equal(rules.providers.fixer.type, "agy-cli");
       assert.equal(rules.providers.fixer.command, "agy");
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
@@ -140,9 +140,9 @@ test("AI_SYSTEM_PROVIDER=default restores the mixed local provider commands", as
     });
 
     try {
-      assert.equal(rules.providers.planner.type, "gemini-cli");
+      assert.equal(rules.providers.planner.type, "agy-cli");
       assert.equal(rules.providers.planner.command, "agy");
-      assert.equal(rules.providers.reviewer.type, "gemini-cli");
+      assert.equal(rules.providers.reviewer.type, "agy-cli");
       assert.equal(rules.providers.reviewer.command, "agy");
       assert.equal(rules.providers.generator.type, "codex-cli");
       assert.equal(rules.providers.generator.command, "codex");
@@ -190,7 +190,7 @@ test("adaptive routing uses recent general run outcomes to favor the safer imple
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "claude-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -202,7 +202,7 @@ test("adaptive routing uses recent general run outcomes to favor the safer imple
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "claude-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -214,8 +214,8 @@ test("adaptive routing uses recent general run outcomes to favor the safer imple
       status: "failed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
@@ -228,8 +228,8 @@ test("adaptive routing uses recent general run outcomes to favor the safer imple
       status: "failed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
@@ -271,7 +271,7 @@ test("adaptive routing favors the fast profile when recent docs reviews succeed 
       status: "completed",
       task: "Update docs wording",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "codex-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -283,7 +283,7 @@ test("adaptive routing favors the fast profile when recent docs reviews succeed 
       status: "completed",
       task: "Fix README typo",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "codex-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -295,8 +295,8 @@ test("adaptive routing favors the fast profile when recent docs reviews succeed 
       status: "failed",
       task: "Update docs wording",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
@@ -337,7 +337,7 @@ test("adaptive routing penalizes slower and costlier reviewers when quality is o
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "claude-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -352,14 +352,14 @@ test("adaptive routing penalizes slower and costlier reviewers when quality is o
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
       latestFiles: ["src/shared/service.ts"],
       providerMetrics: [
-        { provider: "gemini-cli", role: "reviewer", totalDurationMs: 1200, estimatedCostUnits: 1.5 }
+        { provider: "agy-cli", role: "reviewer", totalDurationMs: 1200, estimatedCostUnits: 1.5 }
       ]
     });
     await seedAdaptiveRun(repoRoot, rules, {
@@ -367,14 +367,14 @@ test("adaptive routing penalizes slower and costlier reviewers when quality is o
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
       latestFiles: ["src/shared/service.ts"],
       providerMetrics: [
-        { provider: "gemini-cli", role: "reviewer", totalDurationMs: 1000, estimatedCostUnits: 1.4 }
+        { provider: "agy-cli", role: "reviewer", totalDurationMs: 1000, estimatedCostUnits: 1.4 }
       ]
     });
 
@@ -392,7 +392,7 @@ test("adaptive routing penalizes slower and costlier reviewers when quality is o
     });
 
     try {
-      assert.equal(decision.roleProviders.reviewer, "gemini-cli");
+      assert.equal(decision.roleProviders.reviewer, "agy-cli");
       assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
@@ -409,7 +409,7 @@ test("adaptive routing penalizes providers that repeatedly exceed run budgets", 
       status: "failed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "claude-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -425,7 +425,7 @@ test("adaptive routing penalizes providers that repeatedly exceed run budgets", 
       status: "failed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
+        planner: "agy-cli",
         reviewer: "claude-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
@@ -441,14 +441,14 @@ test("adaptive routing penalizes providers that repeatedly exceed run budgets", 
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
       latestFiles: ["src/shared/service.ts"],
       providerMetrics: [
-        { provider: "gemini-cli", role: "reviewer", totalDurationMs: 1400, estimatedCostUnits: 1.7 }
+        { provider: "agy-cli", role: "reviewer", totalDurationMs: 1400, estimatedCostUnits: 1.7 }
       ]
     });
     await seedAdaptiveRun(repoRoot, rules, {
@@ -456,14 +456,14 @@ test("adaptive routing penalizes providers that repeatedly exceed run budgets", 
       status: "completed",
       task: "Refactor shared service helpers",
       providers: {
-        planner: "gemini-cli",
-        reviewer: "gemini-cli",
+        planner: "agy-cli",
+        reviewer: "agy-cli",
         generator: "codex-cli",
         fixer: "codex-cli"
       },
       latestFiles: ["src/shared/service.ts"],
       providerMetrics: [
-        { provider: "gemini-cli", role: "reviewer", totalDurationMs: 1200, estimatedCostUnits: 1.5 }
+        { provider: "agy-cli", role: "reviewer", totalDurationMs: 1200, estimatedCostUnits: 1.5 }
       ]
     });
 
@@ -481,7 +481,7 @@ test("adaptive routing penalizes providers that repeatedly exceed run budgets", 
     });
 
     try {
-      assert.equal(decision.roleProviders.reviewer, "gemini-cli");
+      assert.equal(decision.roleProviders.reviewer, "agy-cli");
       assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
@@ -605,19 +605,19 @@ function createRules(): RulesConfig {
       default_profile: "balanced",
       profiles: {
         fast: {
-          planner: "gemini-cli",
+          planner: "agy-cli",
           reviewer: "codex-cli",
           generator: "codex-cli",
           fixer: "codex-cli"
         },
         balanced: {
-          planner: "gemini-cli",
-          reviewer: "gemini-cli",
+          planner: "agy-cli",
+          reviewer: "agy-cli",
           generator: "codex-cli",
           fixer: "codex-cli"
         },
         safe: {
-          planner: "gemini-cli",
+          planner: "agy-cli",
           reviewer: "claude-cli",
           generator: "codex-cli",
           fixer: "codex-cli"
@@ -629,8 +629,8 @@ function createRules(): RulesConfig {
       }
     },
     providers: {
-      planner: { type: "gemini-cli", command: "agy", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
-      reviewer: { type: "gemini-cli", command: "agy", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
+      planner: { type: "agy-cli", command: "agy", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
+      reviewer: { type: "agy-cli", command: "agy", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
       generator: { type: "codex-cli", command: "codex", timeout_ms: 0, retries: 1, monitor_interval_ms: 0 },
       fixer: { type: "codex-cli", command: "codex", timeout_ms: 0, retries: 1, monitor_interval_ms: 0 },
       claude_fallback: { type: "claude-cli", command: "claude", timeout_ms: 0, retries: 1, monitor_interval_ms: 0 }

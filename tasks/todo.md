@@ -164,8 +164,27 @@ Exit criteria:
 - Cost growth is measurable.
 - Larger teams can adopt the system without losing control.
 
+## Task: Rename gemini-cli to agy-cli
+
+- [x] Research and create implementation plan <!-- id: 0 -->
+- [x] Rename `ai-system/providers/gemini-cli.ts` to `ai-system/providers/agy-cli.ts` and update class to `AgyCliProvider` <!-- id: 1 -->
+- [x] Update provider registry in `ai-system/providers/registry.ts` <!-- id: 2 -->
+- [x] Update default command & orchestration mappings in `ai-system/core/orchestrator-runtime.ts` and `ai-system/core/provider-router-utils.ts` <!-- id: 3 -->
+- [x] Update utility and helper references in `ai-system/utils/config.ts`, `cost-calculator.ts`, `linter.ts` <!-- id: 4 -->
+- [x] Update CLI command arguments, presets, and interactive text in `ai-system/cli/` <!-- id: 5 -->
+- [x] Update configurations: `ai-system/config/rules.json`, `.ai-system.json.example`, `docker-compose.yml`, `Dockerfile` <!-- id: 6 -->
+- [x] Update documentation files: `README.md`, `docs/` <!-- id: 7 -->
+- [x] Run test suite to verify success <!-- id: 8 -->
+
 ## Immediate Next Move
 
 - [x] Start with Phase A implementation details and lock down the startup/docs/release path. ✅ (2026-05-03)
 - [x] Use Phase B only after the release path is reliable. ✅
 - [ ] Do not expand intake or team-control features until the workspace loop is stable.
+
+## Review Result: Gemini -> Agy Migration Check
+
+- Reviewed the provider/router migration paths and the targeted runtime tests.
+- Core provider migration is green: `provider-router`, `orchestrator-runtime`, and related config tests passed.
+- Full suite check still has 8 failing `tool-executor` tests in this environment, but they all pass once a temporary `pnpm` shim is present. The failures are environmental, not a `gemini` -> `agy` regression.
+- The remaining `gemini` strings are intentional support paths and model names: Antigravity stores settings under `~/.gemini/...`, and the dashboard/pricing helpers still reference Gemini model families.

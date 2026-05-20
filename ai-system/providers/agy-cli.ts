@@ -2,7 +2,7 @@ import { assertMatchesBasicSchema, extractStructuredData } from "../utils/schema
 import { runCommandWithRetry } from "../utils/api.js";
 import type { CommandMonitorEvent, JsonProvider, JsonSchema, Logger, ProviderConfig, RunJsonOptions } from "../types.js";
 
-export class GeminiCliProvider implements JsonProvider {
+export class AgyCliProvider implements JsonProvider {
   config: ProviderConfig;
   logger?: Logger;
 
@@ -31,7 +31,8 @@ export class GeminiCliProvider implements JsonProvider {
     const effectiveBaseDelayMs = this.config.base_delay_ms ?? baseDelayMs;
     const effectiveMonitorIntervalMs = this.config.monitor_interval_ms ?? 0;
 
-    const isAgy = (this.config.command || "gemini").includes("agy");
+    const command = this.config.command || "agy";
+    const isAgy = command.includes("agy");
     const args = ["-p", buildCombinedPrompt(systemPrompt, prompt, schema)];
 
     if (!isAgy) {
@@ -43,7 +44,7 @@ export class GeminiCliProvider implements JsonProvider {
     }
 
     const result = await runCommandWithRetry({
-      command: this.config.command || "gemini",
+      command,
       args,
       cwd,
       timeoutMs: effectiveTimeoutMs,

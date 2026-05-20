@@ -70,19 +70,19 @@
     },
     "profiles": {
       "fast": {
-        "planner": "gemini-cli",
+        "planner": "agy-cli",
         "reviewer": "codex-cli",
         "generator": "codex-cli",
         "fixer": "codex-cli"
       },
       "balanced": {
-        "planner": "gemini-cli",
-        "reviewer": "gemini-cli",
+        "planner": "agy-cli",
+        "reviewer": "agy-cli",
         "generator": "codex-cli",
         "fixer": "codex-cli"
       },
       "safe": {
-        "planner": "gemini-cli",
+        "planner": "agy-cli",
         "reviewer": "claude-cli",
         "generator": "codex-cli",
         "fixer": "codex-cli"
@@ -156,14 +156,14 @@
   },
   "providers": {
     "planner": {
-      "type": "gemini-cli",
+      "type": "agy-cli",
       "command": "agy",
       "timeout_ms": 0,
       "retries": 2,
       "monitor_interval_ms": 0
     },
     "reviewer": {
-      "type": "gemini-cli",
+      "type": "agy-cli",
       "command": "agy",
       "timeout_ms": 0,
       "retries": 2,

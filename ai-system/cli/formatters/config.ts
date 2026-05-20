@@ -147,7 +147,7 @@ export function printSetupCheck(result: SetupCheckResult): void {
   console.log(`- node: ${result.inspection.runtime.nodeVersion}`);
   console.log(`- pnpm: ${result.inspection.runtime.pnpmVersion ?? "missing"}`);
   console.log(`- codex CLI: ${result.cliAvailability.codex ? "ok" : "missing"}`);
-  console.log(`- gemini CLI: ${result.cliAvailability.gemini ? "ok" : "missing"}`);
+  console.log(`- agy CLI: ${result.cliAvailability.agy ? "ok" : "missing"}`);
   console.log(`- claude CLI: ${result.cliAvailability.claude ? "ok" : "missing"}`);
   console.log(`- pnpm CLI: ${result.cliAvailability.pnpm ? "ok" : "missing"}`);
 

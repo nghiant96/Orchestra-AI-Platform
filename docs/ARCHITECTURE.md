@@ -59,7 +59,7 @@ graph TB
     RunExecutor --> ToolExecutor
     Orchestrator --> Router
     Router --> Registry
-    Registry --> Gemini & Codex & Claude & OpenAI
+    Registry --> Agy & Codex & Claude & OpenAI
 
     Orchestrator --> Context
     Context --> DepGraph & VectorSearch
@@ -80,7 +80,7 @@ sequenceDiagram
     participant U as User
     participant O as Orchestrator
     participant R as Provider Router
-    participant P as Planner (Gemini)
+    participant P as Planner (Antigravity)
     participant CI as Context Intelligence
     participant G as Generator (Codex)
     participant T as Tool Executor
@@ -92,9 +92,8 @@ sequenceDiagram
 
     rect rgb(40, 50, 70)
         Note over O,P: Stage 1 — Planning
-        O->>R: buildRoutingDecision(stage: planning)
-        R-->>O: {planner: gemini-cli}
-        O->>P: spawn gemini "Analyze repo structure..."
+        R-->>O: {planner: agy-cli}
+        O->>P: spawn agy "Analyze repo structure..."
         P-->>O: Plan {writeTargets: [api.ts], readFiles: [...], risk: medium}
         O->>A: Persist plan checkpoint
     end
@@ -162,9 +161,9 @@ Profile = argmax(balanced, quality, speed, cost)
 - **Adaptive signals** — Historical success/failure rates per provider
 
 Each profile maps roles to concrete providers:
-- `balanced` → Gemini for planning, Codex for generation, Claude for review
+- `balanced` → Antigravity for planning, Codex for generation, Claude for review
 - `quality` → Claude for all roles
-- `speed` → Gemini for all roles
+- `speed` → Antigravity for all roles
 - `cost` → Cheapest available for each role
 
 ### 3. Run Executor (`run-executor.ts`)

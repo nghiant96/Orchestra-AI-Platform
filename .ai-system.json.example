@@ -7,10 +7,10 @@
   },
   "providers": {
     "planner": {
-      "type": "gemini-cli"
+      "type": "agy-cli"
     },
     "reviewer": {
-      "type": "gemini-cli"
+      "type": "agy-cli"
     },
     "generator": {
       "type": "codex-cli",

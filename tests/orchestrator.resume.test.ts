@@ -32,7 +32,7 @@ test("Orchestrator.resume completes a paused plan by running generator and revie
       task: "Resume a paused plan",
       rawPlan: plan,
       plan,
-      provider: "gemini-cli"
+      provider: "agy-cli"
     });
     await persistRunState(artifacts, {
       status: "paused_after_plan",
@@ -99,7 +99,7 @@ test("Orchestrator.resume re-enters the fixer loop when a paused generation has 
       task: "Resume a paused generation",
       rawPlan: plan,
       plan,
-      provider: "gemini-cli"
+      provider: "agy-cli"
     });
     await persistContextArtifacts(artifacts, {
       readFiles: plan.readFiles,
@@ -111,7 +111,7 @@ test("Orchestrator.resume re-enters the fixer loop when a paused generation has 
       task: "Resume a paused generation",
       dryRun: false,
       plan,
-      provider: "gemini-cli",
+      provider: "agy-cli",
       resultSummary: "Broken candidate",
       candidateFiles: [
         {
@@ -191,7 +191,7 @@ test("Orchestrator.resume retries a failed run from tool/review stages without r
       task: "Retry failed review stage",
       rawPlan: plan,
       plan,
-      provider: "gemini-cli"
+      provider: "agy-cli"
     });
     await persistContextArtifacts(artifacts, {
       readFiles: plan.readFiles,
@@ -280,7 +280,7 @@ test("Orchestrator.resume retries a failed write stage without rerunning generat
       task: "Retry failed write stage",
       rawPlan: plan,
       plan,
-      provider: "gemini-cli"
+      provider: "agy-cli"
     });
     await persistContextArtifacts(artifacts, {
       readFiles: plan.readFiles,
@@ -367,7 +367,7 @@ test("Orchestrator.resume honors a forced retry stage override", async () => {
       task: "Force the retry stage",
       rawPlan: plan,
       plan,
-      provider: "gemini-cli"
+      provider: "agy-cli"
     });
     await persistContextArtifacts(artifacts, {
       readFiles: plan.readFiles,
@@ -476,7 +476,7 @@ async function createTestRepo(overrides: Record<string, unknown> = {}): Promise<
   readSavedRunState: () => Promise<{ status?: string; iterations?: unknown[]; artifacts?: ArtifactSummary | null; execution?: { failure?: { class?: string } | null; retryHint?: { stage?: string } | null } | null }>;
 }> {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-resume-integration-"));
-  const fakeCliPath = path.join(repoRoot, "fake-gemini.cjs");
+  const fakeCliPath = path.join(repoRoot, "fake-agy.cjs");
   const configPath = path.join(repoRoot, ".ai-system.test.json");
 
   await fs.mkdir(path.join(repoRoot, "src"), { recursive: true });
@@ -498,10 +498,10 @@ async function createTestRepo(overrides: Record<string, unknown> = {}): Promise<
           data_dir: ".ai-system-artifacts"
         },
         providers: {
-          planner: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
-          reviewer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
-          generator: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
-          fixer: { type: "gemini-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 }
+          planner: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
+          reviewer: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
+          generator: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
+          fixer: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 }
         },
         ...overrides
       },
@@ -644,10 +644,10 @@ process.stdout.write(JSON.stringify(output));
 
 function providerSummary() {
   return {
-    planner: "gemini-cli",
-    reviewer: "gemini-cli",
-    generator: "gemini-cli",
-    fixer: "gemini-cli"
+    planner: "agy-cli",
+    reviewer: "agy-cli",
+    generator: "agy-cli",
+    fixer: "agy-cli"
   };
 }
 

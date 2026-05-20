@@ -24,7 +24,7 @@ export async function runSetupWizard({
   });
   const envValues = await workflow.readEnvValues(cwd);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const providerChoices = ["auto", "codex-cli", "gemini-cli", "claude-cli"];
+  const providerChoices = ["auto", "codex-cli", "agy-cli", "claude-cli"];
 
   try {
     console.log("");
@@ -187,7 +187,7 @@ function providerChoiceDescriptions(): Record<string, string> {
   return {
     auto: "Let the system decide this role dynamically from the task and routing rules.",
     "codex-cli": "Best fit when you want Codex to own code generation inside this project.",
-    "gemini-cli": "Useful for planning or review when you want Antigravity CLI (agy) in the loop.",
+    "agy-cli": "Useful for planning or review when you want Antigravity CLI (agy) in the loop.",
     "claude-cli": "Useful for review or planning when Claude CLI is available on the machine."
   };
 }

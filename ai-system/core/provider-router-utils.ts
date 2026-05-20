@@ -5,19 +5,19 @@ export const PROVIDER_ROLES: ProviderRole[] = ["planner", "reviewer", "generator
 
 const DEFAULT_ROUTING_PROFILES: Record<RoutingProfileName, ProviderRoutingProfile> = {
   fast: {
-    planner: "gemini-cli",
+    planner: "agy-cli",
     reviewer: "codex-cli",
     generator: "codex-cli",
     fixer: "codex-cli"
   },
   balanced: {
-    planner: "gemini-cli",
-    reviewer: "gemini-cli",
+    planner: "agy-cli",
+    reviewer: "agy-cli",
     generator: "codex-cli",
     fixer: "codex-cli"
   },
   safe: {
-    planner: "gemini-cli",
+    planner: "agy-cli",
     reviewer: "claude-cli",
     generator: "codex-cli",
     fixer: "codex-cli"
@@ -56,7 +56,7 @@ export function resolvePreferredProviderType(rules: RulesConfig, candidates: Arr
     }
   }
 
-  return normalizeProviderType(candidates[0]) || "gemini-cli";
+  return normalizeProviderType(candidates[0]) || "agy-cli";
 }
 
 export function hasProviderTemplate(rules: RulesConfig, providerType: string): boolean {
