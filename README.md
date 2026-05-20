@@ -248,7 +248,7 @@ node --version    # v20+
 pnpm --version    # v8+
 
 # At least one AI CLI installed and authenticated
-gemini             # Google Gemini CLI
+agy                # Antigravity CLI (recommended)
 codex login        # OpenAI Codex CLI
 claude             # Anthropic Claude CLI (optional)
 ```

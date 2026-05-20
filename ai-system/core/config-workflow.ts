@@ -68,7 +68,7 @@ export interface SetupCheckResult {
   inspection: ConfigInspection;
   configPath: string | null;
   envPath: string;
-  cliAvailability: Record<"codex" | "gemini" | "claude" | "pnpm", boolean>;
+  cliAvailability: Record<"codex" | "agy" | "claude" | "pnpm", boolean>;
   openmemory:
     | {
         enabled: false;
@@ -342,7 +342,7 @@ export async function runSetupCheck({
   const envPath = path.join(repoRoot, ".env");
   const cliAvailability = {
     codex: await commandExists("codex"),
-    gemini: await commandExists("gemini"),
+    agy: await commandExists("agy"),
     claude: await commandExists("claude"),
     pnpm: await commandExists("pnpm")
   };

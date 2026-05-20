@@ -157,14 +157,14 @@
   "providers": {
     "planner": {
       "type": "gemini-cli",
-      "command": "gemini",
+      "command": "agy",
       "timeout_ms": 0,
       "retries": 2,
       "monitor_interval_ms": 0
     },
     "reviewer": {
       "type": "gemini-cli",
-      "command": "gemini",
+      "command": "agy",
       "timeout_ms": 0,
       "retries": 2,
       "monitor_interval_ms": 0

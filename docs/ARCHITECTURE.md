@@ -36,7 +36,7 @@ graph TB
 
     subgraph "Provider Layer"
         Registry["Provider Registry"]
-        Gemini["gemini-cli"]
+        Agy["agy"]
         Codex["codex-cli"]
         Claude["claude-cli"]
         OpenAI["OpenAI API"]
@@ -189,7 +189,7 @@ Orchestra defines four distinct roles:
 
 | Role | Responsibility | Typical Provider |
 |---|---|---|
-| **Planner** | Analyze repo, select files, assess risk | Gemini |
+| **Planner** | Analyze repo, select files, assess risk | agy |
 | **Generator** | Produce full-file code patches | Codex |
 | **Reviewer** | Senior engineer review (logic, security, style) | Claude |
 | **Fixer** | Use failure logs to refine code | Same as Generator |

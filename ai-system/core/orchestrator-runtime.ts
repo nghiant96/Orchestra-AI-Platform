@@ -23,7 +23,7 @@ import { createRuntimeDependencies, type RuntimeDependencies } from "./run-execu
 const PROVIDER_ROLES: ProviderRole[] = ["planner", "reviewer", "generator", "fixer"];
 const ROUTING_CONTROL_KEYS = ["timeout_ms", "retries", "base_delay_ms", "monitor_interval_ms", "temperature", "response_format"] as const;
 const DEFAULT_PROVIDER_COMMANDS: Record<string, string> = {
-  "gemini-cli": "gemini",
+  "gemini-cli": "agy",
   "claude-cli": "claude",
   "codex-cli": "codex"
 };

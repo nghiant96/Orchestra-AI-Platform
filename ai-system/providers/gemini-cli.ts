@@ -31,14 +31,12 @@ export class GeminiCliProvider implements JsonProvider {
     const effectiveBaseDelayMs = this.config.base_delay_ms ?? baseDelayMs;
     const effectiveMonitorIntervalMs = this.config.monitor_interval_ms ?? 0;
 
-    const args = [
-      "-p",
-      buildCombinedPrompt(systemPrompt, prompt, schema),
-      "--approval-mode",
-      "plan",
-      "--output-format",
-      "json"
-    ];
+    const isAgy = (this.config.command || "gemini").includes("agy");
+    const args = ["-p", buildCombinedPrompt(systemPrompt, prompt, schema)];
+
+    if (!isAgy) {
+      args.push("--approval-mode", "plan", "--output-format", "json");
+    }
 
     if (this.config.model) {
       args.push("--model", this.config.model);

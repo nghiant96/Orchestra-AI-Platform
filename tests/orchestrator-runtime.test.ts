@@ -116,11 +116,11 @@ test("AI_SYSTEM_PROVIDER rebuilds all role configs from matching provider templa
 
     try {
       assert.equal(rules.providers.planner.type, "gemini-cli");
-      assert.equal(rules.providers.planner.command, "gemini");
+      assert.equal(rules.providers.planner.command, "agy");
       assert.equal(rules.providers.generator.type, "gemini-cli");
-      assert.equal(rules.providers.generator.command, "gemini");
+      assert.equal(rules.providers.generator.command, "agy");
       assert.equal(rules.providers.fixer.type, "gemini-cli");
-      assert.equal(rules.providers.fixer.command, "gemini");
+      assert.equal(rules.providers.fixer.command, "agy");
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
     }
@@ -141,9 +141,9 @@ test("AI_SYSTEM_PROVIDER=default restores the mixed local provider commands", as
 
     try {
       assert.equal(rules.providers.planner.type, "gemini-cli");
-      assert.equal(rules.providers.planner.command, "gemini");
+      assert.equal(rules.providers.planner.command, "agy");
       assert.equal(rules.providers.reviewer.type, "gemini-cli");
-      assert.equal(rules.providers.reviewer.command, "gemini");
+      assert.equal(rules.providers.reviewer.command, "agy");
       assert.equal(rules.providers.generator.type, "codex-cli");
       assert.equal(rules.providers.generator.command, "codex");
       assert.equal(rules.providers.fixer.type, "codex-cli");
@@ -629,8 +629,8 @@ function createRules(): RulesConfig {
       }
     },
     providers: {
-      planner: { type: "gemini-cli", command: "gemini", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
-      reviewer: { type: "gemini-cli", command: "gemini", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
+      planner: { type: "gemini-cli", command: "agy", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
+      reviewer: { type: "gemini-cli", command: "agy", timeout_ms: 0, retries: 2, monitor_interval_ms: 0 },
       generator: { type: "codex-cli", command: "codex", timeout_ms: 0, retries: 1, monitor_interval_ms: 0 },
       fixer: { type: "codex-cli", command: "codex", timeout_ms: 0, retries: 1, monitor_interval_ms: 0 },
       claude_fallback: { type: "claude-cli", command: "claude", timeout_ms: 0, retries: 1, monitor_interval_ms: 0 }
