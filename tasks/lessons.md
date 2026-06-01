@@ -290,3 +290,31 @@ reject it instead of letting the in-process runner race external workers.
 **Rule**: Every API that accepts or persists workspace roots must use the shared canonical path policy before
 storing data. Do not duplicate path boundary checks with `path.resolve()`; add symlink escape regression tests
 at each route boundary that accepts roots.
+
+## 2026-06-01: Worker runtime config must snapshot provider selection
+
+**Mistake**: Let worker execution read `ORCHESTRA_WORKER_PROVIDER` during job execution, which made parallel
+tests flaky when one test switched the env to `dummy` while another switched it to `codex`.
+
+**Rule**: Runtime-critical provider selection must be captured in `WorkerRuntimeConfig` and passed through the
+execution context. Tests may still set env before config construction, but executors should not read mutable
+global env for values that can change while jobs are running.
+
+## 2026-06-01: Retry transient queue locks without dropping result payloads
+
+**Mistake**: A worker failure payload could be lost when `failJob()` raced a heartbeat lease renewal and hit
+`Job is locked; retry`; the catch path retried failure with only logs and no structured provider failure.
+
+**Rule**: Treat per-job lock contention as a transient queue mutation error. Worker runtime should retry
+complete/fail/checkpoint mutations on `Job is locked; retry` and preserve the original completion/failure
+payload instead of falling through to a generic catch-path result.
+
+## 2026-06-01: Do not lint generated JavaScript mirrors as source
+
+**Mistake**: Kept generated `.js` mirrors in the ESLint source set after deciding to commit runtime mirrors,
+which made CI lint report hundreds of `no-undef` errors on generated output instead of actionable source
+issues.
+
+**Rule**: Lint TypeScript sources and hand-written JavaScript entrypoints, but exclude generated `.js` mirrors.
+Use a dedicated mirror check (`pnpm check:js-mirrors`) to prove generated JavaScript stays synchronized with
+the TypeScript source.

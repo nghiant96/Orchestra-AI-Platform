@@ -2,6 +2,47 @@
 
 Last updated: 2026-06-01
 
+## Task: Implement Worker Foundation Hardening And Real Provider P2
+
+- [x] Add alpha scripts and JS mirror sync check.
+- [x] Lock worker queue terminal/checkpoint/lease/recover transitions.
+- [x] Add external worker start transition and heartbeat lease result contract.
+- [x] Harden MCP tools so actor is required and never defaults to operator.
+- [x] Add worker provider adapter seam, worktree/artifact capture, and CodexProvider v1.
+- [x] Add regression coverage and run targeted verification.
+
+Review result:
+
+- P0-P2 worker foundation is implemented for alpha: server/worker smoke scripts exist, `.js` mirrors are enforced by `pnpm check:js-mirrors`, external worker jobs now claim/start/run/complete under lease, busy heartbeats report lease renewal status, and MCP tools reject missing actors.
+- CodexProvider v1 is the only real provider adapter. It runs in an isolated git worktree, uses command/env policy gates, captures diff/log/changed-file/verification artifacts, and keeps dry-run mutations out of the main checkout.
+- Queue mutation races are covered with per-job locks plus worker-runtime retry for transient lock contention so terminal payloads are not dropped.
+- Verification passed with root typecheck, targeted worker/queue/MCP/provider tests, `tsc` emit, and JS mirror drift check.
+
+## Task: Fix CI Lint Regression
+
+- [x] Reproduce `pnpm lint` failure locally.
+- [x] Ignore generated `.js` mirrors in ESLint while keeping source `.ts`, `bin/**/*.js`, and hand-written `scripts/**/*.mjs` linted.
+- [x] Fix actual source lint errors in worker provider/client/runtime, server imports, path policy, worker store, smoke script config, and dashboard detail effect.
+- [x] Run lint, typecheck, JS mirror sync, diff check, and targeted worker/provider regressions.
+
+Review result:
+
+- CI lint regression is fixed. `pnpm lint` now passes without linting generated `.js` mirrors.
+- TypeScript source remains the lint target and `.js` mirror correctness is covered separately by `pnpm check:js-mirrors`.
+
+## Task: Review Real Worker Execution Backlog
+
+- [x] Read `ORCHESTRA_IMPROVEMENT_BACKLOG_AND_REAL_WORKER_EXECUTION.md`.
+- [x] Compare backlog assumptions with current worker/backend/MCP implementation.
+- [x] Identify blockers, sequencing issues, missing acceptance criteria, and merge risks.
+- [x] Summarize review findings and recommended next actions.
+
+Review result:
+
+- Backlog direction is correct: real provider-backed worker execution is the right next major milestone.
+- Main issue is sequencing: MCP actor hardening, locked terminal queue transitions, worktree isolation, command policy, and artifact capture should be promoted ahead of CodexProvider execution.
+- Several testing backlog items are already covered by current worker tests and should be reclassified as existing regressions, leaving MCP actor auth and provider/worktree smoke as the missing checks.
+
 ## Task: Update README For Worker/Hermes Preview
 
 - [x] Add high-level Local Worker, Hermes, Superpowers, and MCP status to README.

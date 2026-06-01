@@ -10,7 +10,7 @@ export interface PathPolicyResult {
 export async function validatePath(
   candidate: string,
   allowedRoots: string[],
-  options: { allowSymlinkEscape?: boolean } = {}
+  _options: { allowSymlinkEscape?: boolean } = {}
 ): Promise<PathPolicyResult> {
   if (allowedRoots.length === 0) {
     return { allowed: true };

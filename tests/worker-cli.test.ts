@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import http from "node:http";
 import { createAiSystemServer } from "../ai-system/server-app.js";
 import { parseArgs } from "../ai-system/cli/arg-parser.js";
 import { loadWorkerRuntimeConfig } from "../ai-system/worker/worker-config.js";
@@ -88,6 +87,7 @@ describe("Phase 2 worker CLI", () => {
           workerToken: "worker-token",
           workerName: "test-worker",
           workspaceRoots: [repoRoot],
+          provider: "dummy",
           once: true,
           heartbeatIntervalMs: 100,
           pollIntervalMs: 100
@@ -107,8 +107,8 @@ describe("Phase 2 worker CLI", () => {
       assert.match(workerLogs, /dummy job/);
       assert.ok(!workerLogs.includes("sk-test12345678901234567890"));
     } finally {
-      process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
-      process.env.ORCHESTRA_WORKER_TOKEN = previousWorkerToken;
+      restoreEnvValue("ORCHESTRA_EXECUTION_BACKEND", previousBackend);
+      restoreEnvValue("ORCHESTRA_WORKER_TOKEN", previousWorkerToken);
       await closeServer(server);
       await fs.rm(repoRoot, { recursive: true, force: true });
     }
@@ -151,6 +151,7 @@ describe("Phase 2 worker CLI", () => {
           workerToken: "worker-token",
           workerName: "mutation-worker",
           workspaceRoots: [repoRoot],
+          provider: "dummy",
           once: true,
           heartbeatIntervalMs: 100,
           pollIntervalMs: 100
@@ -170,8 +171,8 @@ describe("Phase 2 worker CLI", () => {
       assert.ok(writeIndex >= 0);
       assert.ok(checkpointIndex < writeIndex);
     } finally {
-      process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
-      process.env.ORCHESTRA_WORKER_TOKEN = previousWorkerToken;
+      restoreEnvValue("ORCHESTRA_EXECUTION_BACKEND", previousBackend);
+      restoreEnvValue("ORCHESTRA_WORKER_TOKEN", previousWorkerToken);
       await closeServer(server);
       await fs.rm(repoRoot, { recursive: true, force: true });
     }
@@ -214,6 +215,7 @@ describe("Phase 2 worker CLI", () => {
           workerToken: "worker-token",
           workerName: "dry-run-worker",
           workspaceRoots: [repoRoot],
+          provider: "dummy",
           once: true,
           heartbeatIntervalMs: 100,
           pollIntervalMs: 100
@@ -228,8 +230,8 @@ describe("Phase 2 worker CLI", () => {
       await assert.rejects(() => fs.stat(path.join(repoRoot, "dry-run-output.txt")), /ENOENT/);
       assert.match(job.resultSummary, /Dry-run skipped write/);
     } finally {
-      process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
-      process.env.ORCHESTRA_WORKER_TOKEN = previousWorkerToken;
+      restoreEnvValue("ORCHESTRA_EXECUTION_BACKEND", previousBackend);
+      restoreEnvValue("ORCHESTRA_WORKER_TOKEN", previousWorkerToken);
       await closeServer(server);
       await fs.rm(repoRoot, { recursive: true, force: true });
     }
@@ -256,6 +258,14 @@ function createResult(task: string, cwd: string) {
     wroteFiles: false,
     execution: { currentStage: null, terminalStage: null, steps: [], transitions: [], failure: null, retryHint: null, providerMetrics: [], budget: null, totalDurationMs: 10 }
   };
+}
+
+function restoreEnvValue(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
 }
 
 async function waitForJob(

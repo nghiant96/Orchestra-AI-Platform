@@ -25,6 +25,9 @@ export async function runWorkerRuntime(config, options = {}) {
     const heartbeatTimer = setInterval(() => {
         void sendHeartbeat().catch((error) => {
             logger.warn(`Worker heartbeat failed: ${error.message}`);
+            if (error.message.includes("lease")) {
+                stopped = true;
+            }
         });
     }, config.heartbeatIntervalMs);
     heartbeatTimer.unref?.();
@@ -50,6 +53,10 @@ export async function runWorkerRuntime(config, options = {}) {
                 continue;
             }
             claimedJobs += 1;
+            const started = await client.start(worker.id, job.jobId, lease.leaseId);
+            if (!started.ok) {
+                throw new Error(started.error || "Failed to start worker job");
+            }
             activeJob = { job, leaseId: lease.leaseId };
             await sendHeartbeat("busy");
             const logBuffer = [];
@@ -64,14 +71,16 @@ export async function runWorkerRuntime(config, options = {}) {
                     client,
                     worker,
                     job,
-                    workspaceRoots: config.workspaceRoots,
+                    workspaceRoots: worker.workspaceRoots.length > 0 ? worker.workspaceRoots : config.workspaceRoots,
+                    providerId: config.provider,
+                    providerCommand: config.providerCommand,
                     emitLog,
                     markFilesystemMutation: async (stage, worktreePath) => {
-                        const checkpoint = await client.checkpoint(worker.id, job.jobId, lease.leaseId, {
+                        const checkpoint = await retryTransientJobMutation(() => client.checkpoint(worker.id, job.jobId, lease.leaseId, {
                             stage,
                             filesystemMutated: true,
                             worktreePath
-                        });
+                        }));
                         if (!checkpoint.ok) {
                             throw new Error(checkpoint.error || "Failed to save checkpoint");
                         }
@@ -92,19 +101,28 @@ export async function runWorkerRuntime(config, options = {}) {
                     }
                 }
                 if (result.ok) {
-                    const completion = await client.complete(worker.id, job.jobId, lease.leaseId, {
+                    const completion = await retryTransientJobMutation(() => client.complete(worker.id, job.jobId, lease.leaseId, {
                         resultSummary: result.summary,
-                        workerLogs: logBuffer
-                    });
+                        artifactPath: result.artifactPath,
+                        workerLogs: logBuffer,
+                        diffSummaries: result.diffSummaries,
+                        latestToolResults: result.latestToolResults,
+                        execution: result.execution
+                    }));
                     if (!completion.ok) {
                         throw new Error(completion.error || "Failed to complete job");
                     }
                     completedJobs += 1;
                 }
                 else {
-                    const failure = await client.fail(worker.id, job.jobId, lease.leaseId, result.summary, {
-                        workerLogs: logBuffer
-                    });
+                    const failure = await retryTransientJobMutation(() => client.fail(worker.id, job.jobId, lease.leaseId, result.summary, {
+                        artifactPath: result.artifactPath,
+                        workerLogs: logBuffer,
+                        diffSummaries: result.diffSummaries,
+                        latestToolResults: result.latestToolResults,
+                        failure: result.failure,
+                        execution: result.execution
+                    }));
                     if (!failure.ok) {
                         throw new Error(failure.error || "Failed to fail job");
                     }
@@ -124,9 +142,9 @@ export async function runWorkerRuntime(config, options = {}) {
                     }
                 }
                 const failureMessage = error instanceof Error ? error.message : "Worker job failed";
-                const failure = await client.fail(worker.id, job.jobId, lease.leaseId, failureMessage, {
+                const failure = await retryTransientJobMutation(() => client.fail(worker.id, job.jobId, lease.leaseId, failureMessage, {
                     workerLogs: logBuffer
-                }).catch(() => ({ ok: false }));
+                })).catch(() => ({ ok: false }));
                 if (failure.ok) {
                     failedJobs += 1;
                 }
@@ -142,7 +160,6 @@ export async function runWorkerRuntime(config, options = {}) {
         }
     }
     finally {
-        stopped = true;
         clearInterval(heartbeatTimer);
         options.signal?.removeEventListener("abort", abortHandler);
         if (activeJob) {
@@ -160,15 +177,48 @@ export async function runWorkerRuntime(config, options = {}) {
         uploadedLogLines
     };
     async function sendHeartbeat(status = activeJob ? "busy" : "idle") {
-        const result = await client.heartbeat(worker.id, {
+        const result = await retryTransientHeartbeat(async () => client.heartbeat(worker.id, {
             status,
             currentJobId: activeJob?.job.jobId,
             leaseId: activeJob?.leaseId,
             jobId: activeJob?.job.jobId
-        });
+        }));
         if (!result.worker) {
             throw new Error("Heartbeat did not return worker state");
         }
+        if (status === "busy" && activeJob && result.leaseRenewed === false) {
+            throw new Error(result.leaseError || "Worker lease renewal failed");
+        }
+    }
+    async function retryTransientHeartbeat(fn) {
+        try {
+            return await fn();
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : "";
+            if (message !== "Job is locked; retry") {
+                throw error;
+            }
+            await sleep(25);
+            return fn();
+        }
+    }
+    async function retryTransientJobMutation(fn) {
+        let lastError;
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+                return await fn();
+            }
+            catch (error) {
+                lastError = error;
+                const message = error instanceof Error ? error.message : "";
+                if (message !== "Job is locked; retry") {
+                    throw error;
+                }
+                await sleep(25 * (attempt + 1));
+            }
+        }
+        throw lastError;
     }
     async function safeClaim() {
         try {

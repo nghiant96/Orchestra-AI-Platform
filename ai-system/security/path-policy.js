@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-export async function validatePath(candidate, allowedRoots, options = {}) {
+export async function validatePath(candidate, allowedRoots, _options = {}) {
     if (allowedRoots.length === 0) {
         return { allowed: true };
     }

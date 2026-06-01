@@ -90,6 +90,98 @@ describe("Worker Claim And Lease", () => {
     assert.ok(result.lease.leaseId.startsWith("lease-"));
   });
 
+  test("start requires a valid lease and is idempotent", async () => {
+    const { worker } = await registerWorker("start-worker", [tmpDir]);
+    const { jobId } = await enqueueJob("start transition", tmpDir);
+    const claimed = await requestJson(baseUrl, "POST", `/workers/${worker.id}/jobs/claim`, {}, 200);
+
+    const invalid = await requestJson(baseUrl, "POST", `/jobs/${jobId}/start`, {
+      workerId: worker.id,
+      leaseId: "lease-wrong"
+    }, 400);
+    assert.equal(invalid.ok, false);
+
+    const started = await requestJson(baseUrl, "POST", `/jobs/${jobId}/start`, {
+      workerId: worker.id,
+      leaseId: claimed.lease.leaseId
+    }, 200);
+    assert.equal(started.ok, true);
+
+    const repeated = await requestJson(baseUrl, "POST", `/jobs/${jobId}/start`, {
+      workerId: worker.id,
+      leaseId: claimed.lease.leaseId
+    }, 200);
+    assert.equal(repeated.ok, true);
+
+    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`, undefined, 200);
+    assert.equal(job.status, "running");
+    assert.ok(job.startedAt);
+  });
+
+  test("busy heartbeat starts and renews valid leases", async () => {
+    const { worker } = await registerWorker("heartbeat-renew-worker", [tmpDir]);
+    const { jobId } = await enqueueJob("heartbeat renew", tmpDir);
+    const claimed = await requestJson(baseUrl, "POST", `/workers/${worker.id}/jobs/claim`, {}, 200);
+
+    const heartbeat = await requestJson(baseUrl, "POST", `/workers/${worker.id}/heartbeat`, {
+      status: "busy",
+      currentJobId: jobId,
+      jobId,
+      leaseId: claimed.lease.leaseId
+    }, 200);
+
+    assert.equal(heartbeat.ok, true);
+    assert.equal(heartbeat.leaseRenewed, true);
+    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`, undefined, 200);
+    assert.equal(job.status, "running");
+  });
+
+  test("busy heartbeat rejects invalid lease early", async () => {
+    const { worker } = await registerWorker("heartbeat-invalid-worker", [tmpDir]);
+    const { jobId } = await enqueueJob("heartbeat invalid", tmpDir);
+    await requestJson(baseUrl, "POST", `/workers/${worker.id}/jobs/claim`, {}, 200);
+
+    const heartbeat = await requestJson(baseUrl, "POST", `/workers/${worker.id}/heartbeat`, {
+      status: "busy",
+      currentJobId: jobId,
+      jobId,
+      leaseId: "lease-invalid"
+    }, 409);
+
+    assert.equal(heartbeat.ok, false);
+    assert.equal(heartbeat.leaseRenewed, false);
+    assert.match(String(heartbeat.leaseError || ""), /Invalid leaseId/);
+  });
+
+  test("busy heartbeat rejects expired leases", async () => {
+    const { worker } = await registerWorker("heartbeat-expired-worker", [tmpDir]);
+    const { jobId } = await enqueueJob("heartbeat expired", tmpDir);
+    const claimed = await requestJson(baseUrl, "POST", `/workers/${worker.id}/jobs/claim`, {}, 200);
+    const jobPath = path.join(tmpDir, ".ai-system-server", "jobs", `${jobId}.json`);
+    const raw = JSON.parse(await fs.readFile(jobPath, "utf8"));
+    raw.lease.expiresAt = new Date(Date.now() - 60_000).toISOString();
+    await fs.writeFile(jobPath, `${JSON.stringify(raw, null, 2)}\n`, "utf8");
+
+    const heartbeat = await requestJson(baseUrl, "POST", `/workers/${worker.id}/heartbeat`, {
+      status: "busy",
+      currentJobId: jobId,
+      jobId,
+      leaseId: claimed.lease.leaseId
+    }, 409);
+
+    assert.equal(heartbeat.ok, false);
+    assert.equal(heartbeat.leaseRenewed, false);
+    assert.match(String(heartbeat.leaseError || ""), /Lease expired/);
+
+    const cleanup = JSON.parse(await fs.readFile(jobPath, "utf8"));
+    cleanup.status = "failed";
+    cleanup.error = "test cleanup";
+    cleanup.finishedAt = new Date().toISOString();
+    cleanup.lease = undefined;
+    cleanup.workerId = undefined;
+    await fs.writeFile(jobPath, `${JSON.stringify(cleanup, null, 2)}\n`, "utf8");
+  });
+
   test("claim rejects selector and capability mismatches", async () => {
     const { worker } = await registerWorker("selector-worker", [tmpDir]);
     const { jobId } = await enqueueJob("selector mismatch", tmpDir);
@@ -180,6 +272,47 @@ describe("Worker Claim And Lease", () => {
     assert.equal(job.resultSummary, "Forwarded completion summary");
     assert.equal(job.artifactPath, path.join(tmpDir, ".artifacts", "worker-result"));
     assert.deepEqual(job.workerLogs, ["worker completed"]);
+  });
+
+  test("concurrent terminal and checkpoint transitions leave one stable terminal state", async () => {
+    const { worker } = await registerWorker("transition-race-worker", [tmpDir]);
+    await enqueueJob("transition race", tmpDir);
+    const claimed = await requestJson(baseUrl, "POST", `/workers/${worker.id}/jobs/claim`, {}, 200);
+    await requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/start`, {
+      workerId: worker.id,
+      leaseId: claimed.lease.leaseId
+    }, 200);
+
+    const [checkpoint, complete, fail] = await Promise.all([
+      requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/checkpoint`, {
+        workerId: worker.id,
+        leaseId: claimed.lease.leaseId,
+        stage: "race",
+        filesystemMutated: true
+      }, undefined),
+      requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/complete`, {
+        workerId: worker.id,
+        leaseId: claimed.lease.leaseId,
+        summary: "race complete"
+      }, undefined),
+      requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/fail`, {
+        workerId: worker.id,
+        leaseId: claimed.lease.leaseId,
+        message: "race fail"
+      }, undefined)
+    ].map((promise) => promise.catch((error) => ({ ok: false, error: String(error.message || error) }))));
+
+    assert.ok([checkpoint, complete, fail].some((result: any) => result.ok === true));
+    let job = await requestJson(baseUrl, "GET", `/jobs/${claimed.job.jobId}`, undefined, 200);
+    if (job.status === "running") {
+      await requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/complete`, {
+        workerId: worker.id,
+        leaseId: claimed.lease.leaseId,
+        summary: "race retry complete"
+      }, 200);
+      job = await requestJson(baseUrl, "GET", `/jobs/${claimed.job.jobId}`, undefined, 200);
+    }
+    assert.ok(job.status === "completed" || job.status === "failed");
   });
 
   test("complete rejects stale leaseId", async () => {

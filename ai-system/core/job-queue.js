@@ -185,111 +185,164 @@ export class FileBackedJobQueue {
         });
     }
     async completeJob(jobId, leaseId, result) {
-        const job = await this.get(jobId);
-        if (!job)
-            return { ok: false, error: "Job not found" };
-        if (!job.lease)
-            return { ok: false, error: "No active lease" };
-        if (job.lease.leaseId !== leaseId) {
+        const locked = await this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return { ok: false, error: "Job not found" };
+            if (!job.lease)
+                return { ok: false, error: "No active lease" };
+            if (job.lease.leaseId !== leaseId) {
+                if (job.status === "completed" || job.status === "failed") {
+                    return { ok: true };
+                }
+                return { ok: false, error: "Invalid leaseId" };
+            }
             if (job.status === "completed" || job.status === "failed") {
                 return { ok: true };
             }
-            return { ok: false, error: "Invalid leaseId" };
-        }
-        if (job.status === "completed" || job.status === "failed") {
+            const now = Date.now();
+            if (new Date(job.lease.expiresAt).getTime() < now) {
+                return { ok: false, error: "Lease expired" };
+            }
+            const finishedAt = new Date().toISOString();
+            const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
+            const updated = {
+                ...job,
+                ...result,
+                status: "completed",
+                finishedAt,
+                executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
+                updatedAt: finishedAt
+            };
+            await this.writeJob(updated);
             return { ok: true };
-        }
-        const now = Date.now();
-        if (new Date(job.lease.expiresAt).getTime() < now) {
-            return { ok: false, error: "Lease expired" };
-        }
-        const finishedAt = new Date().toISOString();
-        const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
-        const updated = {
-            ...job,
-            ...result,
-            status: "completed",
-            finishedAt,
-            executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
-            updatedAt: finishedAt
-        };
-        await this.writeJob(updated);
-        return { ok: true };
+        });
+        return locked ?? { ok: false, error: "Job is locked; retry" };
     }
     async failJob(jobId, leaseId, error, result = {}) {
-        const job = await this.get(jobId);
-        if (!job)
-            return { ok: false, error: "Job not found" };
-        if (!job.lease)
-            return { ok: false, error: "No active lease" };
-        if (job.lease.leaseId !== leaseId) {
+        const locked = await this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return { ok: false, error: "Job not found" };
+            if (!job.lease)
+                return { ok: false, error: "No active lease" };
+            if (job.lease.leaseId !== leaseId) {
+                if (job.status === "completed" || job.status === "failed") {
+                    return { ok: true };
+                }
+                return { ok: false, error: "Invalid leaseId" };
+            }
             if (job.status === "completed" || job.status === "failed") {
                 return { ok: true };
             }
-            return { ok: false, error: "Invalid leaseId" };
-        }
-        if (job.status === "completed" || job.status === "failed") {
+            const now = Date.now();
+            if (new Date(job.lease.expiresAt).getTime() < now) {
+                return { ok: false, error: "Lease expired" };
+            }
+            const finishedAt = new Date().toISOString();
+            const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
+            const updated = {
+                ...job,
+                ...result,
+                status: "failed",
+                error,
+                finishedAt,
+                executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
+                updatedAt: finishedAt
+            };
+            await this.writeJob(updated);
             return { ok: true };
-        }
-        const now = Date.now();
-        if (new Date(job.lease.expiresAt).getTime() < now) {
-            return { ok: false, error: "Lease expired" };
-        }
-        const finishedAt = new Date().toISOString();
-        const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
-        const updated = {
-            ...job,
-            ...result,
-            status: "failed",
-            error,
-            finishedAt,
-            executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
-            updatedAt: finishedAt
-        };
-        await this.writeJob(updated);
-        return { ok: true };
+        });
+        return locked ?? { ok: false, error: "Job is locked; retry" };
+    }
+    async startJob(jobId, workerId, leaseId) {
+        const locked = await this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return { ok: false, error: "Job not found" };
+            if (!job.lease)
+                return { ok: false, error: "No active lease" };
+            if (job.lease.workerId !== workerId || job.lease.leaseId !== leaseId) {
+                return { ok: false, error: "Invalid leaseId" };
+            }
+            if (new Date(job.lease.expiresAt).getTime() < Date.now()) {
+                return { ok: false, error: "Lease expired" };
+            }
+            if (job.status === "running")
+                return { ok: true };
+            if (job.status !== "assigned") {
+                return { ok: false, error: `Job status is ${job.status}, not assigned` };
+            }
+            const startedAt = new Date();
+            await this.writeJob({
+                ...job,
+                status: "running",
+                startedAt: job.startedAt ?? startedAt.toISOString(),
+                waitTimeMs: job.waitTimeMs ?? startedAt.getTime() - new Date(job.createdAt).getTime(),
+                updatedAt: startedAt.toISOString()
+            });
+            return { ok: true };
+        });
+        return locked ?? { ok: false, error: "Job is locked; retry" };
     }
     async renewLease(jobId, leaseId) {
-        const job = await this.get(jobId);
-        if (!job || !job.lease)
-            return null;
-        if (job.lease.leaseId !== leaseId)
-            return null;
-        const now = new Date();
-        const updated = {
-            ...job.lease,
-            lastHeartbeatAt: now.toISOString(),
-            expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString()
-        };
-        const updatedJob = {
-            ...job,
-            lease: updated,
-            updatedAt: now.toISOString()
-        };
-        await this.writeJob(updatedJob);
-        return updated;
+        const locked = await this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return { ok: false, error: "Job not found" };
+            if (!job.lease)
+                return { ok: false, error: "No active lease" };
+            if (job.lease.leaseId !== leaseId)
+                return { ok: false, error: "Invalid leaseId" };
+            if (new Date(job.lease.expiresAt).getTime() < Date.now()) {
+                return { ok: false, error: "Lease expired" };
+            }
+            if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+                return { ok: false, error: `Job is already ${job.status}` };
+            }
+            const now = new Date();
+            const updated = {
+                ...job.lease,
+                lastHeartbeatAt: now.toISOString(),
+                expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString()
+            };
+            const updatedJob = {
+                ...job,
+                lease: updated,
+                updatedAt: now.toISOString()
+            };
+            await this.writeJob(updatedJob);
+            return { ok: true, lease: updated };
+        });
+        return locked ?? { ok: false, error: "Job is locked; retry" };
     }
     async saveCheckpoint(jobId, leaseId, checkpoint) {
-        const job = await this.get(jobId);
-        if (!job)
-            return { ok: false, error: "Job not found" };
-        if (!job.lease || job.lease.leaseId !== leaseId)
-            return { ok: false, error: "Invalid leaseId" };
-        const checkpointRecord = {
-            jobId,
-            leaseId,
-            stage: checkpoint.stage,
-            filesystemMutated: checkpoint.filesystemMutated,
-            worktreePath: checkpoint.worktreePath,
-            timestamp: new Date().toISOString()
-        };
-        const updated = {
-            ...job,
-            mutationCheckpoint: checkpointRecord,
-            updatedAt: new Date().toISOString()
-        };
-        await this.writeJob(updated);
-        return { ok: true };
+        const locked = await this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return { ok: false, error: "Job not found" };
+            if (!job.lease || job.lease.leaseId !== leaseId)
+                return { ok: false, error: "Invalid leaseId" };
+            if (job.status === "completed" || job.status === "failed" || job.status === "cancelled") {
+                return { ok: false, error: `Job is already ${job.status}` };
+            }
+            const checkpointRecord = {
+                jobId,
+                leaseId,
+                stage: checkpoint.stage,
+                filesystemMutated: checkpoint.filesystemMutated,
+                worktreePath: checkpoint.worktreePath,
+                timestamp: new Date().toISOString()
+            };
+            const updated = {
+                ...job,
+                mutationCheckpoint: checkpointRecord,
+                updatedAt: new Date().toISOString()
+            };
+            await this.writeJob(updated);
+            return { ok: true };
+        });
+        return locked ?? { ok: false, error: "Job is locked; retry" };
     }
     async detectStaleLeases() {
         const now = Date.now();
@@ -303,42 +356,64 @@ export class FileBackedJobQueue {
                 continue;
             if (job.status !== "assigned" && job.status !== "running" && job.status !== "waiting_for_approval")
                 continue;
-            const hasMutatedFilesystem = job.mutationCheckpoint?.filesystemMutated === true;
-            if (hasMutatedFilesystem) {
-                await this.updateJob(job, {
-                    status: "stalled",
-                    updatedAt: new Date().toISOString()
-                });
-                stalled.push(job.jobId);
-            }
-            else {
-                await this.updateJob(job, {
+            const transition = await this.withJobLock(job.jobId, async () => {
+                const current = await this.get(job.jobId);
+                if (!current?.lease)
+                    return "skip";
+                if (new Date(current.lease.expiresAt).getTime() > Date.now())
+                    return "skip";
+                if (current.status !== "assigned" && current.status !== "running" && current.status !== "waiting_for_approval")
+                    return "skip";
+                const hasMutatedFilesystem = current.mutationCheckpoint?.filesystemMutated === true;
+                if (hasMutatedFilesystem) {
+                    await this.writeJob({
+                        ...current,
+                        status: "stalled",
+                        updatedAt: new Date().toISOString()
+                    });
+                    return "stalled";
+                }
+                await this.writeJob({
+                    ...current,
                     status: "queued",
                     lease: undefined,
                     workerId: undefined,
                     mutationCheckpoint: undefined,
                     updatedAt: new Date().toISOString()
                 });
+                return "requeued";
+            });
+            if (transition === "stalled") {
+                stalled.push(job.jobId);
+            }
+            else if (transition === "requeued") {
                 requeued.push(job.jobId);
+            }
+            else if (transition === null) {
+                this.options.logger?.warn(`Skipped stale lease transition for locked job ${job.jobId}.`);
             }
         }
         return { requeued, stalled };
     }
     async recoverStalledJob(jobId) {
-        const job = await this.get(jobId);
-        if (!job)
-            return { ok: false, error: "Job not found" };
-        if (job.status !== "stalled")
-            return { ok: false, error: "Job is not stalled" };
-        await this.updateJob(job, {
-            status: "queued",
-            lease: undefined,
-            workerId: undefined,
-            mutationCheckpoint: undefined,
-            attempt: (job.attempt ?? 0) + 1,
-            updatedAt: new Date().toISOString()
+        const locked = await this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return { ok: false, error: "Job not found" };
+            if (job.status !== "stalled")
+                return { ok: false, error: "Job is not stalled" };
+            await this.writeJob({
+                ...job,
+                status: "queued",
+                lease: undefined,
+                workerId: undefined,
+                mutationCheckpoint: undefined,
+                attempt: (job.attempt ?? 0) + 1,
+                updatedAt: new Date().toISOString()
+            });
+            return { ok: true };
         });
-        return { ok: true };
+        return locked ?? { ok: false, error: "Job is locked; retry" };
     }
     start() {
         this.isStopped = false;

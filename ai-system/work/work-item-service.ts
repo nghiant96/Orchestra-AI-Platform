@@ -2,7 +2,6 @@ import path from "node:path";
 import type { FileBackedJobQueue, QueueJob } from "../core/job-queue.js";
 import type { FileAuditLog, AuditActor, AuditEvent } from "../core/audit-log.js";
 import type { RulesConfig } from "../types.js";
-import type { WorkflowMode } from "../core/workflow-modes.js";
 import type { WorkItem, WorkItemType, WorkItemSource, ExpectedOutput, LinkedJobSummary, WorkItemEvent } from "./work-item.js";
 import { WorkStore } from "./work-store.js";
 import { WorkEngine } from "./work-engine.js";

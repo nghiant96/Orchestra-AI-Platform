@@ -46,7 +46,7 @@ export async function executeMcpTool(
   name: McpToolName,
   input: Record<string, unknown> = {}
 ): Promise<unknown> {
-  const actor = ctx.actor ?? { id: "hermes", role: "operator" as const };
+  const actor = requireMcpActor(ctx);
   const workCtx: WorkItemServiceContext = {
     actor,
     auditLog: ctx.auditLog,
@@ -93,7 +93,7 @@ export async function executeMcpTool(
       return getWorkItemEvents(workCtx, cwd, requireString(input.workItemId, "workItemId"));
     }
     case "orchestra_get_artifacts": {
-      return getMcpArtifacts(ctx, input);
+      return getMcpArtifacts(ctx, actor, input);
     }
     case "orchestra_approve_step": {
       const pendingApprovals = ctx.pendingApprovals;
@@ -125,10 +125,10 @@ export async function executeMcpTool(
   }
 }
 
-async function getMcpArtifacts(ctx: McpToolContext, input: Record<string, unknown>): Promise<unknown> {
+async function getMcpArtifacts(ctx: McpToolContext, actor: AuditActor, input: Record<string, unknown>): Promise<unknown> {
   if (typeof input.jobId === "string") {
     const job = await getJob({
-      actor: ctx.actor ?? { id: "hermes", role: "operator" as const },
+      actor,
       auditLog: ctx.auditLog,
       queue: ctx.queue,
       rules: ctx.rules
@@ -149,7 +149,7 @@ async function getMcpArtifacts(ctx: McpToolContext, input: Record<string, unknow
 
   const cwd = await resolveMcpCwd(ctx, input);
   const workItem = await getWorkItem({
-    actor: ctx.actor ?? { id: "hermes", role: "operator" as const },
+    actor,
     auditLog: ctx.auditLog,
     queue: ctx.queue,
     rules: ctx.rules
@@ -167,6 +167,13 @@ async function getMcpArtifacts(ctx: McpToolContext, input: Record<string, unknow
       latestToolResults: job!.latestToolResults ?? []
     }))
   };
+}
+
+function requireMcpActor(ctx: McpToolContext): AuditActor {
+  if (!ctx.actor) {
+    throw new McpToolError("MCP actor is required", 401);
+  }
+  return ctx.actor;
 }
 
 async function resolveMcpCwd(ctx: McpToolContext, input: Record<string, unknown>): Promise<string> {

@@ -60,15 +60,18 @@ export const WorkItemDetailModal = ({
 }: WorkItemDetailModalProps) => {
     const [activeTab, setActiveTab] = useState<DetailTab>('assessment');
     const [actioning, setActioning] = useState(false);
-    const [detail, setDetail] = useState<WorkItem>(workItem);
-    const [loadingDetail, setLoadingDetail] = useState(false);
+    const [fetchedDetail, setFetchedDetail] = useState<WorkItem | null>(null);
+    const [loadingItemId, setLoadingItemId] = useState<string | null>(null);
+    const detail = fetchedDetail?.id === workItem.id ? fetchedDetail : workItem;
+    const loadingDetail = loadingItemId === workItem.id;
 
     useEffect(() => {
         let cancelled = false;
-        setDetail(workItem);
-        setLoadingDetail(true);
 
         void (async () => {
+            await Promise.resolve();
+            if (cancelled) return;
+            setLoadingItemId(workItem.id);
             try {
                 const detailResponse = await apiJson<{ ok?: boolean; workItem?: WorkItem }>(
                     `/work-items/${encodeURIComponent(workItem.id)}?cwd=${encodeURIComponent(cwd)}&t=${Date.now()}`
@@ -77,7 +80,7 @@ export const WorkItemDetailModal = ({
                     `/work-items/${encodeURIComponent(workItem.id)}/events?cwd=${encodeURIComponent(cwd)}&t=${Date.now()}`
                 );
                 if (!cancelled) {
-                    setDetail({
+                    setFetchedDetail({
                         ...(detailResponse.workItem || workItem),
                         events: eventsResponse.events || [],
                     });
@@ -88,7 +91,7 @@ export const WorkItemDetailModal = ({
                 }
             } finally {
                 if (!cancelled) {
-                    setLoadingDetail(false);
+                    setLoadingItemId((current) => current === workItem.id ? null : current);
                 }
             }
         })();
@@ -96,7 +99,7 @@ export const WorkItemDetailModal = ({
         return () => {
             cancelled = true;
         };
-    }, [cwd, workItem.id]);
+    }, [cwd, workItem]);
 
     const handleAction = async (fn?: (workItem: WorkItem) => Promise<void>) => {
         if (!fn) return;

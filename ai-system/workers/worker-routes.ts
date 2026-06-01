@@ -10,6 +10,7 @@ import {
   completeJob,
   failJob,
   renewLease,
+  startJob,
   sendMutationCheckpoint,
   appendWorkerLogs,
   recoverStalledJob,
@@ -111,6 +112,8 @@ export const workerRoutes: RouteHandler = {
         if (action === "heartbeat") {
           const payload = await readJsonBody(req);
           try {
+            const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
+            const requestedJobId = typeof payload?.jobId === "string" ? payload.jobId : "";
             const worker = await updateHeartbeat(serviceCtx, workerId, {
               status: payload?.status,
               currentJobId: typeof payload?.currentJobId === "string" ? payload.currentJobId : undefined,
@@ -118,14 +121,31 @@ export const workerRoutes: RouteHandler = {
               cpuLoad: typeof payload?.cpuLoad === "number" ? payload.cpuLoad : undefined
             });
 
-            const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
-            const jobId = typeof payload?.jobId === "string" ? payload.jobId : worker.currentJobId || "";
+            let leaseRenewed: boolean | undefined;
+            let leaseError: string | undefined;
+            const jobId = requestedJobId || worker.currentJobId || "";
             if (leaseId && jobId) {
               const extendedCtx = buildExtendedServiceCtx(req, ctx);
-              await renewLease(extendedCtx, workerId, jobId, leaseId);
+              if (payload?.status === "busy") {
+                const started = await startJob(extendedCtx, workerId, jobId, leaseId);
+                if (!started.ok) {
+                  leaseRenewed = false;
+                  leaseError = started.error || "Failed to start job";
+                }
+              }
+              if (leaseError === undefined) {
+                const renewed = await renewLease(extendedCtx, workerId, jobId, leaseId);
+                leaseRenewed = renewed.ok;
+                leaseError = renewed.error;
+              }
             }
 
-            ctx.respondJson(res, 200, { ok: true, worker: sanitizeWorker(worker) });
+            if (payload?.status === "busy" && leaseId && jobId && leaseRenewed === false) {
+              ctx.respondJson(res, 409, { ok: false, worker: sanitizeWorker(worker), leaseRenewed, leaseError });
+              return true;
+            }
+
+            ctx.respondJson(res, 200, { ok: true, worker: sanitizeWorker(worker), leaseRenewed, leaseError });
             return true;
           } catch (err) {
             if (err instanceof WorkerServiceError) {
@@ -196,6 +216,32 @@ export const workerRoutes: RouteHandler = {
           const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg, normalizeWorkerResultPayload(payload));
           ctx.respondJson(res, result.ok ? 200 : 400, result);
         }
+        return true;
+      } catch (err) {
+        if (err instanceof WorkerServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
+      }
+    }
+
+    const startMatch = /^\/jobs\/([^/]+)\/start$/.exec(url.pathname);
+    if (startMatch && req.method === "POST") {
+      const jobId = startMatch[1] ?? "";
+      const payload = await readJsonBody(req);
+      const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
+      const workerId = typeof payload?.workerId === "string" ? payload.workerId : "";
+      const serviceCtx = buildExtendedServiceCtx(req, ctx);
+
+      if (!leaseId || !workerId) {
+        ctx.respondJson(res, 400, { ok: false, error: "leaseId and workerId are required" });
+        return true;
+      }
+
+      try {
+        const result = await startJob(serviceCtx, workerId, jobId, leaseId);
+        ctx.respondJson(res, result.ok ? 200 : 400, result);
         return true;
       } catch (err) {
         if (err instanceof WorkerServiceError) {

@@ -19,7 +19,14 @@ describe("MCP tools", () => {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-tools-"));
     const queue = new FileBackedJobQueue(resolveJobQueueDirectory(tmp), async () => ({ ok: true } as any));
     const auditLog = new FileAuditLog(resolveAuditLogPath(tmp));
-    const ctx = { defaultCwd: tmp, allowedRoots: [tmp], queue, auditLog, rules: { artifacts: { data_dir: ".artifacts" } } as any };
+    const ctx = {
+      defaultCwd: tmp,
+      allowedRoots: [tmp],
+      queue,
+      auditLog,
+      rules: { artifacts: { data_dir: ".artifacts" } } as any,
+      actor: { id: "mcp-test", role: "operator" as const }
+    };
 
     try {
       const created = await executeMcpTool(ctx, "orchestra_create_work_item", {
@@ -66,7 +73,8 @@ describe("MCP tools", () => {
         queue,
         auditLog,
         rules: { artifacts: { data_dir: ".artifacts" } } as any,
-        pendingApprovals
+        pendingApprovals,
+        actor: { id: "mcp-approver", role: "operator" as const }
       };
 
       await assert.rejects(
@@ -91,6 +99,29 @@ describe("MCP tools", () => {
         }
       }) as any;
       assert.equal(result.approved, true);
+    } finally {
+      await queue.stop();
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects MCP tools when actor is missing", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-missing-actor-"));
+    const queue = new FileBackedJobQueue(resolveJobQueueDirectory(tmp), async () => ({ ok: true } as any));
+    const auditLog = new FileAuditLog(resolveAuditLogPath(tmp));
+    const ctx = {
+      defaultCwd: tmp,
+      allowedRoots: [tmp],
+      queue,
+      auditLog,
+      rules: { artifacts: { data_dir: ".artifacts" } } as any
+    };
+
+    try {
+      await assert.rejects(
+        () => executeMcpTool(ctx, "orchestra_create_work_item", { title: "Missing actor" }),
+        /MCP actor is required/
+      );
     } finally {
       await queue.stop();
       await fs.rm(tmp, { recursive: true, force: true });

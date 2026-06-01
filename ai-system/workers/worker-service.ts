@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import type { Worker, WorkerStatus } from "./worker-types.js";
 import { WorkerStore } from "./worker-store.js";
 import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
-import type { FileBackedJobQueue, QueueJob, JobLease, MutationCheckpoint } from "../core/job-queue.js";
+import type { FileBackedJobQueue, QueueJob, JobLease, LeaseRenewResult, QueueMutationResult } from "../core/job-queue.js";
 import { resolveExecutionBackend } from "../core/execution-backend.js";
 import { redactSecrets } from "../security/secret-redaction.js";
 import { validatePath } from "../security/path-policy.js";
@@ -261,8 +261,27 @@ export async function renewLease(
   workerId: string,
   jobId: string,
   leaseId: string
-): Promise<JobLease | null> {
+): Promise<LeaseRenewResult> {
   return ctx.queue.renewLease(jobId, leaseId);
+}
+
+export async function startJob(
+  ctx: WorkerServiceExtendedContext,
+  workerId: string,
+  jobId: string,
+  leaseId: string
+): Promise<QueueMutationResult> {
+  const result = await ctx.queue.startJob(jobId, workerId, leaseId);
+
+  if (result.ok) {
+    await ctx.auditLog.append({
+      actor: ctx.actor,
+      action: "worker.start",
+      details: { workerId, jobId, leaseId }
+    });
+  }
+
+  return result;
 }
 
 export async function sendMutationCheckpoint(
