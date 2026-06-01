@@ -77,6 +77,16 @@ Review result:
 - Section 8.1 now keeps the current WorkItemStatus enum and models proposed names as optional `WorkItemStage`.
 - Implementation phases now start with Phase 0 prep, split worker foundation into 1A/1B/1C, and add Phase 1.5 security before the Local Worker CLI.
 
+## Task: Create Agent-Ready Implementation Plan
+
+- [x] Create detailed phase-by-phase plan for other AI agents.
+- [x] Include files, tasks, acceptance criteria, verification, and hand-off notes per phase.
+- [x] Include dashboard and repo registry tracks.
+
+Review result:
+
+- Created `tasks/hermes-superpowers-implementation-plan.md` as the execution checklist for delegating phases to other AI agents.
+
 > This file tracks the concrete implementation order for the AI Software Workspace.
 > The active priority is Phase A, then Phase B, then the workspace/control-plane phases.
 > Detailed step-by-step checklists live in `tasks/implementation-checklist.md`.
