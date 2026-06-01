@@ -27,11 +27,13 @@ Review result:
 - [x] Validate workspace registration using canonical realpath against allowed roots.
 - [x] Temporarily lock or explicitly define `hybrid` execution semantics.
 - [x] Add regression tests and run targeted verification.
+- [x] Follow-up: enforce canonical realpath validation for worker registration workspace roots.
 
 Review result:
 
 - Fixed all five post-review hardening findings: worker dry-run no longer writes files or checkpoint mutations, file-backed claim uses a lock file, complete/fail route payloads are forwarded, workspace registration validates canonical realpaths against current allowed roots, and `hybrid` is worker-only until internal-worker leasing exists.
 - Added regression coverage for dry-run mutation prevention, concurrent claim ownership, result payload forwarding, workspace symlink escape rejection, and hybrid queue behavior.
+- Follow-up review gap fixed: worker registration now validates `workspaceRoots` through the same canonical path policy and stores canonical roots instead of raw user input.
 - Verification passed with root typecheck, targeted worker/server/workspace tests, and JS mirror emission via `tsc`.
 
 ## Task: Complete Phase 3 Work Item API Normalization

@@ -281,3 +281,12 @@ and left `hybrid` mode able to imply both in-process and external-worker executi
 **Rule**: Dry-run paths must not mutate files or record mutation checkpoints. Any execution backend mode must
 have exactly one owner for a job; if true hybrid leasing is not implemented, define `hybrid` as worker-only or
 reject it instead of letting the in-process runner race external workers.
+
+## 2026-06-01: Apply realpath guards to every workspace boundary
+
+**Mistake**: Fixed canonical realpath validation for workspace registration but left worker registration using
+`path.resolve()`, which could accept a symlinked `workspaceRoots` entry that resolves outside allowed roots.
+
+**Rule**: Every API that accepts or persists workspace roots must use the shared canonical path policy before
+storing data. Do not duplicate path boundary checks with `path.resolve()`; add symlink escape regression tests
+at each route boundary that accepts roots.

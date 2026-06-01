@@ -45,6 +45,27 @@ describe("Worker Routes", () => {
     assert.equal(result.worker.os, "darwin");
     assert.equal(result.worker.status, "online");
     assert.ok(result.worker.sessionToken);
+    assert.deepEqual(result.worker.workspaceRoots, [await fs.realpath(tmpDir)]);
+  });
+
+  test("POST /workers/register rejects symlink workspace roots outside allowed roots", { skip: process.platform === "win32" }, async () => {
+    const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "worker-routes-outside-"));
+    const linkedRoot = path.join(tmpDir, "linked-outside-root");
+    await fs.symlink(outsideRoot, linkedRoot);
+
+    try {
+      const result = await requestJson(baseUrl, "POST", "/workers", {
+        name: "symlink-escape-worker",
+        os: "linux",
+        workspaceRoots: [linkedRoot]
+      }, 403);
+
+      assert.equal(result.ok, false);
+      assert.match(String(result.error || ""), /Workspace root not in allowed workdirs/);
+    } finally {
+      await fs.rm(linkedRoot, { force: true });
+      await fs.rm(outsideRoot, { recursive: true, force: true });
+    }
   });
 
   test("POST /workers/register rejects empty name", async () => {

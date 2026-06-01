@@ -6,6 +6,7 @@ import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
 import type { FileBackedJobQueue, QueueJob, JobLease, MutationCheckpoint } from "../core/job-queue.js";
 import { resolveExecutionBackend } from "../core/execution-backend.js";
 import { redactSecrets } from "../security/secret-redaction.js";
+import { validatePath } from "../security/path-policy.js";
 
 export interface WorkerServiceContext {
   store: WorkerStore;
@@ -56,10 +57,13 @@ export async function registerWorker(
   }
 
   const workspaceRoots = input.workspaceRoots || [];
+  const canonicalWorkspaceRoots: string[] = [];
   for (const root of workspaceRoots) {
-    if (!isPathWithinAllowedRoots(root, ctx.allowedRoots)) {
+    const validation = await validatePath(root, ctx.allowedRoots);
+    if (!validation.allowed) {
       throw new WorkerServiceError(`Workspace root not in allowed workdirs: ${root}`, 403);
     }
+    canonicalWorkspaceRoots.push(validation.realpath ?? path.resolve(root));
   }
 
   const worker = await ctx.store.create({
@@ -69,7 +73,7 @@ export async function registerWorker(
     arch: input.arch || process.arch,
     labels: input.labels || [],
     capabilities: input.capabilities || {},
-    workspaceRoots,
+    workspaceRoots: canonicalWorkspaceRoots,
     status: "online",
     lastHeartbeatAt: new Date().toISOString()
   });
@@ -405,15 +409,6 @@ export function normalizeWorkerStatus(value: unknown): WorkerStatus | null {
   return value === "online" || value === "idle" || value === "busy" || value === "draining" || value === "disabled" || value === "offline"
     ? value
     : null;
-}
-
-function isPathWithinAllowedRoots(candidate: string, allowedRoots: string[]): boolean {
-  if (allowedRoots.length === 0) return true;
-  const resolvedCandidate = path.resolve(candidate);
-  return allowedRoots.some((root) => {
-    const resolvedRoot = path.resolve(root);
-    return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
-  });
 }
 
 async function isPathWithinWorkspaceRoots(candidate: string, roots: string[]): Promise<boolean> {

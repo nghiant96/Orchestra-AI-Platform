@@ -2,6 +2,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { resolveExecutionBackend } from "../core/execution-backend.js";
 import { redactSecrets } from "../security/secret-redaction.js";
+import { validatePath } from "../security/path-policy.js";
 export class WorkerServiceError extends Error {
     statusCode;
     constructor(message, statusCode) {
@@ -19,10 +20,13 @@ export async function registerWorker(ctx, input) {
         throw new WorkerServiceError(`Unsupported OS: ${os}`, 400);
     }
     const workspaceRoots = input.workspaceRoots || [];
+    const canonicalWorkspaceRoots = [];
     for (const root of workspaceRoots) {
-        if (!isPathWithinAllowedRoots(root, ctx.allowedRoots)) {
+        const validation = await validatePath(root, ctx.allowedRoots);
+        if (!validation.allowed) {
             throw new WorkerServiceError(`Workspace root not in allowed workdirs: ${root}`, 403);
         }
+        canonicalWorkspaceRoots.push(validation.realpath ?? path.resolve(root));
     }
     const worker = await ctx.store.create({
         name: input.name.trim(),
@@ -31,7 +35,7 @@ export async function registerWorker(ctx, input) {
         arch: input.arch || process.arch,
         labels: input.labels || [],
         capabilities: input.capabilities || {},
-        workspaceRoots,
+        workspaceRoots: canonicalWorkspaceRoots,
         status: "online",
         lastHeartbeatAt: new Date().toISOString()
     });
@@ -270,15 +274,6 @@ export function normalizeWorkerStatus(value) {
     return value === "online" || value === "idle" || value === "busy" || value === "draining" || value === "disabled" || value === "offline"
         ? value
         : null;
-}
-function isPathWithinAllowedRoots(candidate, allowedRoots) {
-    if (allowedRoots.length === 0)
-        return true;
-    const resolvedCandidate = path.resolve(candidate);
-    return allowedRoots.some((root) => {
-        const resolvedRoot = path.resolve(root);
-        return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
-    });
 }
 async function isPathWithinWorkspaceRoots(candidate, roots) {
     if (roots.length === 0)
