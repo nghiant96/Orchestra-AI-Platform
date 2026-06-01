@@ -272,3 +272,12 @@ legacy deep-equality expectations even though the value was absent.
 **Rule**: For backward-compatible persisted/API shapes, add optional fields only when they have a concrete
 value. Do not serialize `undefined` keys into legacy objects, especially in normalizers that feed tests,
 dashboard payloads, or JSON persistence.
+
+## 2026-06-01: Dry-run and hybrid execution must have single-owner semantics
+
+**Mistake**: Allowed the worker dummy executor to mutate files even when the claimed job was marked `dryRun`,
+and left `hybrid` mode able to imply both in-process and external-worker execution.
+
+**Rule**: Dry-run paths must not mutate files or record mutation checkpoints. Any execution backend mode must
+have exactly one owner for a job; if true hybrid leasing is not implemented, define `hybrid` as worker-only or
+reject it instead of letting the in-process runner race external workers.

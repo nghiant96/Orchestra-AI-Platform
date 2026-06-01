@@ -158,8 +158,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     concurrency: options.queueConcurrency,
     logger: options.logger
   });
-  if (resolveExecutionBackend() === "worker") {
+  const executionBackend = resolveExecutionBackend();
+  if (executionBackend === "worker" || executionBackend === "hybrid") {
     queue.setPaused(true);
+    if (executionBackend === "hybrid") {
+      options.logger.warn("ORCHESTRA_EXECUTION_BACKEND=hybrid currently runs in worker-only mode until internal-worker leasing is implemented.");
+    }
   }
   let maintenanceTimer: NodeJS.Timeout | null = null;
   let isClosed = false;

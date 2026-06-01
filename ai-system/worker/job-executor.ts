@@ -42,6 +42,16 @@ export async function executeWorkerJob(ctx: WorkerJobExecutionContext): Promise<
     const workspaceRoot = ctx.workspaceRoots[0] ?? ctx.job.cwd;
     const targetPath = ensurePathWithinRoot(workspaceRoot, path.join(workspaceRoot, mutation.relativePath));
 
+    if (ctx.job.dryRun) {
+      emit(`dry-run: would write ${mutation.relativePath}`);
+      return {
+        ok: true,
+        summary: `Dry-run skipped write to ${mutation.relativePath}`,
+        logs,
+        filesystemMutated: false
+      };
+    }
+
     emit(`checkpointing filesystem mutation for ${mutation.relativePath}`);
     await ctx.markFilesystemMutation("apply_patch", workspaceRoot);
     emit(`writing ${mutation.relativePath}`);

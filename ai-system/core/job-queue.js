@@ -156,29 +156,33 @@ export class FileBackedJobQueue {
         await this.cleanupOldJobs();
     }
     async claimJob(jobId, lease) {
-        const job = await this.get(jobId);
-        if (!job)
+        if (!isSafeJobId(jobId))
             return null;
-        if (job.status !== "queued")
-            return null;
-        const now = Date.now();
-        if (job.lease && new Date(job.lease.expiresAt).getTime() > now) {
-            return null;
-        }
-        const updated = {
-            ...job,
-            status: "assigned",
-            workerId: lease.workerId,
-            lease,
-            attempt: (job.attempt ?? 0) + 1,
-            updatedAt: new Date().toISOString()
-        };
-        await this.writeJob(updated);
-        const verify = await this.get(jobId);
-        if (!verify || verify.lease?.leaseId !== lease.leaseId) {
-            return null;
-        }
-        return verify;
+        return this.withJobLock(jobId, async () => {
+            const job = await this.get(jobId);
+            if (!job)
+                return null;
+            if (job.status !== "queued")
+                return null;
+            const now = Date.now();
+            if (job.lease && new Date(job.lease.expiresAt).getTime() > now) {
+                return null;
+            }
+            const updated = {
+                ...job,
+                status: "assigned",
+                workerId: lease.workerId,
+                lease,
+                attempt: (job.attempt ?? 0) + 1,
+                updatedAt: new Date().toISOString()
+            };
+            await this.writeJob(updated);
+            const verify = await this.get(jobId);
+            if (!verify || verify.lease?.leaseId !== lease.leaseId) {
+                return null;
+            }
+            return verify;
+        });
     }
     async completeJob(jobId, leaseId, result) {
         const job = await this.get(jobId);
@@ -500,6 +504,45 @@ export class FileBackedJobQueue {
     }
     jobPath(jobId) {
         return path.join(this.jobsDir, `${jobId}.json`);
+    }
+    async withJobLock(jobId, fn) {
+        const lock = await this.acquireJobLock(jobId);
+        if (!lock) {
+            return null;
+        }
+        try {
+            return await fn();
+        }
+        finally {
+            await lock.close().catch(() => { });
+            await fs.unlink(this.lockPath(jobId)).catch(() => { });
+        }
+    }
+    async acquireJobLock(jobId) {
+        await fs.mkdir(this.jobsDir, { recursive: true });
+        const lockPath = this.lockPath(jobId);
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+                const handle = await fs.open(lockPath, "wx");
+                await handle.writeFile(`${process.pid}:${Date.now()}\n`, "utf8");
+                return handle;
+            }
+            catch (err) {
+                if (err.code !== "EEXIST") {
+                    throw err;
+                }
+                const stat = await fs.stat(lockPath).catch(() => null);
+                if (stat && Date.now() - stat.mtimeMs > 30_000) {
+                    await fs.unlink(lockPath).catch(() => { });
+                    continue;
+                }
+                return null;
+            }
+        }
+        return null;
+    }
+    lockPath(jobId) {
+        return `${this.jobPath(jobId)}.lock`;
     }
     async cleanupOldJobs() {
         try {

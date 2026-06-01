@@ -159,12 +159,12 @@ export const workerRoutes = {
             }
             try {
                 if (action === "complete") {
-                    const result = await completeJob(serviceCtx, workerId, jobId, leaseId);
+                    const result = await completeJob(serviceCtx, workerId, jobId, leaseId, normalizeWorkerResultPayload(payload));
                     ctx.respondJson(res, result.ok ? 200 : 400, result);
                 }
                 else {
                     const errorMsg = typeof payload?.message === "string" ? payload.message : "Job failed";
-                    const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg);
+                    const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg, normalizeWorkerResultPayload(payload));
                     ctx.respondJson(res, result.ok ? 200 : 400, result);
                 }
                 return true;
@@ -270,4 +270,28 @@ async function readJsonBody(req) {
 function sanitizeWorker(worker) {
     const { sessionToken: _sessionToken, ...safe } = worker;
     return safe;
+}
+function normalizeWorkerResultPayload(payload) {
+    const result = {};
+    const resultSummary = typeof payload.resultSummary === "string"
+        ? payload.resultSummary
+        : typeof payload.summary === "string"
+            ? payload.summary
+            : undefined;
+    if (resultSummary !== undefined)
+        result.resultSummary = resultSummary;
+    if (typeof payload.artifactPath === "string" || payload.artifactPath === null)
+        result.artifactPath = payload.artifactPath;
+    if (Array.isArray(payload.workerLogs)) {
+        result.workerLogs = payload.workerLogs.filter((line) => typeof line === "string");
+    }
+    if (Array.isArray(payload.diffSummaries))
+        result.diffSummaries = payload.diffSummaries;
+    if (Array.isArray(payload.latestToolResults))
+        result.latestToolResults = payload.latestToolResults;
+    if (payload.failure && typeof payload.failure === "object")
+        result.failure = payload.failure;
+    if (payload.execution && typeof payload.execution === "object")
+        result.execution = payload.execution;
+    return result;
 }

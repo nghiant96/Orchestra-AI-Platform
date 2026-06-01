@@ -19,6 +19,21 @@ Review result:
 - MCP tools call the service layer directly, repo registry supports `repoId`, lessons are exported through API/MCP, and dashboard worker/approval/artifact visibility gaps are closed.
 - Verification passed with root typecheck, new workflow/approval/MCP/lesson/repo tests, server/work-item/worker regressions, dashboard TypeScript build, Vite production build, and dashboard smoke test.
 
+## Task: Harden Review Findings After Hermes Phases
+
+- [x] Prevent worker dry-run jobs from mutating files.
+- [x] Make file-backed worker claim genuinely race-resistant.
+- [x] Forward worker completion/failure payloads instead of dropping result details.
+- [x] Validate workspace registration using canonical realpath against allowed roots.
+- [x] Temporarily lock or explicitly define `hybrid` execution semantics.
+- [x] Add regression tests and run targeted verification.
+
+Review result:
+
+- Fixed all five post-review hardening findings: worker dry-run no longer writes files or checkpoint mutations, file-backed claim uses a lock file, complete/fail route payloads are forwarded, workspace registration validates canonical realpaths against current allowed roots, and `hybrid` is worker-only until internal-worker leasing exists.
+- Added regression coverage for dry-run mutation prevention, concurrent claim ownership, result payload forwarding, workspace symlink escape rejection, and hybrid queue behavior.
+- Verification passed with root typecheck, targeted worker/server/workspace tests, and JS mirror emission via `tsc`.
+
 ## Task: Complete Phase 3 Work Item API Normalization
 
 - [x] Preserve Hermes-style optional fields on work items.

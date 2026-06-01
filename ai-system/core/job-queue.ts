@@ -1,4 +1,4 @@
-import fs from "node:fs/promises";
+import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { normalizeQueueJob } from "./normalizers.js";
 import type { WorkflowMode } from "./workflow-modes.js";
@@ -272,32 +272,36 @@ export class FileBackedJobQueue {
   }
 
   async claimJob(jobId: string, lease: JobLease): Promise<QueueJob | null> {
-    const job = await this.get(jobId);
-    if (!job) return null;
-    if (job.status !== "queued") return null;
+    if (!isSafeJobId(jobId)) return null;
 
-    const now = Date.now();
-    if (job.lease && new Date(job.lease.expiresAt).getTime() > now) {
-      return null;
-    }
+    return this.withJobLock(jobId, async () => {
+      const job = await this.get(jobId);
+      if (!job) return null;
+      if (job.status !== "queued") return null;
 
-    const updated: QueueJob = {
-      ...job,
-      status: "assigned",
-      workerId: lease.workerId,
-      lease,
-      attempt: (job.attempt ?? 0) + 1,
-      updatedAt: new Date().toISOString()
-    };
+      const now = Date.now();
+      if (job.lease && new Date(job.lease.expiresAt).getTime() > now) {
+        return null;
+      }
 
-    await this.writeJob(updated);
+      const updated: QueueJob = {
+        ...job,
+        status: "assigned",
+        workerId: lease.workerId,
+        lease,
+        attempt: (job.attempt ?? 0) + 1,
+        updatedAt: new Date().toISOString()
+      };
 
-    const verify = await this.get(jobId);
-    if (!verify || verify.lease?.leaseId !== lease.leaseId) {
-      return null;
-    }
+      await this.writeJob(updated);
 
-    return verify;
+      const verify = await this.get(jobId);
+      if (!verify || verify.lease?.leaseId !== lease.leaseId) {
+        return null;
+      }
+
+      return verify;
+    });
   }
 
   async completeJob(jobId: string, leaseId: string, result: Partial<QueueJob>): Promise<{ ok: boolean; error?: string }> {
@@ -649,6 +653,46 @@ export class FileBackedJobQueue {
 
   private jobPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.json`);
+  }
+
+  private async withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T | null> {
+    const lock = await this.acquireJobLock(jobId);
+    if (!lock) {
+      return null;
+    }
+    try {
+      return await fn();
+    } finally {
+      await lock.close().catch(() => {});
+      await fs.unlink(this.lockPath(jobId)).catch(() => {});
+    }
+  }
+
+  private async acquireJobLock(jobId: string): Promise<FileHandle | null> {
+    await fs.mkdir(this.jobsDir, { recursive: true });
+    const lockPath = this.lockPath(jobId);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const handle = await fs.open(lockPath, "wx");
+        await handle.writeFile(`${process.pid}:${Date.now()}\n`, "utf8");
+        return handle;
+      } catch (err: any) {
+        if (err.code !== "EEXIST") {
+          throw err;
+        }
+        const stat = await fs.stat(lockPath).catch(() => null);
+        if (stat && Date.now() - stat.mtimeMs > 30_000) {
+          await fs.unlink(lockPath).catch(() => {});
+          continue;
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private lockPath(jobId: string): string {
+    return `${this.jobPath(jobId)}.lock`;
   }
 
   private async cleanupOldJobs(): Promise<void> {

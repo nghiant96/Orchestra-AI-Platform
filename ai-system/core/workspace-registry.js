@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import fsPromises from "node:fs/promises";
 import path from "node:path";
+import { validatePath } from "../security/path-policy.js";
 export function resolveWorkspaceRegistryPath(defaultCwd) {
     return path.join(defaultCwd, ".ai-system-server", "workspaces.json");
 }
@@ -17,7 +18,12 @@ export async function registerWorkspaceRoot(defaultCwd, cwd, existingRoots) {
     if (!resolved) {
         throw new Error("Workspace path is required");
     }
-    const realpath = await fsPromises.realpath(resolved).catch(() => null);
+    const validationRoots = normalizeRoots(existingRoots.length > 0 ? existingRoots : [defaultCwd]);
+    const validation = await validatePath(resolved, validationRoots);
+    if (!validation.allowed) {
+        throw new Error("Workspace path is outside current allowed workdirs");
+    }
+    const realpath = validation.realpath ?? await fsPromises.realpath(resolved).catch(() => null);
     if (!realpath) {
         throw new Error("Workspace path must point to an existing directory");
     }

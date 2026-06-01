@@ -139,7 +139,7 @@ describe("Phase 2 worker CLI", () => {
         baseUrl,
         "POST",
         "/jobs",
-        { task: "worker:write-file output.txt::content with sk-test12345678901234567890", cwd: repoRoot, dryRun: true },
+        { task: "worker:write-file output.txt::content with sk-test12345678901234567890", cwd: repoRoot, dryRun: false },
         202,
         operatorHeaders
       );
@@ -169,6 +169,64 @@ describe("Phase 2 worker CLI", () => {
       assert.ok(checkpointIndex >= 0);
       assert.ok(writeIndex >= 0);
       assert.ok(checkpointIndex < writeIndex);
+    } finally {
+      process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
+      process.env.ORCHESTRA_WORKER_TOKEN = previousWorkerToken;
+      await closeServer(server);
+      await fs.rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("worker dry-run never mutates files or records mutation checkpoint", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "worker-cli-dry-run-"));
+    const previousBackend = process.env.ORCHESTRA_EXECUTION_BACKEND;
+    const previousWorkerToken = process.env.ORCHESTRA_WORKER_TOKEN;
+    process.env.ORCHESTRA_EXECUTION_BACKEND = "worker";
+    process.env.ORCHESTRA_WORKER_TOKEN = "worker-token";
+    const server = createAiSystemServer({
+      defaultCwd: repoRoot,
+      authToken: "server-token",
+      allowedWorkdirs: [repoRoot],
+      logger: silentLogger(),
+      runner: async ({ task, cwd }) => createResult(task, cwd) as any
+    });
+
+    try {
+      const baseUrl = await listen(server);
+      const operatorHeaders = {
+        Authorization: "Bearer server-token",
+        "x-ai-system-role": "operator",
+        "x-ai-system-actor": "worker-cli-test"
+      };
+      const created = await requestJson(
+        baseUrl,
+        "POST",
+        "/jobs",
+        { task: "worker:write-file dry-run-output.txt::must not be written", cwd: repoRoot, dryRun: true },
+        202,
+        operatorHeaders
+      );
+
+      const summary = await runWorkerRuntime(
+        loadWorkerRuntimeConfig({
+          cwd: repoRoot,
+          serverUrl: baseUrl,
+          workerToken: "worker-token",
+          workerName: "dry-run-worker",
+          workspaceRoots: [repoRoot],
+          once: true,
+          heartbeatIntervalMs: 100,
+          pollIntervalMs: 100
+        }),
+        { logger: silentLogger() }
+      );
+
+      assert.equal(summary.claimedJobs, 1);
+      const job = await waitForJob(baseUrl, String(created.jobId), "completed", { Authorization: "Bearer server-token" });
+      assert.equal(job.status, "completed");
+      assert.equal(job.mutationCheckpoint, undefined);
+      await assert.rejects(() => fs.stat(path.join(repoRoot, "dry-run-output.txt")), /ENOENT/);
+      assert.match(job.resultSummary, /Dry-run skipped write/);
     } finally {
       process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
       process.env.ORCHESTRA_WORKER_TOKEN = previousWorkerToken;

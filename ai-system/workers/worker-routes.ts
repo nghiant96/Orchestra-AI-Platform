@@ -18,6 +18,7 @@ import {
 import { WorkerStore, resolveWorkerStoreDir } from "./worker-store.js";
 import type { RouteHandler, ServerRouteContext } from "../server/routes-context.js";
 import type { Worker } from "./worker-types.js";
+import type { QueueJob } from "../core/job-queue.js";
 
 const workerStoreCache = new Map<string, WorkerStore>();
 
@@ -188,11 +189,11 @@ export const workerRoutes: RouteHandler = {
 
       try {
         if (action === "complete") {
-          const result = await completeJob(serviceCtx, workerId, jobId, leaseId);
+          const result = await completeJob(serviceCtx, workerId, jobId, leaseId, normalizeWorkerResultPayload(payload));
           ctx.respondJson(res, result.ok ? 200 : 400, result);
         } else {
           const errorMsg = typeof payload?.message === "string" ? payload.message : "Job failed";
-          const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg);
+          const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg, normalizeWorkerResultPayload(payload));
           ctx.respondJson(res, result.ok ? 200 : 400, result);
         }
         return true;
@@ -303,4 +304,23 @@ async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, u
 function sanitizeWorker(worker: Worker): Omit<Worker, "sessionToken"> {
   const { sessionToken: _sessionToken, ...safe } = worker;
   return safe;
+}
+
+function normalizeWorkerResultPayload(payload: Record<string, unknown>): Partial<QueueJob> {
+  const result: Partial<QueueJob> = {};
+  const resultSummary = typeof payload.resultSummary === "string"
+    ? payload.resultSummary
+    : typeof payload.summary === "string"
+      ? payload.summary
+      : undefined;
+  if (resultSummary !== undefined) result.resultSummary = resultSummary;
+  if (typeof payload.artifactPath === "string" || payload.artifactPath === null) result.artifactPath = payload.artifactPath;
+  if (Array.isArray(payload.workerLogs)) {
+    result.workerLogs = payload.workerLogs.filter((line): line is string => typeof line === "string");
+  }
+  if (Array.isArray(payload.diffSummaries)) result.diffSummaries = payload.diffSummaries as QueueJob["diffSummaries"];
+  if (Array.isArray(payload.latestToolResults)) result.latestToolResults = payload.latestToolResults as QueueJob["latestToolResults"];
+  if (payload.failure && typeof payload.failure === "object") result.failure = payload.failure as QueueJob["failure"];
+  if (payload.execution && typeof payload.execution === "object") result.execution = payload.execution as QueueJob["execution"];
+  return result;
 }

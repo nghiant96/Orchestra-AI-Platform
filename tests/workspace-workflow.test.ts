@@ -93,12 +93,11 @@ test("workspace API can create assess run and list work items", async () => {
   }
 });
 
-test("workspace registration normalizes symlinked paths", async () => {
+test("workspace registration rejects symlink escapes outside allowed roots", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-workspace-symlink-root-"));
   const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-workspace-symlink-outside-"));
   const linkedRoot = path.join(repoRoot, "linked-root");
   await fs.symlink(outsideRoot, linkedRoot);
-  const canonicalLinkedRoot = await fs.realpath(linkedRoot);
 
   const server = createAiSystemServer({
     defaultCwd: repoRoot,
@@ -110,12 +109,12 @@ test("workspace registration normalizes symlinked paths", async () => {
   try {
     const baseUrl = await listen(server);
     await waitForHttpReady(baseUrl);
-    const result = await requestJson(baseUrl, "POST", "/workspaces", { cwd: linkedRoot }, 201, {
+    const result = await requestJson(baseUrl, "POST", "/workspaces", { cwd: linkedRoot }, 400, {
       "x-ai-system-role": "operator",
       "x-ai-system-actor": "dashboard"
     });
-    assert.equal(result.ok, true);
-    assert.ok(result.allowedWorkdirs.includes(canonicalLinkedRoot));
+    assert.equal(result.ok, false);
+    assert.match(result.error, /outside current allowed workdirs/);
   } finally {
     await closeServer(server);
     await cleanupDir(repoRoot);

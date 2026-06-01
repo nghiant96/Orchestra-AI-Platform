@@ -118,6 +118,22 @@ describe("Worker Claim And Lease", () => {
     assert.ok(second.rejectionReason);
   });
 
+  test("concurrent claims resolve to exactly one lease owner", async () => {
+    const w1 = await registerWorker("concurrent-1", [tmpDir]);
+    const w2 = await registerWorker("concurrent-2", [tmpDir]);
+    const { jobId } = await enqueueJob("concurrent race", tmpDir);
+
+    const [r1, r2] = await Promise.all([
+      requestJson(baseUrl, "POST", `/workers/${w1.worker.id}/jobs/claim`, {}, 200),
+      requestJson(baseUrl, "POST", `/workers/${w2.worker.id}/jobs/claim`, {}, 200)
+    ]);
+
+    const successful = [r1, r2].filter((result) => Boolean(result.job));
+    assert.equal(successful.length, 1);
+    assert.equal(successful[0].job.jobId, jobId);
+    assert.ok(successful[0].lease);
+  });
+
   test("claim rejects worker with status disabled", async () => {
     const { worker } = await registerWorker("disabled-worker", [tmpDir]);
     await enqueueJob("test", tmpDir);
@@ -153,10 +169,17 @@ describe("Worker Claim And Lease", () => {
 
     const result = await requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/complete`, {
       workerId: worker.id,
-      leaseId: claimed.lease.leaseId
+      leaseId: claimed.lease.leaseId,
+      summary: "Forwarded completion summary",
+      artifactPath: path.join(tmpDir, ".artifacts", "worker-result"),
+      workerLogs: ["worker completed"]
     }, 200);
 
     assert.equal(result.ok, true);
+    const job = await requestJson(baseUrl, "GET", `/jobs/${claimed.job.jobId}`, undefined, 200);
+    assert.equal(job.resultSummary, "Forwarded completion summary");
+    assert.equal(job.artifactPath, path.join(tmpDir, ".artifacts", "worker-result"));
+    assert.deepEqual(job.workerLogs, ["worker completed"]);
   });
 
   test("complete rejects stale leaseId", async () => {
@@ -198,10 +221,16 @@ describe("Worker Claim And Lease", () => {
     const result = await requestJson(baseUrl, "POST", `/jobs/${claimed.job.jobId}/fail`, {
       workerId: worker.id,
       leaseId: claimed.lease.leaseId,
-      message: "Test failure"
+      message: "Test failure",
+      resultSummary: "Forwarded failure summary",
+      workerLogs: ["worker failed"]
     }, 200);
 
     assert.equal(result.ok, true);
+    const job = await requestJson(baseUrl, "GET", `/jobs/${claimed.job.jobId}`, undefined, 200);
+    assert.equal(job.error, "Test failure");
+    assert.equal(job.resultSummary, "Forwarded failure summary");
+    assert.deepEqual(job.workerLogs, ["worker failed"]);
   });
 
   test("fail rejects invalid leaseId", async () => {

@@ -128,6 +128,43 @@ test("health and queued jobs expose effective approval mode", async () => {
         await cleanupDir(repoRoot);
     }
 });
+test("hybrid backend is worker-only until internal worker leases are implemented", async () => {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-hybrid-"));
+    const previousBackend = process.env.ORCHESTRA_EXECUTION_BACKEND;
+    process.env.ORCHESTRA_EXECUTION_BACKEND = "hybrid";
+    let inProcessRuns = 0;
+    const server = createAiSystemServer({
+        defaultCwd: repoRoot,
+        logger: silentLogger(),
+        runner: async ({ task, cwd, dryRun }) => {
+            inProcessRuns += 1;
+            return createResult({ task, cwd, dryRun, ok: true });
+        }
+    });
+    try {
+        const baseUrl = await listen(server);
+        const health = await requestJson(baseUrl, "GET", "/health");
+        assert.equal(health.executionBackend, "hybrid");
+        assert.equal(health.queue.paused, true);
+        const created = await requestJson(baseUrl, "POST", "/jobs", { task: "hybrid claim", cwd: repoRoot, dryRun: true }, 202);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const queued = await requestJson(baseUrl, "GET", `/jobs/${created.jobId}`);
+        assert.equal(queued.status, "queued");
+        assert.equal(inProcessRuns, 0);
+        const registered = await requestJson(baseUrl, "POST", "/workers", {
+            name: "hybrid-worker",
+            os: "linux",
+            workspaceRoots: [repoRoot]
+        }, 201);
+        const claimed = await requestJson(baseUrl, "POST", `/workers/${registered.worker.id}/jobs/claim`, {}, 200);
+        assert.equal(claimed.job.jobId, created.jobId);
+    }
+    finally {
+        process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
+        await closeServer(server);
+        await cleanupDir(repoRoot);
+    }
+});
 test("server mode requires auth for health and protected routes", async () => {
     const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-auth-"));
     const server = createAiSystemServer({
@@ -186,7 +223,7 @@ test("project registry and audit log expose multi-project operations", async () 
 });
 test("workspace registration persists and rehydrates on restart", async () => {
     const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-workspace-register-"));
-    const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-workspace-register-other-"));
+    const otherRoot = await fs.mkdtemp(path.join(repoRoot, "workspace-register-other-"));
     const canonicalOtherRoot = await fs.realpath(otherRoot);
     const firstServer = createAiSystemServer({
         defaultCwd: repoRoot,
