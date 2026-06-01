@@ -6,6 +6,9 @@ import {
   setWorkerStatus,
   listWorkers,
   getWorker,
+  claimJob,
+  completeJob,
+  failJob,
   WorkerServiceError
 } from "./worker-service.js";
 import { WorkerStore, resolveWorkerStoreDir } from "./worker-store.js";
@@ -30,6 +33,17 @@ function buildServiceCtx(req: http.IncomingMessage, ctx: ServerRouteContext) {
     auditLog: ctx.auditLog,
     actor: ctx.actor,
     allowedRoots: ctx.allowedRoots
+  };
+}
+
+function buildExtendedServiceCtx(req: http.IncomingMessage, ctx: ServerRouteContext) {
+  const store = getOrCreateStore(ctx.defaultCwd);
+  return {
+    store,
+    auditLog: ctx.auditLog,
+    actor: ctx.actor,
+    allowedRoots: ctx.allowedRoots,
+    queue: ctx.queue
   };
 }
 
@@ -126,6 +140,56 @@ export const workerRoutes: RouteHandler = {
             throw err;
           }
         }
+      }
+    }
+
+    const claimMatch = /^\/workers\/([^/]+)\/jobs\/claim$/.exec(url.pathname);
+    if (claimMatch && req.method === "POST") {
+      const workerId = claimMatch[1] ?? "";
+      const serviceCtx = buildExtendedServiceCtx(req, ctx);
+      try {
+        const result = await claimJob(serviceCtx, workerId);
+        ctx.respondJson(res, 200, { ok: true, job: result.job, lease: result.lease, retryAfterMs: result.retryAfterMs, rejectionReason: result.rejectionReason });
+        return true;
+      } catch (err) {
+        if (err instanceof WorkerServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
+      }
+    }
+
+    const completeFailMatch = /^\/jobs\/([^/]+)\/(complete|fail)$/.exec(url.pathname);
+    if (completeFailMatch && req.method === "POST") {
+      const jobId = completeFailMatch[1] ?? "";
+      const action = completeFailMatch[2] as "complete" | "fail";
+      const payload = await readJsonBody(req);
+      const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
+      const workerId = typeof payload?.workerId === "string" ? payload.workerId : "";
+      const serviceCtx = buildExtendedServiceCtx(req, ctx);
+
+      if (!leaseId || !workerId) {
+        ctx.respondJson(res, 400, { ok: false, error: "leaseId and workerId are required" });
+        return true;
+      }
+
+      try {
+        if (action === "complete") {
+          const result = await completeJob(serviceCtx, workerId, jobId, leaseId);
+          ctx.respondJson(res, result.ok ? 200 : 400, result);
+        } else {
+          const errorMsg = typeof payload?.message === "string" ? payload.message : "Job failed";
+          const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg);
+          ctx.respondJson(res, result.ok ? 200 : 400, result);
+        }
+        return true;
+      } catch (err) {
+        if (err instanceof WorkerServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
       }
     }
 

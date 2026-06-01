@@ -2,6 +2,20 @@
 
 Last updated: 2026-06-01
 
+## Task: Review & Fix Phase 1B Worker Claim And Lease
+
+- [x] Align claim/lease state with architecture contract (`assigned` + lease metadata).
+- [x] Enforce worker selector, capability, and workspace-root eligibility.
+- [x] Pause the internal server queue when `ORCHESTRA_EXECUTION_BACKEND=worker`.
+- [x] Add regression coverage for selector/capability mismatch and claim idempotency.
+- [x] Re-run typecheck and targeted worker/server tests.
+
+Review result:
+
+- Phase 1B is now aligned with the implementation plan and architecture doc: jobs claim into `assigned`, carry an explicit lease and worker id, and complete/fail stay lease-bound and idempotent.
+- The worker backend no longer competes with external workers because the server pauses its internal drain loop in `worker` mode.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted test set covering worker store, worker routes, worker claim/lease, and server queue behavior.
+
 ## Task: Harden Phase 1A Worker Registry
 
 - [x] Hide worker `sessionToken` from all non-register worker API responses.

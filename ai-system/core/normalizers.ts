@@ -48,9 +48,12 @@ export function normalizeQueueJob(raw: any): QueueJob {
     ...raw,
     version: raw.version ?? 1,
     status: raw.status ?? "failed",
+    workerId: raw.workerId,
     task: raw.task ?? "unknown task",
     cwd: raw.cwd ?? ".",
     dryRun: raw.dryRun ?? false,
+    workerSelector: raw.workerSelector,
+    requiredCapabilities: raw.requiredCapabilities,
     createdAt: raw.createdAt ?? new Date().toISOString(),
     updatedAt: raw.updatedAt ?? new Date().toISOString()
   };

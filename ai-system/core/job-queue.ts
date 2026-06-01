@@ -3,18 +3,28 @@ import path from "node:path";
 import { normalizeQueueJob } from "./normalizers.js";
 import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
+import type { WorkerCapabilities } from "../workers/worker-types.js";
 import { scheduleWorkItems } from "../work/scheduler.js";
 import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
 import type { WorkItem } from "../work/work-item.js";
 
-export type QueueJobStatus = "queued" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled";
+export type QueueJobStatus = "queued" | "assigned" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled" | "stalled";
 
 export type QueueApprovalMode = "manual" | "auto";
+
+export interface JobLease {
+  workerId: string;
+  leaseId: string;
+  claimedAt: string;
+  expiresAt: string;
+  lastHeartbeatAt: string;
+}
 
 export interface QueueJob {
   version: number;
   jobId: string;
   status: QueueJobStatus;
+  workerId?: string;
   task: string;
   cwd: string;
   dryRun: boolean;
@@ -43,6 +53,13 @@ export interface QueueJob {
     retryHint?: RetryHint | null;
   };
   externalTask?: import("../types.js").ExternalTaskRef;
+  lease?: JobLease;
+  attempt?: number;
+  workerSelector?: {
+    os?: string;
+    labels?: string[];
+  };
+  requiredCapabilities?: Partial<WorkerCapabilities>;
 }
 
 export interface JobQueueRunInput {
@@ -233,6 +250,110 @@ export class FileBackedJobQueue {
 
   async runRetentionCleanup(): Promise<void> {
     await this.cleanupOldJobs();
+  }
+
+  async claimJob(jobId: string, lease: JobLease): Promise<QueueJob | null> {
+    const job = await this.get(jobId);
+    if (!job) return null;
+    if (job.status !== "queued") return null;
+
+    const now = Date.now();
+    if (job.lease && new Date(job.lease.expiresAt).getTime() > now) {
+      return null;
+    }
+
+    const updated: QueueJob = {
+      ...job,
+      status: "assigned",
+      workerId: lease.workerId,
+      lease,
+      attempt: (job.attempt ?? 0) + 1,
+      updatedAt: new Date().toISOString()
+    };
+
+    await this.writeJob(updated);
+
+    const verify = await this.get(jobId);
+    if (!verify || verify.lease?.leaseId !== lease.leaseId) {
+      return null;
+    }
+
+    return verify;
+  }
+
+  async completeJob(jobId: string, leaseId: string, result: Partial<QueueJob>): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+
+    if (!job.lease) return { ok: false, error: "No active lease" };
+    if (job.lease.leaseId !== leaseId) {
+      if (job.status === "completed" || job.status === "failed") {
+        return { ok: true };
+      }
+      return { ok: false, error: "Invalid leaseId" };
+    }
+
+    if (job.status === "completed" || job.status === "failed") {
+      return { ok: true };
+    }
+
+    const now = Date.now();
+    if (new Date(job.lease.expiresAt).getTime() < now) {
+      return { ok: false, error: "Lease expired" };
+    }
+
+    const finishedAt = new Date().toISOString();
+    const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
+
+    const updated: QueueJob = {
+      ...job,
+      ...result,
+      status: "completed",
+      finishedAt,
+      executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
+      updatedAt: finishedAt
+    };
+
+    await this.writeJob(updated);
+    return { ok: true };
+  }
+
+  async failJob(jobId: string, leaseId: string, error: string, result: Partial<QueueJob> = {}): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+
+    if (!job.lease) return { ok: false, error: "No active lease" };
+    if (job.lease.leaseId !== leaseId) {
+      if (job.status === "completed" || job.status === "failed") {
+        return { ok: true };
+      }
+      return { ok: false, error: "Invalid leaseId" };
+    }
+
+    if (job.status === "completed" || job.status === "failed") {
+      return { ok: true };
+    }
+
+    const now = Date.now();
+    if (new Date(job.lease.expiresAt).getTime() < now) {
+      return { ok: false, error: "Lease expired" };
+    }
+
+    const finishedAt = new Date().toISOString();
+    const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
+
+    const updated: QueueJob = {
+      ...job,
+      ...result,
+      status: "failed",
+      error,
+      finishedAt,
+      executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
+      updatedAt: finishedAt
+    };
+
+    await this.writeJob(updated);
+    return { ok: true };
   }
 
   start(): void {

@@ -197,3 +197,12 @@ store invalid states and polluted both dashboard data and future lease logic.
 
 **Rule**: Validate enum-like input at the service boundary before persisting. If the value is invalid, reject
 the request with a client error instead of coercing it to a default that hides the bug.
+
+## 2026-06-01: Worker backend must not compete with external claimers
+
+**Mistake**: Left the internal file-backed queue drain running even when `ORCHESTRA_EXECUTION_BACKEND=worker`,
+which allowed the local runner to race external workers for the same queued jobs and made claim/lease tests
+flaky.
+
+**Rule**: When the execution backend is `worker`, pause or disable the server's in-process drain loop before
+starting queue processing. External claim mode must be the only active executor in that configuration.

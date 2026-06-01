@@ -247,7 +247,7 @@ function graphStatusFromJob(job: QueueJob): ExecutionGraphNode["status"] {
   if (job.status === "completed") return "completed";
   if (job.status === "failed") return "failed";
   if (job.status === "cancelled") return "skipped";
-  if (job.status === "queued" || job.status === "running" || job.status === "waiting_for_approval" || job.status === "cancel_requested") return "running";
+  if (job.status === "queued" || job.status === "assigned" || job.status === "running" || job.status === "waiting_for_approval" || job.status === "cancel_requested") return "running";
   return "pending";
 }
 

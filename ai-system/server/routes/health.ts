@@ -20,7 +20,7 @@ export const healthRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
     if (url.pathname !== "/health" || req.method !== "GET") return false;
     const jobs = await ctx.queue.list();
-    const activeJobs = jobs.filter((j) => j.status === "running" || j.status === "waiting_for_approval");
+    const activeJobs = jobs.filter((j) => j.status === "assigned" || j.status === "running" || j.status === "waiting_for_approval");
     const queuedJobs = jobs.filter((j) => j.status === "queued");
     const { rules } = await ctx.globalRulesPromise;
     const approvalMode = resolveApprovalPolicy("", rules);

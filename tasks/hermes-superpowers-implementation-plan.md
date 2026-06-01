@@ -154,6 +154,8 @@ Review result:
 
 Goal: queued jobs can be claimed by exactly one eligible worker.
 
+Status: complete.
+
 Primary agent objective:
 
 - Add atomic-ish claim semantics, lease metadata, claim eligibility policy, and idempotent complete/fail contracts.
@@ -169,32 +171,32 @@ Expected files:
 
 Tasks:
 
-- [ ] Add `JobLease` type: workerId, leaseId, claimedAt, expiresAt, lastHeartbeatAt.
-- [ ] Add lease fields to queue job persistence as optional fields.
-- [ ] Implement `POST /workers/:workerId/jobs/claim`.
-- [ ] Enforce claim eligibility:
-  - [ ] backend mode is `worker` or `hybrid`
-  - [ ] job status is `queued`
-  - [ ] job has no active unexpired lease
-  - [ ] worker status is `idle` or `online`
-  - [ ] worker is not disabled or draining
-  - [ ] labels match workerSelector
-  - [ ] capabilities satisfy requiredCapabilities
-  - [ ] repo path realpath is inside worker workspaceRoots
-  - [ ] attempt count is below max attempts
-- [ ] Make claim operation race-resistant with file locking/atomic rename or a documented store primitive.
-- [ ] Add `POST /jobs/:jobId/complete` requiring valid leaseId.
-- [ ] Add `POST /jobs/:jobId/fail` requiring valid leaseId.
-- [ ] Make repeat complete/fail with same leaseId/result idempotent.
-- [ ] Reject complete/fail with stale or mismatched leaseId.
+- [x] Add `JobLease` type: workerId, leaseId, claimedAt, expiresAt, lastHeartbeatAt.
+- [x] Add lease fields to queue job persistence as optional fields.
+- [x] Implement `POST /workers/:workerId/jobs/claim`.
+- [x] Enforce claim eligibility:
+  - [x] backend mode is `worker` or `hybrid`
+  - [x] job status is `queued`
+  - [x] job has no active unexpired lease
+  - [x] worker status is `idle` or `online`
+  - [x] worker is not disabled or draining
+  - [x] labels match workerSelector
+  - [x] capabilities satisfy requiredCapabilities
+  - [x] repo path realpath is inside worker workspaceRoots
+  - [x] attempt count is below max attempts
+- [x] Make claim operation race-resistant with file locking/atomic rename or a documented store primitive.
+- [x] Add `POST /jobs/:jobId/complete` requiring valid leaseId.
+- [x] Add `POST /jobs/:jobId/fail` requiring valid leaseId.
+- [x] Make repeat complete/fail with same leaseId/result idempotent.
+- [x] Reject complete/fail with stale or mismatched leaseId.
 
 Acceptance criteria:
 
-- [ ] Two workers claiming one queued job results in exactly one success.
-- [ ] Ineligible worker receives deterministic rejection reason.
-- [ ] Worker cannot claim a job outside workspace roots.
-- [ ] Complete/fail requires valid leaseId.
-- [ ] In-process mode does not expose queued jobs to external workers.
+- [x] Two workers claiming one queued job results in exactly one success.
+- [x] Ineligible worker receives deterministic rejection reason.
+- [x] Worker cannot claim a job outside workspace roots.
+- [x] Complete/fail requires valid leaseId.
+- [x] In-process mode does not expose queued jobs to external workers.
 
 Recommended verification:
 
@@ -210,6 +212,12 @@ Hand-off notes for next phase:
 - Record lease duration default.
 - Record max attempts default.
 - Record any file-store atomicity limitations.
+
+Review result:
+
+- Phase 1B is complete after aligning the implementation with the architecture contract: claim now produces an `assigned` job with a lease, worker selector/capability checks are enforced, and complete/fail remain idempotent on the lease boundary.
+- The server now pauses its internal queue drain when `ORCHESTRA_EXECUTION_BACKEND=worker`, which prevents the local runner from racing external workers in worker mode.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted worker/server test set.
 
 ---
 
