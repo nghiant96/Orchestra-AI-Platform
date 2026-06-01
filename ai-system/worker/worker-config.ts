@@ -12,6 +12,8 @@ export interface WorkerRuntimeConfig {
   pollIntervalMs: number;
   once: boolean;
   cwd: string;
+  provider: string;
+  providerCommand?: string;
 }
 
 export interface WorkerRuntimeConfigInput {
@@ -24,6 +26,8 @@ export interface WorkerRuntimeConfigInput {
   heartbeatIntervalMs?: number;
   pollIntervalMs?: number;
   once?: boolean;
+  provider?: string;
+  providerCommand?: string;
 }
 
 export function loadWorkerRuntimeConfig(input: WorkerRuntimeConfigInput): WorkerRuntimeConfig {
@@ -58,7 +62,9 @@ export function loadWorkerRuntimeConfig(input: WorkerRuntimeConfigInput): Worker
     heartbeatIntervalMs: sanitizeInterval(input.heartbeatIntervalMs ?? envNumber("ORCHESTRA_WORKER_HEARTBEAT_INTERVAL_MS"), 10_000),
     pollIntervalMs: sanitizeInterval(input.pollIntervalMs ?? envNumber("ORCHESTRA_WORKER_POLL_INTERVAL_MS"), 2_000),
     once: Boolean(input.once ?? envBool("ORCHESTRA_WORKER_ONCE")),
-    cwd
+    cwd,
+    provider: String(input.provider ?? process.env.ORCHESTRA_WORKER_PROVIDER ?? "codex").trim().toLowerCase(),
+    providerCommand: input.providerCommand ?? process.env.ORCHESTRA_CODEX_COMMAND
   };
 }
 

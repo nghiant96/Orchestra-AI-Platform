@@ -7,7 +7,7 @@ const WORKER_ID_PATTERN = /^worker-[a-z0-9][a-z0-9-]{0,160}$/i;
 export class WorkerStore {
   constructor(private readonly storeDir: string) {}
 
-  static generateId(name: string): string {
+  static generateId(_name: string): string {
     const timestamp = Date.now().toString(36);
     const random = Math.random().toString(36).slice(2, 10);
     return `worker-${timestamp}-${random}`;

@@ -40,10 +40,17 @@ export class WorkerApiClient {
     });
   }
 
-  async heartbeat(workerId: string, input: WorkerHeartbeatInput): Promise<{ worker: Worker }> {
+  async heartbeat(workerId: string, input: WorkerHeartbeatInput): Promise<{ worker: Worker; leaseRenewed?: boolean; leaseError?: string }> {
     return this.requestJson(`/workers/${encodeURIComponent(workerId)}/heartbeat`, {
       method: "POST",
       body: input
+    });
+  }
+
+  async start(workerId: string, jobId: string, leaseId: string): Promise<{ ok: boolean; error?: string }> {
+    return this.requestJson(`/jobs/${encodeURIComponent(jobId)}/start`, {
+      method: "POST",
+      body: { workerId, leaseId }
     });
   }
 
@@ -107,9 +114,21 @@ export class WorkerApiClient {
     });
 
     const text = await response.text();
-    const parsed = text ? JSON.parse(text) : {};
+    let parsed: unknown;
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch (error) {
+      const excerpt = text.length > 500 ? `${text.slice(0, 500)}...` : text;
+      throw new Error(`Invalid JSON response from ${pathname}: ${(error as Error).message}; body=${excerpt}`, { cause: error });
+    }
     if (!response.ok) {
-      throw new Error(parsed?.error || `HTTP ${response.status} for ${pathname}`);
+      const errorBody = parsed && typeof parsed === "object" ? parsed as { error?: unknown; leaseError?: unknown } : {};
+      const message = typeof errorBody.error === "string"
+        ? errorBody.error
+        : typeof errorBody.leaseError === "string"
+          ? errorBody.leaseError
+          : `HTTP ${response.status} for ${pathname}`;
+      throw new Error(message);
     }
     return parsed;
   }

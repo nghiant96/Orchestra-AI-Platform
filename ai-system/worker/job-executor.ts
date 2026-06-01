@@ -1,15 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { QueueJob } from "../core/job-queue.js";
+import type { DiffSummary, FailureMetadata, ToolExecutionResult } from "../types.js";
 import type { Worker } from "../workers/worker-types.js";
 import type { WorkerApiClient } from "./worker-client.js";
 import { ensurePathWithinRoot, redactWorkerLogLine } from "./worker-safety.js";
+import { prepareWorkerWorktree } from "./worker-worktree.js";
+import { buildProviderEnv } from "./provider-env.js";
+import { resolveWorkerProvider } from "./providers/index.js";
 
 export interface WorkerJobExecutionContext {
   client: WorkerApiClient;
   worker: Worker;
   job: QueueJob;
   workspaceRoots: string[];
+  providerId?: string;
+  providerCommand?: string;
   emitLog(message: string): void;
   markFilesystemMutation(stage: string, worktreePath?: string): Promise<void>;
 }
@@ -19,6 +25,11 @@ export interface WorkerJobExecutionResult {
   summary: string;
   logs: string[];
   filesystemMutated: boolean;
+  artifactPath?: string | null;
+  diffSummaries?: DiffSummary[];
+  latestToolResults?: ToolExecutionResult[];
+  failure?: FailureMetadata;
+  execution?: QueueJob["execution"];
 }
 
 interface MutationInstruction {
@@ -27,6 +38,14 @@ interface MutationInstruction {
 }
 
 export async function executeWorkerJob(ctx: WorkerJobExecutionContext): Promise<WorkerJobExecutionResult> {
+  const providerId = (ctx.providerId || process.env.ORCHESTRA_WORKER_PROVIDER || "codex").trim().toLowerCase();
+  if (providerId !== "dummy") {
+    return executeProviderWorkerJob(ctx, providerId);
+  }
+  return executeDummyWorkerJob(ctx);
+}
+
+async function executeDummyWorkerJob(ctx: WorkerJobExecutionContext): Promise<WorkerJobExecutionResult> {
   const logs: string[] = [];
   const emit = (message: string) => {
     const line = redactWorkerLogLine(message);
@@ -74,6 +93,99 @@ export async function executeWorkerJob(ctx: WorkerJobExecutionContext): Promise<
     summary: "No-op worker execution completed.",
     logs,
     filesystemMutated: false
+  };
+}
+
+async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, providerId: string): Promise<WorkerJobExecutionResult> {
+  const logs: string[] = [];
+  const emit = (message: string) => {
+    const line = redactWorkerLogLine(message);
+    logs.push(line);
+    ctx.emitLog(line);
+  };
+
+  emit(`claimed job ${ctx.job.jobId}`);
+  emit(`provider: ${providerId}`);
+  emit(`task: ${redactWorkerLogLine(ctx.job.task)}`);
+
+  let prepared: Awaited<ReturnType<typeof prepareWorkerWorktree>>;
+  try {
+    prepared = await prepareWorkerWorktree({
+      jobId: ctx.job.jobId,
+      cwd: ctx.job.cwd,
+      workspaceRoots: ctx.workspaceRoots
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to prepare worker worktree";
+    emit(`worktree preparation failed: ${message}`);
+    return {
+      ok: false,
+      summary: message,
+      logs,
+      filesystemMutated: false,
+      failure: {
+        class: "provider-error",
+        message,
+        step: "worker-worktree",
+        retryable: false,
+        suggestion: "Ensure the job cwd is a git repository inside the worker workspace roots."
+      }
+    };
+  }
+
+  if (!ctx.job.dryRun) {
+    emit(`checkpointing provider filesystem mutation for ${prepared.worktreePath}`);
+    await ctx.markFilesystemMutation("provider_execute", prepared.worktreePath);
+  }
+
+  const provider = resolveWorkerProvider(providerId, { codexCommand: ctx.providerCommand });
+  const input = {
+    jobId: ctx.job.jobId,
+    task: ctx.job.task,
+    cwd: ctx.job.cwd,
+    worktreePath: prepared.worktreePath,
+    workspaceRoot: prepared.workspaceRoot,
+    artifactDir: prepared.artifactDir,
+    dryRun: ctx.job.dryRun,
+    workflowMode: ctx.job.workflowMode,
+    workflowProfile: ctx.job.workflowProfile,
+    approvalPolicy: ctx.job.approvalPolicy,
+    env: buildProviderEnv(),
+  };
+
+  if (!(await provider.isAvailable(input))) {
+    const message = `Worker provider is not available: ${provider.id}`;
+    emit(message);
+    return {
+      ok: false,
+      summary: message,
+      logs,
+      filesystemMutated: false,
+      artifactPath: prepared.artifactDir,
+      failure: {
+        class: "provider-error",
+        message,
+        step: `worker-provider:${provider.id}`,
+        retryable: true,
+        suggestion: "Install/authenticate the provider CLI or configure ORCHESTRA_WORKER_PROVIDER."
+      }
+    };
+  }
+
+  const result = await provider.execute(input);
+  for (const line of result.workerLogs ?? []) {
+    emit(line);
+  }
+
+  return {
+    ok: result.ok,
+    summary: result.summary,
+    logs,
+    filesystemMutated: !ctx.job.dryRun,
+    artifactPath: result.artifactPath ?? prepared.artifactDir,
+    diffSummaries: result.diffSummaries,
+    latestToolResults: result.latestToolResults,
+    failure: result.failure
   };
 }
 

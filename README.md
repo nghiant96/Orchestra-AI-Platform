@@ -4,7 +4,7 @@
 
 Turn Codex, Antigravity, and Claude CLIs into a coordinated, governed coding workflow with planning, automated checks, self-repair loops, and human-in-the-loop approvals.
 
-Recent preview tracks add a server/worker execution plane, Hermes-facing MCP tools, and Superpowers workflow profiles. The control-plane contracts are implemented, while provider-backed worker execution remains alpha and should be treated as preview.
+Recent preview tracks add a server/worker execution plane, Hermes-facing MCP tools, Superpowers workflow profiles, and Codex-backed local worker execution. The control-plane contracts are implemented; provider-backed worker execution is still alpha and should be treated as preview.
 
 [![CI](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-local--first-blue)](docs/SECURITY.md)
@@ -128,7 +128,7 @@ Orchestra can run jobs in three backend modes:
 | `worker` | Preview | The server acts as a control plane; local workers register, heartbeat, claim leases, upload logs/checkpoints, and complete/fail jobs. |
 | `hybrid` | Reserved | Currently treated as worker-only so in-process execution and external workers never compete for the same job. |
 
-Worker mode uses atomic claim semantics, lease-bound complete/fail calls, dry-run no-mutation rules, and canonical realpath validation for worker workspace roots.
+Worker mode uses atomic claim/start semantics, lease-bound complete/fail calls, dry-run no-mutation rules, canonical realpath validation for worker workspace roots, and CodexProvider v1 execution inside isolated git worktrees. `hybrid` is intentionally worker-only until internal-worker leasing exists.
 
 ### How CLI Orchestration Works
 
@@ -322,24 +322,26 @@ If you are running in server mode, place `AI_SYSTEM_SERVER_TOKEN` in the repo-ro
 Use worker mode when you want the server to own queue/control-plane state while a local machine executes claimed jobs.
 
 ```bash
-# Terminal 1: server as control plane
-AI_SYSTEM_SERVER_MODE=true \
+# Terminal 1: server as control plane with worker queue ownership
 AI_SYSTEM_SERVER_TOKEN=dev-token \
-AI_SYSTEM_ALLOWED_WORKDIRS="$PWD" \
-ORCHESTRA_EXECUTION_BACKEND=worker \
 ORCHESTRA_WORKER_TOKEN=worker-token \
-pnpm run server
+AI_SYSTEM_ALLOWED_WORKDIRS="$PWD" \
+pnpm orchestra:server
 
-# Terminal 2: local worker
-pnpm ai worker start \
+# Terminal 2: local worker, CodexProvider v1 by default
+ORCHESTRA_WORKER_PROVIDER=codex \
+pnpm orchestra:worker -- \
   --server-url http://127.0.0.1:3927 \
   --token worker-token \
   --name local-worker \
   --labels local,dev \
   --workspace-roots "$PWD"
+
+# Local end-to-end dry-run smoke test
+pnpm orchestra:smoke
 ```
 
-Worker registration validates `workspaceRoots` with canonical realpath checks. A symlink that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected. Jobs marked `dryRun=true` must not mutate files or write mutation checkpoints.
+Worker registration validates `workspaceRoots` with canonical realpath checks. A symlink that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected. Provider jobs run in `.orchestra/worktrees/<jobId>` and write artifacts to `.ai-system-server/worker-artifacts/<jobId>`. Dummy dry-run jobs must not mutate files or write mutation checkpoints; CodexProvider dry-runs may create diffs inside the isolated worktree, but never mutate the main checkout.
 
 ---
 
@@ -386,6 +388,8 @@ ai retry last --stage reviewing       # Retry from a specific stage
 ```bash
 ai worker start                       # Register, heartbeat, poll, claim, execute
 ai worker start --once                # Register and run one poll/claim cycle
+ORCHESTRA_WORKER_PROVIDER=dummy \
+  ai worker start --once              # Lifecycle-only smoke executor
 ai worker start \
   --server-url http://127.0.0.1:3927 \
   --token "$ORCHESTRA_WORKER_TOKEN" \
@@ -404,10 +408,19 @@ ai worker start \
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated workspace roots the server may operate in | Current working directory |
 | `ORCHESTRA_EXECUTION_BACKEND` | Queue execution owner: `in-process`, `worker`, `hybrid` | `in-process` |
 | `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
+| `ORCHESTRA_WORKER_PROVIDER` | Local worker provider adapter. v1 supports `codex`; `dummy` is for tests/smoke only | `codex` |
+| `ORCHESTRA_CODEX_COMMAND` | Command used by CodexProvider v1 | `codex` |
+| `ORCHESTRA_CODEX_TIMEOUT_MS` | Timeout for one CodexProvider execution | `600000` |
+| `ORCHESTRA_WORKER_PROVIDER_ENV_KEYS` | Extra comma-separated env keys to pass into provider commands | None |
+| `ORCHESTRA_UPLOAD_RAW_TRANSCRIPTS` | Store raw provider stdout/stderr instead of scrubbed logs | `false` |
 | `ORCHESTRA_HERMES_TOKEN` | Bearer token for Hermes/MCP-facing APIs | None |
 | `ORCHESTRA_SERVER_URL` | Default server URL for `ai worker start` | `http://127.0.0.1:3927` |
 | `ORCHESTRA_WORKSPACE_ROOTS` | Default comma-separated worker roots for `ai worker start` | Current working directory |
 | `AI_SYSTEM_DISABLE_TUI` | Disable interactive dashboard | `false` |
+
+### Runtime JS Mirrors
+
+This alpha branch intentionally keeps generated `.js` files next to `.ts` sources for runtime compatibility. Treat TypeScript as the source of truth, run `tsc` after editing TypeScript, and use `pnpm check:js-mirrors` to verify running `tsc` does not create additional `.js` or `tsconfig.tsbuildinfo` drift.
 
 ---
 
@@ -460,6 +473,7 @@ When running as a team service, Orchestra exposes a RESTful HTTP API:
 | `POST` | `/workers/:id/drain` | Drain a worker without accepting new jobs |
 | `POST` | `/workers/:id/jobs/claim` | Claim one eligible queued job with an atomic lease |
 | `POST` | `/workers/:id/jobs/:jobId/logs` | Upload redacted worker logs |
+| `POST` | `/jobs/:jobId/start` | Transition a claimed external-worker job from `assigned` to `running` |
 | `POST` | `/jobs/:jobId/checkpoint` | Save a mutation checkpoint for an active lease |
 | `POST` | `/jobs/:jobId/complete` | Complete a leased job and persist result payload |
 | `POST` | `/jobs/:jobId/fail` | Fail a leased job and persist failure payload |
@@ -608,9 +622,12 @@ orchestra-ai-platform/
 │   │
 │   ├── worker/                       # Local worker runtime/CLI loop (Preview)
 │   │   ├── worker-client.ts          # Worker HTTP client
-│   │   ├── worker-loop.ts            # Register, heartbeat, claim, execute loop
+│   │   ├── worker-runtime.ts         # Register, heartbeat, claim, execute loop
 │   │   ├── worker-config.ts          # Worker env/CLI config loader
-│   │   └── job-executor.ts           # Preview worker job executor
+│   │   ├── worker-worktree.ts        # Isolated git worktree preparation
+│   │   ├── provider-env.ts           # Provider env allowlist
+│   │   ├── providers/                # Provider adapter seam and CodexProvider v1
+│   │   └── job-executor.ts           # Worker job executor / provider dispatcher
 │   │
 │   ├── workers/                      # Server-side worker registry and lease service
 │   │   ├── worker-types.ts           # Worker data model

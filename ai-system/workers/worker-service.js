@@ -180,6 +180,17 @@ export async function claimJob(ctx, workerId) {
 export async function renewLease(ctx, workerId, jobId, leaseId) {
     return ctx.queue.renewLease(jobId, leaseId);
 }
+export async function startJob(ctx, workerId, jobId, leaseId) {
+    const result = await ctx.queue.startJob(jobId, workerId, leaseId);
+    if (result.ok) {
+        await ctx.auditLog.append({
+            actor: ctx.actor,
+            action: "worker.start",
+            details: { workerId, jobId, leaseId }
+        });
+    }
+    return result;
+}
 export async function sendMutationCheckpoint(ctx, workerId, jobId, leaseId, checkpoint) {
     const result = await ctx.queue.saveCheckpoint(jobId, leaseId, checkpoint);
     if (result.ok) {

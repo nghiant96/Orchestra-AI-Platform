@@ -15,12 +15,15 @@ export default tseslint.config(
       "node_modules/**",
       "**/dist/**",
       ".ai-system-artifacts/**",
-      ".ai-system-memory/**"
+      ".ai-system-memory/**",
+      "ai-system/**/*.js",
+      "tests/**/*.js",
+      "scripts/**/*.js"
     ],
   },
   // Core / Node.js files
   {
-    files: ["ai-system/**/*.ts", "tests/**/*.ts", "bin/**/*.js"],
+    files: ["ai-system/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts", "bin/**/*.js", "scripts/**/*.mjs"],
     languageOptions: {
       globals: {
         ...globals.node,

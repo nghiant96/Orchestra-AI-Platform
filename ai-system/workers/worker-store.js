@@ -6,7 +6,7 @@ export class WorkerStore {
     constructor(storeDir) {
         this.storeDir = storeDir;
     }
-    static generateId(name) {
+    static generateId(_name) {
         const timestamp = Date.now().toString(36);
         const random = Math.random().toString(36).slice(2, 10);
         return `worker-${timestamp}-${random}`;

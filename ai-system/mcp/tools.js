@@ -12,7 +12,7 @@ export class McpToolError extends Error {
     }
 }
 export async function executeMcpTool(ctx, name, input = {}) {
-    const actor = ctx.actor ?? { id: "hermes", role: "operator" };
+    const actor = requireMcpActor(ctx);
     const workCtx = {
         actor,
         auditLog: ctx.auditLog,
@@ -58,7 +58,7 @@ export async function executeMcpTool(ctx, name, input = {}) {
             return getWorkItemEvents(workCtx, cwd, requireString(input.workItemId, "workItemId"));
         }
         case "orchestra_get_artifacts": {
-            return getMcpArtifacts(ctx, input);
+            return getMcpArtifacts(ctx, actor, input);
         }
         case "orchestra_approve_step": {
             const pendingApprovals = ctx.pendingApprovals;
@@ -89,10 +89,10 @@ export async function executeMcpTool(ctx, name, input = {}) {
             throw new McpToolError(`Unknown MCP tool: ${name}`, 404);
     }
 }
-async function getMcpArtifacts(ctx, input) {
+async function getMcpArtifacts(ctx, actor, input) {
     if (typeof input.jobId === "string") {
         const job = await getJob({
-            actor: ctx.actor ?? { id: "hermes", role: "operator" },
+            actor,
             auditLog: ctx.auditLog,
             queue: ctx.queue,
             rules: ctx.rules
@@ -112,7 +112,7 @@ async function getMcpArtifacts(ctx, input) {
     }
     const cwd = await resolveMcpCwd(ctx, input);
     const workItem = await getWorkItem({
-        actor: ctx.actor ?? { id: "hermes", role: "operator" },
+        actor,
         auditLog: ctx.auditLog,
         queue: ctx.queue,
         rules: ctx.rules
@@ -130,6 +130,12 @@ async function getMcpArtifacts(ctx, input) {
             latestToolResults: job.latestToolResults ?? []
         }))
     };
+}
+function requireMcpActor(ctx) {
+    if (!ctx.actor) {
+        throw new McpToolError("MCP actor is required", 401);
+    }
+    return ctx.actor;
 }
 async function resolveMcpCwd(ctx, input) {
     const repo = await resolveMcpRepo(ctx, input);

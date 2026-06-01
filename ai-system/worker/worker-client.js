@@ -15,6 +15,12 @@ export class WorkerApiClient {
             body: input
         });
     }
+    async start(workerId, jobId, leaseId) {
+        return this.requestJson(`/jobs/${encodeURIComponent(jobId)}/start`, {
+            method: "POST",
+            body: { workerId, leaseId }
+        });
+    }
     async claim(workerId) {
         return this.requestJson(`/workers/${encodeURIComponent(workerId)}/jobs/claim`, {
             method: "POST",
@@ -62,9 +68,22 @@ export class WorkerApiClient {
             signal: AbortSignal.timeout(15000)
         });
         const text = await response.text();
-        const parsed = text ? JSON.parse(text) : {};
+        let parsed;
+        try {
+            parsed = text ? JSON.parse(text) : {};
+        }
+        catch (error) {
+            const excerpt = text.length > 500 ? `${text.slice(0, 500)}...` : text;
+            throw new Error(`Invalid JSON response from ${pathname}: ${error.message}; body=${excerpt}`, { cause: error });
+        }
         if (!response.ok) {
-            throw new Error(parsed?.error || `HTTP ${response.status} for ${pathname}`);
+            const errorBody = parsed && typeof parsed === "object" ? parsed : {};
+            const message = typeof errorBody.error === "string"
+                ? errorBody.error
+                : typeof errorBody.leaseError === "string"
+                    ? errorBody.leaseError
+                    : `HTTP ${response.status} for ${pathname}`;
+            throw new Error(message);
         }
         return parsed;
     }

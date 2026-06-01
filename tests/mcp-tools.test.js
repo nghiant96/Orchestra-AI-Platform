@@ -17,7 +17,14 @@ describe("MCP tools", () => {
         const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-tools-"));
         const queue = new FileBackedJobQueue(resolveJobQueueDirectory(tmp), async () => ({ ok: true }));
         const auditLog = new FileAuditLog(resolveAuditLogPath(tmp));
-        const ctx = { defaultCwd: tmp, allowedRoots: [tmp], queue, auditLog, rules: { artifacts: { data_dir: ".artifacts" } } };
+        const ctx = {
+            defaultCwd: tmp,
+            allowedRoots: [tmp],
+            queue,
+            auditLog,
+            rules: { artifacts: { data_dir: ".artifacts" } },
+            actor: { id: "mcp-test", role: "operator" }
+        };
         try {
             const created = await executeMcpTool(ctx, "orchestra_create_work_item", {
                 title: "MCP work",
@@ -59,7 +66,8 @@ describe("MCP tools", () => {
                 queue,
                 auditLog,
                 rules: { artifacts: { data_dir: ".artifacts" } },
-                pendingApprovals
+                pendingApprovals,
+                actor: { id: "mcp-approver", role: "operator" }
             };
             await assert.rejects(() => executeMcpTool(ctx, "orchestra_approve_step", { jobId: job.jobId }), /Approval proof requires/);
             pendingApprovals.set(job.jobId, {
@@ -79,6 +87,25 @@ describe("MCP tools", () => {
                 }
             });
             assert.equal(result.approved, true);
+        }
+        finally {
+            await queue.stop();
+            await fs.rm(tmp, { recursive: true, force: true });
+        }
+    });
+    test("rejects MCP tools when actor is missing", async () => {
+        const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "mcp-missing-actor-"));
+        const queue = new FileBackedJobQueue(resolveJobQueueDirectory(tmp), async () => ({ ok: true }));
+        const auditLog = new FileAuditLog(resolveAuditLogPath(tmp));
+        const ctx = {
+            defaultCwd: tmp,
+            allowedRoots: [tmp],
+            queue,
+            auditLog,
+            rules: { artifacts: { data_dir: ".artifacts" } }
+        };
+        try {
+            await assert.rejects(() => executeMcpTool(ctx, "orchestra_create_work_item", { title: "Missing actor" }), /MCP actor is required/);
         }
         finally {
             await queue.stop();

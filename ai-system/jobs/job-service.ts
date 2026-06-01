@@ -9,7 +9,6 @@ import { classifyServerError } from "../core/server-analytics.js";
 import { loadJsonIfExists } from "../utils/config.js";
 import type { RulesConfig, OrchestratorResult, ExternalTaskRef, RunStatus } from "../types.js";
 import type { WorkflowMode } from "../core/workflow-modes.js";
-import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
 import {
   applyWorkflowProfileToTask,
   parseWorkflowProfileId,

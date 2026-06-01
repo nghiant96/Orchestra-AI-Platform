@@ -19,7 +19,7 @@ export function canAccessRoute(role, route, method = "GET") {
     if (role === "hermes") {
         if (route.startsWith("/workers"))
             return false;
-        if (route.startsWith("/jobs/") && (route.endsWith("/complete") || route.endsWith("/fail") || route.endsWith("/checkpoint")))
+        if (route.startsWith("/jobs/") && (route.endsWith("/start") || route.endsWith("/complete") || route.endsWith("/fail") || route.endsWith("/checkpoint")))
             return false;
         if (route.startsWith("/queue/"))
             return false;
@@ -34,7 +34,7 @@ export function canAccessRoute(role, route, method = "GET") {
             return true;
         if (normalizedMethod === "POST" && /^\/workers\/[^/]+\/jobs\/[^/]+\/logs$/.test(route))
             return true;
-        if (normalizedMethod === "POST" && /^\/jobs\/[^/]+\/(complete|fail|checkpoint)$/.test(route))
+        if (normalizedMethod === "POST" && /^\/jobs\/[^/]+\/(start|complete|fail|checkpoint)$/.test(route))
             return true;
         if (route === "/config")
             return false;

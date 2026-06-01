@@ -4,6 +4,7 @@
 .ai-system-artifacts/
 .ai-system-vector/
 .ai-system-server/
+.orchestra/
 *.log
 *.yaml
 .aider*
