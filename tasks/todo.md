@@ -1,6 +1,81 @@
 # Current Project Tasks
 
-Last updated: 2026-05-03
+Last updated: 2026-06-01
+
+## Task: Review Hermes + Superpowers + Local Worker Architecture
+
+- [x] Review existing project lessons and current roadmap context.
+- [x] Read the full architecture proposal.
+- [x] Evaluate architectural fit, risks, missing contracts, and implementation phasing.
+- [x] Summarize findings and recommended changes.
+- [x] Add review result after completing the assessment.
+
+Review result:
+
+- Architecture direction is strong: server as control plane, local worker as execution plane, Hermes as gateway, and Superpowers as workflow policy fit the product roadmap.
+- Highest-risk gap: the proposal introduces `/api/*`, new work item statuses, and remote worker assignment without an explicit compatibility/migration contract for the existing `/jobs`, `/work-items`, in-process queue, and dashboard flows.
+- Recommended next step: rewrite the implementation plan around a lease-based worker queue and existing route/model compatibility before coding Phase 1.
+
+## Task: Update Hermes + Superpowers Architecture Document
+
+- [x] Add compatibility strategy for existing `/jobs` and `/work-items` routes.
+- [x] Add worker lease model and queue migration guidance.
+- [x] Clarify work item status migration instead of replacing current status names blindly.
+- [x] Split workflow profile from existing execution workflow mode.
+- [x] Adjust implementation phases and definition of done.
+- [x] Review the updated document for consistency.
+
+Review result:
+
+- Updated `ORCHESTRA_HERMES_SUPERPOWERS_ARCHITECTURE.md` to make existing routes and models the compatibility baseline.
+- Added lease-based worker claim semantics so worker execution is resilient to duplicate claims, laptop sleep, and stale jobs.
+- Reframed Superpowers as `workflowProfile` and preserved current `WorkflowMode` as `executionMode`.
+
+## Task: Harden Hermes + Superpowers Architecture Contracts
+
+- [x] Add lease state machine and mutation/reassign rules.
+- [x] Add compatibility normalizer guidance for mixed old/new fields.
+- [x] Add explicit execution backend mode.
+- [x] Bind approvals to immutable artifact/version references.
+- [x] Add artifact integrity rules.
+- [x] Clarify worker security enforcement layers.
+- [x] Require proof of user approval for Hermes/MCP approvals.
+- [x] Review the updated document for consistency.
+
+Review result:
+
+- Added seven hardening contracts to the architecture document: compatibility normalization, lease state transitions, execution backend mode, artifact immutability, approval artifact binding, worker enforcement layers, and Hermes approval proof.
+- Clarified that post-mutation lease expiry must stall instead of auto-reassigning to another worker.
+- Added phase acceptance criteria so these contracts are testable during implementation.
+
+## Task: Review External Architecture Evaluations
+
+- [x] Read `architecture_evaluation.md`.
+- [x] Read pasted external evaluation text.
+- [x] Compare external findings with the current architecture document.
+- [x] Summarize accepted gaps, rejected concerns, and recommended next edits.
+
+Review result:
+
+- Both external reviews agree the architecture is implementable and significantly stronger after the compatibility, lease, artifact integrity, approval, and security hardening passes.
+- The most important remaining issue is real: section 8.1 still states "keep current WorkItemStatus" but the sample TypeScript enum below it uses the proposed new status names.
+- Recommended next edit: fix section 8.1, split Phase 1 into 1A/1B/1C, add Phase 0 prep, Phase 1.5 security, worker disable/drain APIs, claim eligibility rules, dry-run mode contract, and repo registry as roadmap.
+
+## Task: Apply External Review Recommendations To Architecture
+
+- [x] Fix section 8.1 `WorkItemStatus` contradiction.
+- [x] Add worker admin APIs and claim eligibility rules.
+- [x] Add dry-run/write/pr mode contract.
+- [x] Add workflow profile precedence rules.
+- [x] Add Phase 0, split Phase 1, and add Phase 1.5 Security.
+- [x] Add repo registry as later roadmap.
+- [x] Verify document consistency.
+
+Review result:
+
+- Applied the external review recommendations to `ORCHESTRA_HERMES_SUPERPOWERS_ARCHITECTURE.md`.
+- Section 8.1 now keeps the current WorkItemStatus enum and models proposed names as optional `WorkItemStage`.
+- Implementation phases now start with Phase 0 prep, split worker foundation into 1A/1B/1C, and add Phase 1.5 security before the Local Worker CLI.
 
 > This file tracks the concrete implementation order for the AI Software Workspace.
 > The active priority is Phase A, then Phase B, then the workspace/control-plane phases.
