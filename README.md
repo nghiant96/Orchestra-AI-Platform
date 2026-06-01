@@ -4,6 +4,8 @@
 
 Turn Codex, Antigravity, and Claude CLIs into a coordinated, governed coding workflow with planning, automated checks, self-repair loops, and human-in-the-loop approvals.
 
+Recent preview tracks add a server/worker execution plane, Hermes-facing MCP tools, and Superpowers workflow profiles. The control-plane contracts are implemented, while provider-backed worker execution remains alpha and should be treated as preview.
+
 [![CI](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml/badge.svg)](https://github.com/nghiant96/Orchestra-AI-Platform/actions/workflows/ci.yml)
 [![Security](https://img.shields.io/badge/security-local--first-blue)](docs/SECURITY.md)
 [![Node.js](https://img.shields.io/badge/node-20%2B-green)](https://nodejs.org)
@@ -36,6 +38,8 @@ graph LR
 | **Human-in-the-loop** | Approval gates, risk-based policies, pause checkpoints | None |
 | **Artifact tracking** | Every iteration persisted, diff-aware, resumable | None |
 | **Team control plane** | HTTP API, job queue, dashboard, audit log | Single user |
+| **Local worker backend (Preview)** | Lease-backed workers can claim queued jobs from the server | None |
+| **Hermes/Superpowers (Preview)** | MCP tools, workflow profiles, approvals, lessons, and repo registry | None |
 | **Workspace engine (Preview)** | Durable work items, branch tracking, PR planning | None |
 
 ---
@@ -57,6 +61,12 @@ graph TD
         Router["🔀 Provider Router"]
         ESM["⚙️ Execution State Machine"]
         Queue["📋 Job Queue"]
+    end
+
+    subgraph "Execution Plane (Preview)"
+        Worker["💻 Local Worker"]
+        Lease["🔐 Lease + Checkpoint Contract"]
+        WorkerExec["⚙️ Worker Executor"]
     end
 
     subgraph "AI Provider Fleet"
@@ -83,7 +93,12 @@ graph TD
 
     CLI --> Orchestrator
     Dashboard --> API
-    API --> Queue --> Orchestrator
+    API --> Queue
+    Queue --> Orchestrator
+    Queue --> Worker
+    Worker --> Lease
+    Lease --> Queue
+    Worker --> WorkerExec
 
     Orchestrator --> Router
     Orchestrator --> ESM
@@ -102,6 +117,18 @@ graph TD
     Orchestrator --> VectorDB
     Queue --> AuditLog
 ```
+
+### Execution Backends
+
+Orchestra can run jobs in three backend modes:
+
+| Backend | Status | Behavior |
+|---|---|---|
+| `in-process` | Default | The server drains the file-backed queue and executes jobs with the existing orchestrator runner. |
+| `worker` | Preview | The server acts as a control plane; local workers register, heartbeat, claim leases, upload logs/checkpoints, and complete/fail jobs. |
+| `hybrid` | Reserved | Currently treated as worker-only so in-process execution and external workers never compete for the same job. |
+
+Worker mode uses atomic claim semantics, lease-bound complete/fail calls, dry-run no-mutation rules, and canonical realpath validation for worker workspace roots.
 
 ### How CLI Orchestration Works
 
@@ -200,7 +227,7 @@ Each profile maps roles to specific providers. For example, `quality` might assi
 ## Workspace Engine — Durable Work Items (Experimental / v1.0 Roadmap)
 
 > [!WARNING]
-> **Status: Experimental Preview.** The Workspace Engine is currently in active development (Phase W1). While the data model, branch management, and PR planning are functional, advanced features like the dynamic Task Graph, Evidence Checklist, and full CI auto-repair loops are aspirational roadmap items planned for v1.0.
+> **Status: Experimental Preview.** Durable work items, branch/PR state, worker-aware job links, Superpowers workflow profiles, and lesson export are available. Full provider-backed worker execution, dynamic task graphs, and CI auto-repair loops are still roadmap/alpha areas.
 
 For multi-step engineering tasks, Orchestra provides an evolving **Workspace Engine** that goes beyond single-shot execution:
 
@@ -290,6 +317,30 @@ pnpm run local:dev
 Open **http://localhost:5253** to access the dashboard.
 If you are running in server mode, place `AI_SYSTEM_SERVER_TOKEN` in the repo-root `.env` file so both the server and dashboard proxy use the same token.
 
+### 5. Start the local worker backend (Preview)
+
+Use worker mode when you want the server to own queue/control-plane state while a local machine executes claimed jobs.
+
+```bash
+# Terminal 1: server as control plane
+AI_SYSTEM_SERVER_MODE=true \
+AI_SYSTEM_SERVER_TOKEN=dev-token \
+AI_SYSTEM_ALLOWED_WORKDIRS="$PWD" \
+ORCHESTRA_EXECUTION_BACKEND=worker \
+ORCHESTRA_WORKER_TOKEN=worker-token \
+pnpm run server
+
+# Terminal 2: local worker
+pnpm ai worker start \
+  --server-url http://127.0.0.1:3927 \
+  --token worker-token \
+  --name local-worker \
+  --labels local,dev \
+  --workspace-roots "$PWD"
+```
+
+Worker registration validates `workspaceRoots` with canonical realpath checks. A symlink that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected. Jobs marked `dryRun=true` must not mutate files or write mutation checkpoints.
+
 ---
 
 ## CLI Reference
@@ -330,6 +381,17 @@ ai runs list                          # Browse execution artifacts
 ai retry last --stage reviewing       # Retry from a specific stage
 ```
 
+### Local Worker Commands (Preview)
+
+```bash
+ai worker start                       # Register, heartbeat, poll, claim, execute
+ai worker start --once                # Register and run one poll/claim cycle
+ai worker start \
+  --server-url http://127.0.0.1:3927 \
+  --token "$ORCHESTRA_WORKER_TOKEN" \
+  --workspace-roots /allowed/root
+```
+
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -339,6 +401,12 @@ ai retry last --stage reviewing       # Retry from a specific stage
 | `AI_SYSTEM_MEMORY` | Memory backend (`off`, `local-file`, `openmemory`) | `local-file` |
 | `AI_SYSTEM_SANDBOX` | Sandbox mode (`inherit`, `clean`, `docker`) | `inherit` |
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for server auth | None |
+| `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated workspace roots the server may operate in | Current working directory |
+| `ORCHESTRA_EXECUTION_BACKEND` | Queue execution owner: `in-process`, `worker`, `hybrid` | `in-process` |
+| `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
+| `ORCHESTRA_HERMES_TOKEN` | Bearer token for Hermes/MCP-facing APIs | None |
+| `ORCHESTRA_SERVER_URL` | Default server URL for `ai worker start` | `http://127.0.0.1:3927` |
+| `ORCHESTRA_WORKSPACE_ROOTS` | Default comma-separated worker roots for `ai worker start` | Current working directory |
 | `AI_SYSTEM_DISABLE_TUI` | Disable interactive dashboard | `false` |
 
 ---
@@ -370,6 +438,33 @@ When running as a team service, Orchestra exposes a RESTful HTTP API:
 | `POST` | `/work-items/:id/cancel` | Cancel execution |
 | `POST` | `/work-items/:id/handoff` | Create PR and hand off |
 
+### Workspaces & Repo Registry
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/workspaces` | List allowed workspace roots |
+| `POST` | `/workspaces` | Register an additional workspace root after realpath validation |
+| `GET` | `/repos` | List registered repositories |
+| `POST` | `/repos` | Register a repository mapping for work items/Hermes |
+
+### Local Workers (Preview)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/workers` | List registered workers |
+| `POST` | `/workers` | Register a worker and return its bootstrap session token |
+| `GET` | `/workers/:id` | Get worker detail without exposing the session token |
+| `POST` | `/workers/:id/heartbeat` | Update worker status and renew active lease |
+| `POST` | `/workers/:id/disable` | Disable a worker |
+| `POST` | `/workers/:id/enable` | Enable a worker |
+| `POST` | `/workers/:id/drain` | Drain a worker without accepting new jobs |
+| `POST` | `/workers/:id/jobs/claim` | Claim one eligible queued job with an atomic lease |
+| `POST` | `/workers/:id/jobs/:jobId/logs` | Upload redacted worker logs |
+| `POST` | `/jobs/:jobId/checkpoint` | Save a mutation checkpoint for an active lease |
+| `POST` | `/jobs/:jobId/complete` | Complete a leased job and persist result payload |
+| `POST` | `/jobs/:jobId/fail` | Fail a leased job and persist failure payload |
+| `POST` | `/jobs/:jobId/recover` | Manually recover a stalled job |
+
 ### Administration
 
 | Method | Endpoint | Description |
@@ -392,6 +487,8 @@ The web dashboard provides real-time visibility into the system:
 |---|---|
 | **Jobs** | Live job list with status, duration, provider metrics, approval controls |
 | **Work Board** | Kanban view of work items with progress bars, branch/PR status |
+| **Workers** | Worker status, current job, labels, capabilities, drain/disable controls |
+| **Approvals & Artifacts** | Approval gates, artifact binding, diff summaries, and result payloads |
 | **Inbox** | Import GitHub issues/PRs as work items |
 | **Analytics** | Cost tracking, failure classification, provider performance, queue latency |
 | **Config** | Runtime configuration editor with risk policy visualization |
@@ -465,6 +562,8 @@ orchestra-ai-platform/
 │   │   ├── review-failing-checks.ts  # Failed check analysis
 │   │   │
 │   │   ├── job-queue.ts              # File-backed job queue
+│   │   ├── execution-backend.ts      # in-process / worker / hybrid backend selection
+│   │   ├── workspace-registry.ts     # Allowed workspace root persistence + validation
 │   │   ├── audit-log.ts              # File-backed audit log
 │   │   ├── permissions.ts            # RBAC action permissions
 │   │   ├── webhooks.ts               # Outbound webhook notifications
@@ -506,6 +605,25 @@ orchestra-ai-platform/
 │   │   ├── ci.ts                     # CI status polling (gh pr checks)
 │   │   ├── inbox.ts                  # GitHub URL import + dedup
 │   │   └── normalizers.ts            # Work item data normalization
+│   │
+│   ├── worker/                       # Local worker runtime/CLI loop (Preview)
+│   │   ├── worker-client.ts          # Worker HTTP client
+│   │   ├── worker-loop.ts            # Register, heartbeat, claim, execute loop
+│   │   ├── worker-config.ts          # Worker env/CLI config loader
+│   │   └── job-executor.ts           # Preview worker job executor
+│   │
+│   ├── workers/                      # Server-side worker registry and lease service
+│   │   ├── worker-types.ts           # Worker data model
+│   │   ├── worker-store.ts           # File-backed worker store
+│   │   ├── worker-service.ts         # Claim/lease/checkpoint/complete contracts
+│   │   └── worker-routes.ts          # Worker HTTP API
+│   │
+│   ├── jobs/                         # Job service wrappers for routes/MCP
+│   ├── approvals/                    # Approval service and artifact binding
+│   ├── repos/                        # Repo registry for Hermes/work items
+│   ├── mcp/                          # Hermes-facing MCP server/tools
+│   ├── security/                     # Token auth, path policy, redaction, command policy
+│   ├── workflows/                    # Workflow profiles including Superpowers
 │   │
 │   ├── providers/                    # AI provider adapters
 │   │   ├── registry.ts               # Provider registry + detection
@@ -578,6 +696,8 @@ orchestra-ai-platform/
 | **Audit log** | Every action (create, approve, cancel) is recorded with actor + timestamp |
 | **Evidence-based checklist** | No checklist item passes without proof (run ID, commit SHA, PR URL) |
 | **Atomic writes** | Files are written atomically — partial failures don't corrupt your codebase |
+| **Lease-backed workers** | Worker claims are atomic and complete/fail requires a valid lease |
+| **Workspace root guards** | Workspace and worker roots are validated through canonical realpaths |
 
 ---
 
@@ -592,6 +712,8 @@ orchestra-ai-platform/
 | 🏢 [**Workspace Engine**](docs/WORKSPACE.md) | Work items, task graphs, PR automation, CI watch |
 | 📋 [**Operator Runbook**](docs/OPERATIONS.md) | Production deployment, monitoring, troubleshooting |
 | 🛡️ [**Security Policy**](docs/SECURITY.md) | Privacy, sandboxing, token-based auth, secret masking |
+| 🧭 [**Hermes + Superpowers Plan**](tasks/hermes-superpowers-implementation-plan.md) | Phase checklist and implementation status for worker/Hermes/Superpowers tracks |
+| 🏗️ [**Hermes Architecture**](ORCHESTRA_HERMES_SUPERPOWERS_ARCHITECTURE.md) | Control-plane, worker, MCP, and Superpowers architecture |
 | 📝 [**Release Notes v0.9**](docs/RELEASE_NOTES_v0.9.md) | Latest changes and migration guide |
 
 ---

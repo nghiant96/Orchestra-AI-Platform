@@ -108,7 +108,7 @@ Tasks:
 - [x] Define `Worker` type with id, name, version, os, arch, labels, capabilities, workspaceRoots, status, currentJobId, lastHeartbeatAt, createdAt.
 - [x] Add worker statuses: `online`, `idle`, `busy`, `draining`, `disabled`, `offline`.
 - [x] Implement file-backed `WorkerStore` first unless the project has already chosen SQLite.
-- [x] Add `POST /workers/register`.
+- [x] Add `POST /workers` registration route.
 - [x] Add `POST /workers/:workerId/heartbeat`.
 - [x] Add `POST /workers/:workerId/disable`.
 - [x] Add `POST /workers/:workerId/enable`.

@@ -118,6 +118,23 @@ ai work ci-watch <id>                                 # Watch PR CI status
 ai work metrics                                       # Show workspace metrics
 ```
 
+### `ai worker start` — Local Worker Runtime (Preview)
+
+Registers a local worker with the server, sends heartbeats, claims eligible queued jobs, and completes/fails them through the lease contract.
+
+```bash
+ai worker start \
+  --server-url http://127.0.0.1:3927 \
+  --token "$ORCHESTRA_WORKER_TOKEN" \
+  --name local-worker \
+  --labels local,dev \
+  --workspace-roots /allowed/root
+
+ai worker start --once
+```
+
+The server validates worker `workspaceRoots` against `AI_SYSTEM_ALLOWED_WORKDIRS` using canonical realpaths. Symlink escapes are rejected.
+
 ---
 
 ## Flags & Options
@@ -148,6 +165,12 @@ ai work metrics                                       # Show workspace metrics
 | `AI_SYSTEM_RISK_PROFILE` | Override risk profile | None |
 | `AI_SYSTEM_MEMORY` | Memory backend (`off`, `local-file`, `openmemory`) | `local-file` |
 | `AI_SYSTEM_SANDBOX` | Sandbox mode (`inherit`, `clean`, `docker`) | `inherit` |
+| `AI_SYSTEM_SERVER_TOKEN` | Bearer token for server/operator APIs | None |
+| `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated server workspace roots | Current working directory |
+| `ORCHESTRA_EXECUTION_BACKEND` | Queue execution owner: `in-process`, `worker`, `hybrid` | `in-process` |
+| `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
+| `ORCHESTRA_SERVER_URL` | Default server URL for `ai worker start` | `http://127.0.0.1:3927` |
+| `ORCHESTRA_WORKSPACE_ROOTS` | Default comma-separated worker roots for `ai worker start` | Current working directory |
 | `AI_SYSTEM_DISABLE_TUI` | Disable interactive dashboard | `false` |
 | `AI_SYSTEM_MAX_ITERATIONS` | Max fix iterations | `5` |
 | `AI_SYSTEM_9ROUTER_API_KEY` | API key for 9router provider | None |

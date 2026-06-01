@@ -615,7 +615,7 @@ Body:
 ### Register worker
 
 ```http
-POST /workers/register
+POST /workers
 ```
 
 Body:
@@ -1406,10 +1406,10 @@ Add CLI command:
 
 ```bash
 pnpm ai worker start \
-  --server http://localhost:3000 \
+  --server-url http://localhost:3000 \
   --name nghia-macbook-worker \
   --labels macbook,react-native,ios,android \
-  --workspace-root /Users/trungnghianguyen/Documents
+  --workspace-roots /Users/trungnghianguyen/Documents
 ```
 
 Or env:
@@ -2075,7 +2075,7 @@ Tasks:
 1. Add `Worker` types.
 2. Add worker store.
 3. Add API:
-   - `POST /workers/register`
+   - `POST /workers`
    - `POST /workers/:workerId/heartbeat`
    - `POST /workers/:workerId/disable`
    - `POST /workers/:workerId/enable`
@@ -2449,10 +2449,10 @@ pnpm run server
 
 # Terminal 2
 pnpm ai worker start \
-  --server http://localhost:3000 \
+  --server-url http://localhost:3000 \
   --name local-test-worker \
   --labels local,test \
-  --workspace-root "$PWD"
+  --workspace-roots "$PWD"
 
 # Terminal 3
 curl -X POST http://localhost:3000/work-items \

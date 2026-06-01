@@ -2,6 +2,20 @@
 
 Last updated: 2026-06-01
 
+## Task: Update README For Worker/Hermes Preview
+
+- [x] Add high-level Local Worker, Hermes, Superpowers, and MCP status to README.
+- [x] Add worker backend quick-start commands and environment variables.
+- [x] Add worker/workspace API summary and project-structure entries.
+- [x] Fix related documentation command examples that still use stale worker flags.
+- [x] Run documentation diff checks.
+
+Review result:
+
+- README now reflects the completed Phase 0-6 preview surface at a high level: execution backends, local worker mode, worker safety contracts, Hermes/Superpowers docs, API endpoints, and new source directories.
+- Fixed stale worker CLI examples in architecture/runbook docs to use `--server-url`, `--workspace-roots`, and the actual `POST /workers` route.
+- Verification passed with `git diff --check`.
+
 ## Task: Complete Remaining Hermes Superpowers Plan
 
 - [x] Inspect workflow, artifact, approval, MCP, lesson, dashboard, and repo-registry surfaces.

@@ -236,7 +236,7 @@ Runs as a background service with a web UI.
 #### Worker Backend Mode
 Runs the server as a control plane while local workers execute queued jobs.
 - **Startup:** `ORCHESTRA_EXECUTION_BACKEND=worker AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=... pnpm run server`
-- **Worker:** `node --import tsx ai-system/cli.ts worker start --server http://host:3927 --token "$ORCHESTRA_WORKER_TOKEN" --workspace-roots /allowed/root`
+- **Worker:** `node --import tsx ai-system/cli.ts worker start --server-url http://host:3927 --token "$ORCHESTRA_WORKER_TOKEN" --workspace-roots /allowed/root`
 - **Hybrid:** `ORCHESTRA_EXECUTION_BACKEND=hybrid` is currently treated as worker-only. The in-process queue drain stays paused until internal-worker leasing is implemented, so a job has one execution owner.
 
 ### Operational Tasks
