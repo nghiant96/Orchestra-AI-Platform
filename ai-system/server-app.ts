@@ -8,7 +8,6 @@ import {
   listRecentRunSummaries,
   runArtifactRetentionCleanup
 } from "./core/artifacts.js";
-import { classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
 import { loadAllowedWorkdirs } from "./core/workspace-registry.js";
@@ -19,7 +18,8 @@ import { jobsRoute } from "./server/routes/jobs.js";
 import { configRoute } from "./server/routes/config.js";
 import { workItemsRoute } from "./server/routes/work-items.js";
 import type { RouteHandler, ServerRouteContext } from "./server/routes-context.js";
-import type { Logger, RulesConfig, RunStatus } from "./types.js";
+import type { Logger, RulesConfig } from "./types.js";
+export { mapRunSummaryToQueueJob } from "./jobs/job-service.js";
 
 export interface ServerAppOptions {
   defaultCwd: string;
@@ -338,54 +338,6 @@ export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: 
     interactive: !skipApproval,
     pauseAfterPlan: !skipApproval
   };
-}
-
-export function mapRunSummaryToQueueJob(run: Awaited<ReturnType<typeof listRecentRunSummaries>>[number], defaultCwd: string): QueueJob {
-  return {
-    version: 1,
-    jobId: run.runName,
-    status: normalizeRunStatus(run.status),
-    task: run.task,
-    cwd: defaultCwd,
-    dryRun: run.dryRun,
-    approvalMode:
-      run.approvalPolicy?.approvalMode ??
-      (run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined),
-    approvalPolicy: run.approvalPolicy ?? undefined,
-    createdAt: run.updatedAt || new Date().toISOString(),
-    updatedAt: run.updatedAt || new Date().toISOString(),
-    artifactPath: run.runPath,
-    resultSummary: run.execution?.failure?.reason || run.status,
-    failure: run.status === "failed" ? classifyServerError(run.execution?.failure?.reason) : undefined,
-    diffSummaries: run.diffSummaries,
-    latestToolResults: run.latestToolResults,
-    execution: run.execution
-      ? {
-          transitions: run.execution.transitions,
-          providerMetrics: run.execution.providerMetrics,
-          budget: run.execution.budget,
-          totalDurationMs: run.execution.totalDurationMs,
-          retryHint: run.execution.retryHint ?? null
-        }
-      : undefined
-  };
-}
-
-function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
-  switch (status) {
-    case "completed":
-    case "resumed_completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    case "paused_after_plan":
-    case "paused_after_generate":
-      return "waiting_for_approval";
-    default:
-      return "failed";
-  }
 }
 
 function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): boolean {

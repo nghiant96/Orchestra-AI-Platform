@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 import { resolveApprovalPolicy } from "../../core/risk-policy.js";
+import { resolveExecutionBackend } from "../../core/execution-backend.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion: string = (() => {
@@ -30,6 +31,7 @@ export const healthRoute: RouteHandler = {
       version: pkgVersion,
       cwd: ctx.defaultCwd,
       allowedWorkdirs: ctx.allowedRoots,
+      executionBackend: resolveExecutionBackend(),
       queue: {
         concurrency: Math.max(1, Number(ctx.options.queueConcurrency || 1)),
         activeCount: activeJobs.length,

@@ -2,6 +2,32 @@
 
 Last updated: 2026-06-01
 
+## Task: Fix Work Item Run Status Regression
+
+- [x] Restore `404` for missing work items in `POST /work-items/:id/run`.
+- [x] Keep `409` for “no executable graph node” responses.
+- [x] Add a regression test for the missing-work-item case.
+- [x] Re-run typecheck and targeted tests.
+
+Review result:
+
+- `runWorkItem()` now returns an explicit `statusCode` so the route can distinguish missing work items from graph-readiness conflicts.
+- `POST /work-items/:id/run` once again returns `404` when the item is absent, which matches the pre-refactor API contract.
+- Verification stayed green with the same targeted test set and `./node_modules/.bin/tsc --noEmit`.
+
+## Task: Patch Phase 0 Regression Gaps
+
+- [x] Preserve legacy `workflowMode` fallback semantics for external PR tasks.
+- [x] Distinguish artifact metadata corruption from missing artifact files in job content lookup.
+- [x] Add regression tests for the two Phase 0 edge cases.
+- [x] Run typecheck and targeted tests after the fix.
+
+Review result:
+
+- `createJob()` now accepts raw `workflowMode` input and keeps the old PR fallback behavior when the payload is invalid or absent, so the route refactor no longer changes runtime semantics.
+- `getJobFileContent()` now returns `500` for corrupted artifact metadata and `404` only for missing artifacts/files, which restores observability for broken run data.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted Node test set.
+
 ## Task: Review Hermes + Superpowers + Local Worker Architecture
 
 - [x] Review existing project lessons and current roadmap context.

@@ -1,10 +1,10 @@
 import type http from "node:http";
-import type { FileAuditLog } from "../core/audit-log.js";
+import type { FileAuditLog, AuditActor, AuditRole } from "../core/audit-log.js";
 import type { FileBackedJobQueue } from "../core/job-queue.js";
 import type { JobQueueRunInput } from "../core/job-queue.js";
 import type { RulesConfig } from "../types.js";
 import type { OrchestratorResult } from "../types.js";
-import type { AuditActor } from "../core/audit-log.js";
+import { canPerformAction } from "../core/permissions.js";
 
 export interface ServerRouteContext {
   defaultCwd: string;
@@ -30,4 +30,20 @@ export interface ServerRouteContext {
 
 export interface RouteHandler {
   handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean>;
+}
+
+export interface ActorRef {
+  id: string;
+  role: AuditRole;
+  isAuthorized(action: string, rules: RulesConfig, projectId?: string): boolean;
+}
+
+export function createActorRef(actor: AuditActor): ActorRef {
+  return {
+    id: actor.id,
+    role: actor.role,
+    isAuthorized(action: string, rules: RulesConfig, projectId?: string): boolean {
+      return canPerformAction(actor, rules, action, projectId);
+    }
+  };
 }
