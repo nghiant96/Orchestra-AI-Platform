@@ -54,6 +54,9 @@ export function normalizeQueueJob(raw: any): QueueJob {
     dryRun: raw.dryRun ?? false,
     workerSelector: raw.workerSelector,
     requiredCapabilities: raw.requiredCapabilities,
+    workerLogs: Array.isArray(raw.workerLogs)
+      ? raw.workerLogs.filter((entry: unknown): entry is string => typeof entry === "string")
+      : undefined,
     createdAt: raw.createdAt ?? new Date().toISOString(),
     updatedAt: raw.updatedAt ?? new Date().toISOString()
   };

@@ -11,9 +11,12 @@ import { handleRunsCommand } from "./cli/handlers/runs-handler.js";
 import { handleFixCommand } from "./cli/handlers/fix-handler.js";
 import { handleReviewCommand, handleReviewWorkflow } from "./cli/handlers/review-handler.js";
 import { handleWorkCommand } from "./cli/handlers/work-handler.js";
+import { handleWorkerCommand } from "./cli/handlers/worker-handler.js";
+import { loadEnvironment } from "./utils/api.js";
 import { runTask, runInteractiveSession } from "./cli/handlers/task-handler.js";
 
 async function main(): Promise<void> {
+  await loadEnvironment(process.cwd());
   const options = await parseArgs(process.argv.slice(2));
   const {
     cwd,
@@ -162,6 +165,7 @@ async function runCliCommand(
   if (await handleFixCommand(command, options)) return;
   if (await handleReviewCommand(command, options)) return;
   if (await handleWorkCommand(command, options)) return;
+  if (await handleWorkerCommand(command, options)) return;
 
   throw new Error(`Unknown command kind: ${(command as any).kind}`);
 }

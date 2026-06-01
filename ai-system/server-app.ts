@@ -291,13 +291,30 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       });
     }
   });
+  const originalClose = server.close.bind(server);
+  server.close = ((callback?: (err?: Error | undefined) => void) => {
+    void queue
+      .stop()
+      .then(() => {
+        isClosed = true;
+        if (maintenanceTimer) {
+          clearInterval(maintenanceTimer);
+          maintenanceTimer = null;
+        }
+        originalClose(callback);
+      })
+      .catch((error: Error) => {
+        callback?.(error);
+      });
+    return server;
+  }) as typeof server.close;
+
   server.on("close", () => {
     isClosed = true;
     if (maintenanceTimer) {
       clearInterval(maintenanceTimer);
       maintenanceTimer = null;
     }
-    void queue.stop();
   });
   return server;
 }

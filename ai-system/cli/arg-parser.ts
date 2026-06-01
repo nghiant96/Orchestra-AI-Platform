@@ -18,6 +18,7 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
   let providerPreset: string | null = null;
   let resumeTarget: string | null = null;
   let command: CliCommand | null = null;
+  let workerCommandActive = false;
   let workflowMode: WorkflowMode = "standard";
   let retryStage: ExecutionStage | null = null;
   let reviewStaged = false;
@@ -297,6 +298,82 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
       }
       throw new Error(`Unsupported work command "${subCommand}". Use \`work create\`, \`work list\`, \`work show <id>\`, \`work branch <id>\`, \`work worktree create <id>\`, \`work worktree remove <id>\`, \`work commit <id>\`, or \`work pr <id>\`.`);
     }
+    if (arg === "worker") {
+      const subCommand = args[index + 1];
+      if (subCommand !== "start") {
+        throw new Error("Unsupported worker command. Use `worker start`.");
+      }
+      command = { kind: "worker-start" };
+      workerCommandActive = true;
+      index += 1;
+      continue;
+    }
+    if (workerCommandActive && arg.startsWith("--")) {
+      if (arg === "--server-url") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--server-url`.");
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), serverUrl: nextArg };
+        index += 1;
+        continue;
+      }
+      if (arg === "--token") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--token`.");
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), workerToken: nextArg };
+        index += 1;
+        continue;
+      }
+      if (arg === "--name") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--name`.");
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), workerName: nextArg };
+        index += 1;
+        continue;
+      }
+      if (arg === "--labels") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--labels`.");
+        const workerLabels = nextArg.split(",").map((value) => value.trim()).filter(Boolean);
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), workerLabels };
+        index += 1;
+        continue;
+      }
+      if (arg === "--workspace-roots") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--workspace-roots`.");
+        const workspaceRoots = nextArg.split(",").map((value) => value.trim()).filter(Boolean);
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), workspaceRoots };
+        index += 1;
+        continue;
+      }
+      if (arg === "--heartbeat-interval") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--heartbeat-interval`.");
+        const heartbeatIntervalMs = Number(nextArg);
+        if (!Number.isFinite(heartbeatIntervalMs) || heartbeatIntervalMs <= 0) {
+          throw new Error("`--heartbeat-interval` must be a positive number.");
+        }
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), heartbeatIntervalMs };
+        index += 1;
+        continue;
+      }
+      if (arg === "--poll-interval") {
+        const nextArg = args[index + 1];
+        if (!nextArg) throw new Error("Missing value for `--poll-interval`.");
+        const pollIntervalMs = Number(nextArg);
+        if (!Number.isFinite(pollIntervalMs) || pollIntervalMs <= 0) {
+          throw new Error("`--poll-interval` must be a positive number.");
+        }
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), pollIntervalMs };
+        index += 1;
+        continue;
+      }
+      if (arg === "--once") {
+        command = { ...(command as Extract<CliCommand, { kind: "worker-start" }>), once: true };
+        continue;
+      }
+      throw new Error(`Unsupported worker flag "${arg}".`);
+    }
     if (arg === "--cwd") {
       const nextArg = args[index + 1];
       if (!nextArg) {
@@ -407,6 +484,10 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
     if (arg === "--force") {
       force = true;
       continue;
+    }
+
+    if (workerCommandActive) {
+      throw new Error("Worker start does not accept positional arguments.");
     }
 
     taskParts.push(arg);

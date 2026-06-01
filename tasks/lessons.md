@@ -233,3 +233,22 @@ resolve to the same canonical location, which broke otherwise valid temp directo
 **Rule**: Compare canonical realpaths when enforcing workspace/path boundaries, and only reject a candidate
 when the resolved target truly falls outside the allowed root. Do not equate platform-specific path aliases
 with an escape by default.
+
+## 2026-06-01: Server auth env must be set before server construction in tests
+
+**Mistake**: Set `ORCHESTRA_WORKER_TOKEN` after calling `createAiSystemServer()`, which meant the server
+captured an incomplete token policy and worker requests failed with `Unauthorized` even though the test
+restored the env afterward.
+
+**Rule**: If a server reads auth or role tokens at construction time, set and restore the relevant env vars
+before instantiating the server in the test. Treat auth policy as construction-time state, not request-time
+state, unless the code explicitly re-reads env on each request.
+
+## 2026-06-01: Queue-backed server teardown must wait for queue.stop before cleanup
+
+**Mistake**: The server close path returned before the file-backed queue had finished stopping, which let
+test cleanup race open file handles and produced `ENOTEMPTY` on the queue directory.
+
+**Rule**: Any server close path that owns a file-backed queue must await queue shutdown before invoking
+filesystem cleanup. If the close API is callback-based, bridge the async stop into the close callback so
+tests and local teardown see a stable terminal state.

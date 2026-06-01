@@ -2,6 +2,21 @@
 
 Last updated: 2026-06-01
 
+## Task: Complete Phase 2 Local Worker CLI
+
+- [x] Add `ai worker start` CLI parsing and help text.
+- [x] Load worker runtime config from env and CLI overrides.
+- [x] Register, heartbeat, claim, execute, and complete/fail jobs from the local worker loop.
+- [x] Upload redacted worker logs and checkpoint filesystem mutations before apply.
+- [x] Make shutdown graceful so queue-backed tests and local teardown do not race cleanup.
+- [x] Run typecheck and targeted worker/server/security tests.
+
+Review result:
+
+- Phase 2 is complete and the local worker loop now runs end-to-end through the API contract.
+- The worker path is covered by CLI parsing, runtime execution, log upload, mutation checkpointing, and graceful shutdown regressions.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` plus the targeted worker, server, queue, and security test suites.
+
 ## Task: Review & Fix Phase 1C Lease Expiry, Checkpoints, And Stall Policy
 
 - [x] Sweep stale leases through the claim path so expired jobs are requeued or stalled before the next claim.

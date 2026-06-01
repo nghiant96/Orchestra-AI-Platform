@@ -70,6 +70,7 @@ export interface QueueJob {
   };
   requiredCapabilities?: Partial<WorkerCapabilities>;
   mutationCheckpoint?: MutationCheckpoint;
+  workerLogs?: string[];
 }
 
 export interface JobQueueRunInput {

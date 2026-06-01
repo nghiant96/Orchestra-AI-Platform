@@ -56,7 +56,18 @@ export type CliCommand =
   | { kind: "work-ci-watch"; target: string }
   | { kind: "work-ci-fix"; target: string }
   | { kind: "work-schedule" }
-  | { kind: "work-metrics" };
+  | { kind: "work-metrics" }
+  | {
+      kind: "worker-start";
+      serverUrl?: string;
+      workerToken?: string;
+      workerName?: string;
+      workerLabels?: string[];
+      workspaceRoots?: string[];
+      heartbeatIntervalMs?: number;
+      pollIntervalMs?: number;
+      once?: boolean;
+    };
 
 export interface InteractiveState {
   cwd: string;

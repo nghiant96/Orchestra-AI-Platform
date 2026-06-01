@@ -347,6 +347,8 @@ Review result:
 
 Goal: local machine can run the worker loop and execute a dummy job safely.
 
+Status: complete.
+
 Primary agent objective:
 
 - Add `ai worker start`, register/heartbeat/claim loop, safe executor shell, and lease-aware complete/fail.
@@ -365,30 +367,30 @@ Expected files:
 
 Tasks:
 
-- [ ] Add CLI command `ai worker start`.
-- [ ] Parse env/config:
-  - [ ] `ORCHESTRA_SERVER_URL`
-  - [ ] `ORCHESTRA_WORKER_TOKEN`
-  - [ ] `ORCHESTRA_WORKER_NAME`
-  - [ ] `ORCHESTRA_WORKER_LABELS`
-  - [ ] `ORCHESTRA_WORKSPACE_ROOTS`
-- [ ] Register worker on start.
-- [ ] Heartbeat every 10 seconds or configured interval.
-- [ ] Claim next job.
-- [ ] Execute dummy/no-op job first.
-- [ ] Upload redacted logs.
-- [ ] Complete/fail with valid leaseId.
-- [ ] Send mutation checkpoint before filesystem mutation.
-- [ ] Gracefully release or preserve lease on shutdown according to mutation state.
+- [x] Add CLI command `ai worker start`.
+- [x] Parse env/config:
+  - [x] `ORCHESTRA_SERVER_URL`
+  - [x] `ORCHESTRA_WORKER_TOKEN`
+  - [x] `ORCHESTRA_WORKER_NAME`
+  - [x] `ORCHESTRA_WORKER_LABELS`
+  - [x] `ORCHESTRA_WORKSPACE_ROOTS`
+- [x] Register worker on start.
+- [x] Heartbeat every 10 seconds or configured interval.
+- [x] Claim next job.
+- [x] Execute dummy/no-op job first.
+- [x] Upload redacted logs.
+- [x] Complete/fail with valid leaseId.
+- [x] Send mutation checkpoint before filesystem mutation.
+- [x] Gracefully release or preserve lease on shutdown according to mutation state.
 
 Acceptance criteria:
 
-- [ ] `pnpm ai worker start` registers a worker.
-- [ ] Worker heartbeats show up in API.
-- [ ] Worker can claim a dummy job.
-- [ ] Worker uploads redacted logs.
-- [ ] Worker completes/fails with valid leaseId.
-- [ ] Worker marks filesystem mutation before applying a patch.
+- [x] `pnpm ai worker start` registers a worker.
+- [x] Worker heartbeats show up in API.
+- [x] Worker can claim a dummy job.
+- [x] Worker uploads redacted logs.
+- [x] Worker completes/fails with valid leaseId.
+- [x] Worker marks filesystem mutation before applying a patch.
 
 Recommended verification:
 
@@ -400,8 +402,15 @@ pnpm ai worker start --help
 
 Hand-off notes for next phase:
 
-- Record CLI flags and env behavior.
-- Record how local worker logs are surfaced.
+- CLI flags now live on `ai worker start` and match the env config fields above, with `--once` for test/one-shot execution.
+- Worker logs are redacted before upload and persisted via `POST /workers/:workerId/jobs/:jobId/logs`.
+- Graceful shutdown now waits for the server queue to stop before filesystem cleanup, which keeps tests and local teardown stable.
+
+Review result:
+
+- Phase 2 is complete: the local worker CLI can register, heartbeat, claim, execute a dummy job, upload redacted logs, checkpoint filesystem mutations, and settle the lease with complete/fail.
+- The runtime is backed by a worker client, config loader, safety helpers, executor, and loop orchestration in `ai-system/worker/*`, with CLI wiring in `ai-system/cli.ts` and `ai-system/cli/arg-parser.ts`.
+- Verification passed with `./node_modules/.bin/tsc --noEmit`, the worker CLI tests, and the worker/queue/security regression suites.
 
 ---
 

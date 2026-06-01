@@ -11,6 +11,7 @@ import {
   failJob,
   renewLease,
   sendMutationCheckpoint,
+  appendWorkerLogs,
   recoverStalledJob,
   WorkerServiceError
 } from "./worker-service.js";
@@ -194,6 +195,40 @@ export const workerRoutes: RouteHandler = {
           const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg);
           ctx.respondJson(res, result.ok ? 200 : 400, result);
         }
+        return true;
+      } catch (err) {
+        if (err instanceof WorkerServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
+      }
+    }
+
+    const logsMatch = /^\/workers\/([^/]+)\/jobs\/([^/]+)\/logs$/.exec(url.pathname);
+    if (logsMatch && req.method === "POST") {
+      const workerId = logsMatch[1] ?? "";
+      const jobId = logsMatch[2] ?? "";
+      const payload = await readJsonBody(req);
+      const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
+      const lines = Array.isArray(payload?.lines)
+        ? payload.lines.filter((line: unknown): line is string => typeof line === "string")
+        : typeof payload?.line === "string"
+          ? [payload.line]
+          : [];
+
+      if (!leaseId) {
+        ctx.respondJson(res, 400, { ok: false, error: "leaseId is required" });
+        return true;
+      }
+      if (lines.length === 0) {
+        ctx.respondJson(res, 400, { ok: false, error: "At least one log line is required" });
+        return true;
+      }
+
+      try {
+        const result = await appendWorkerLogs(buildExtendedServiceCtx(req, ctx), workerId, jobId, leaseId, lines);
+        ctx.respondJson(res, result.ok ? 200 : 400, result);
         return true;
       } catch (err) {
         if (err instanceof WorkerServiceError) {

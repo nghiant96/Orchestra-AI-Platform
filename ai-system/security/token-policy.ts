@@ -52,6 +52,7 @@ export function canAccessRoute(
     if (normalizedMethod === "POST" && route === "/workers") return true;
     if (normalizedMethod === "POST" && /^\/workers\/[^/]+\/heartbeat$/.test(route)) return true;
     if (normalizedMethod === "POST" && /^\/workers\/[^/]+\/jobs\/claim$/.test(route)) return true;
+    if (normalizedMethod === "POST" && /^\/workers\/[^/]+\/jobs\/[^/]+\/logs$/.test(route)) return true;
     if (normalizedMethod === "POST" && /^\/jobs\/[^/]+\/(complete|fail|checkpoint)$/.test(route)) return true;
     if (route === "/config") return false;
     if (route.startsWith("/queue/")) return false;

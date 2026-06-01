@@ -5,6 +5,7 @@ import { WorkerStore } from "./worker-store.js";
 import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
 import type { FileBackedJobQueue, QueueJob, JobLease, MutationCheckpoint } from "../core/job-queue.js";
 import { resolveExecutionBackend } from "../core/execution-backend.js";
+import { redactSecrets } from "../security/secret-redaction.js";
 
 export interface WorkerServiceContext {
   store: WorkerStore;
@@ -278,6 +279,36 @@ export async function sendMutationCheckpoint(
   }
 
   return result;
+}
+
+export async function appendWorkerLogs(
+  ctx: WorkerServiceExtendedContext,
+  workerId: string,
+  jobId: string,
+  leaseId: string,
+  logs: string[]
+): Promise<{ ok: boolean; error?: string }> {
+  const job = await ctx.queue.get(jobId);
+  if (!job) {
+    return { ok: false, error: "Job not found" };
+  }
+  if (!job.lease || job.lease.leaseId !== leaseId || job.lease.workerId !== workerId) {
+    return { ok: false, error: "Invalid leaseId" };
+  }
+
+  const redacted = logs.map((entry) => redactSecrets(entry));
+  const updatedLogs = [...(job.workerLogs ?? []), ...redacted];
+  await ctx.queue.updateJob(job, {
+    workerLogs: updatedLogs
+  });
+
+  await ctx.auditLog.append({
+    actor: ctx.actor,
+    action: "worker.logs",
+    details: { workerId, jobId, leaseId, lines: redacted.length }
+  });
+
+  return { ok: true };
 }
 
 export async function recoverStalledJob(
