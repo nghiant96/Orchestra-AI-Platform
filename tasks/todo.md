@@ -2,6 +2,19 @@
 
 Last updated: 2026-06-01
 
+## Task: Harden Phase 1A Worker Registry
+
+- [x] Hide worker `sessionToken` from all non-register worker API responses.
+- [x] Reject invalid worker heartbeat statuses instead of persisting them.
+- [x] Add regression coverage for secret leakage and invalid heartbeat status.
+- [x] Re-run typecheck and targeted worker tests.
+
+Review result:
+
+- Worker registration still returns the bootstrap `sessionToken`, but worker list/detail/heartbeat/admin responses now strip it out before JSON serialization.
+- Heartbeat now validates `status` against the worker enum and returns `400` on invalid input, which keeps the persisted worker state clean.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted worker store/routes tests.
+
 ## Task: Fix Work Item Run Status Regression
 
 - [x] Restore `404` for missing work items in `POST /work-items/:id/run`.

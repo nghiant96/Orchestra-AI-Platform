@@ -180,3 +180,20 @@ official Antigravity CLI docs first. Those paths and model families are still pa
 **Rule**: Before removing a "legacy" brand string, confirm whether it is an official config path, storage
 location, or supported model family. A rename can be incomplete without being wrong, and not every `gemini`
 string in the repo is a CLI naming bug.
+
+## 2026-06-01: Worker bootstrap tokens must not leak after registration
+
+**Mistake**: Returned the worker `sessionToken` from list/detail/heartbeat/admin APIs after registration,
+which turned the bootstrap credential into a reusable secret for any client that could read worker data.
+
+**Rule**: If a token is only needed for first-time bootstrap, return it exactly once from the create/register
+response and strip it from every other serialized worker payload. Keep the persisted record private, but never
+echo it back through read/update endpoints.
+
+## 2026-06-01: Heartbeat enums must be validated before persistence
+
+**Mistake**: Accepted arbitrary string values for worker heartbeat `status`, which let malformed requests
+store invalid states and polluted both dashboard data and future lease logic.
+
+**Rule**: Validate enum-like input at the service boundary before persisting. If the value is invalid, reject
+the request with a client error instead of coercing it to a default that hides the bug.

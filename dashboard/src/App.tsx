@@ -27,6 +27,7 @@ import { useHealth } from './hooks/useHealth';
 import { useWorkItems } from './hooks/useWorkItems';
 import { WorkBoardPanel } from './components/WorkBoardPanel';
 import { InboxPanel } from './components/InboxPanel';
+import { WorkersPage } from './components/WorkersPage';
 import { apiFetch } from './utils/api';
 import { resolveSafeWorkspacePath } from './utils/workspaceRoots';
 
@@ -371,6 +372,7 @@ function App() {
                 <WorkBoardPanel workItems={workItems} loading={workLoading} onItemClick={handleWorkItemClick} />
               </div>
             } />
+            <Route path="/workers" element={<WorkersPage />} />
             <Route path="*" element={
               <div className="p-20 text-center">
                 <h2 className="text-2xl font-bold">404 - Page Not Found</h2>

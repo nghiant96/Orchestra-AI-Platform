@@ -18,6 +18,8 @@ Operating rules for every agent:
 
 Goal: make the current server ready for worker mode and MCP without changing runtime behavior.
 
+Status: complete.
+
 Primary agent objective:
 
 - Extract shared service functions from route handlers so HTTP routes, future MCP tools, and worker APIs can reuse the same behavior.
@@ -35,23 +37,23 @@ Expected files:
 
 Tasks:
 
-- [ ] Read `docs/SERVER.md`, `docs/WORKSPACE.md`, `ai-system/server-app.ts`, `ai-system/server/routes/jobs.ts`, `ai-system/server/routes/work-items.ts`.
-- [ ] Add `ORCHESTRA_EXECUTION_BACKEND` config parsing with values `in-process`, `worker`, `hybrid`.
-- [ ] Default `ORCHESTRA_EXECUTION_BACKEND` to `in-process`.
-- [ ] Extract work item create/list/get/run/cancel/handoff behavior into service functions.
-- [ ] Extract job create/list/get/cancel/approve/reject behavior into service functions where practical.
-- [ ] Add an `ActorRef` compatibility wrapper around the current audit actor model.
-- [ ] Add `normalizeWorkItemInput()` for old and new payload shapes.
-- [ ] Ensure existing route responses stay backward-compatible.
-- [ ] Add regression tests for existing `/jobs` and `/work-items` flows.
+- [x] Read `docs/SERVER.md`, `docs/WORKSPACE.md`, `ai-system/server-app.ts`, `ai-system/server/routes/jobs.ts`, `ai-system/server/routes/work-items.ts`.
+- [x] Add `ORCHESTRA_EXECUTION_BACKEND` config parsing with values `in-process`, `worker`, `hybrid`.
+- [x] Default `ORCHESTRA_EXECUTION_BACKEND` to `in-process`.
+- [x] Extract work item create/list/get/run/cancel/handoff behavior into service functions.
+- [x] Extract job create/list/get/cancel/approve/reject behavior into service functions where practical.
+- [x] Add an `ActorRef` compatibility wrapper around the current audit actor model.
+- [x] Add `normalizeWorkItemInput()` for old and new payload shapes.
+- [x] Ensure existing route responses stay backward-compatible.
+- [x] Add regression tests for existing `/jobs` and `/work-items` flows.
 
 Acceptance criteria:
 
-- [ ] Existing `/jobs` API tests pass.
-- [ ] Existing `/work-items` API tests pass.
-- [ ] `ORCHESTRA_EXECUTION_BACKEND` appears in server config/health or config inspection.
-- [ ] Route handlers delegate core behavior to services.
-- [ ] No dashboard or CLI behavior changes.
+- [x] Existing `/jobs` API tests pass.
+- [x] Existing `/work-items` API tests pass.
+- [x] `ORCHESTRA_EXECUTION_BACKEND` appears in server config/health or config inspection.
+- [x] Route handlers delegate core behavior to services.
+- [x] No dashboard or CLI behavior changes.
 
 Recommended verification:
 
@@ -63,14 +65,27 @@ pnpm test -- work
 
 Hand-off notes for next phase:
 
-- Record exact service function names.
-- Record any route behavior intentionally left inside route handlers.
+- Service function names:
+  - `ai-system/jobs/job-service.ts`: `createSyncRun`, `createJob`, `listJobs`, `getJob`, `cancelJob`, `approveJob`, `getJobFileContent`, `parseWorkflowMode`, `isPathWithinRoot`, `mapRunSummaryToQueueJob`.
+  - `ai-system/work/work-item-service.ts`: `listWorkItems`, `createWorkItem`, `getWorkItem`, `assessWorkItem`, `runWorkItem`, `handoffWorkItem`, `cancelOrRetryWorkItem`, `normalizeWorkItemInput`.
+- Route behavior intentionally left in handlers:
+  - HTTP body parsing and response serialization.
+  - `cwd` resolution and auth/permission checks.
+  - Status-code mapping at the edge for service error objects.
+
+Review result:
+
+- Phase 0 is complete and stable after two regression fixes: preserving legacy PR workflow-mode fallback semantics and restoring `500` vs `404` distinction for artifact lookup errors.
+- The extracted service boundary is now in place for future MCP tools and worker-facing APIs without changing the public `/jobs` and `/work-items` contracts.
+- Verification passed with targeted tests plus `./node_modules/.bin/tsc --noEmit`.
 
 ---
 
 ## Phase 1A — Worker Registry Foundation
 
 Goal: workers can register, heartbeat, and be shown read-only without claiming jobs.
+
+Status: complete.
 
 Primary agent objective:
 
@@ -90,26 +105,26 @@ Expected files:
 
 Tasks:
 
-- [ ] Define `Worker` type with id, name, version, os, arch, labels, capabilities, workspaceRoots, status, currentJobId, lastHeartbeatAt, createdAt.
-- [ ] Add worker statuses: `online`, `idle`, `busy`, `draining`, `disabled`, `offline`.
-- [ ] Implement file-backed `WorkerStore` first unless the project has already chosen SQLite.
-- [ ] Add `POST /workers/register`.
-- [ ] Add `POST /workers/:workerId/heartbeat`.
-- [ ] Add `POST /workers/:workerId/disable`.
-- [ ] Add `POST /workers/:workerId/enable`.
-- [ ] Add `POST /workers/:workerId/drain`.
-- [ ] Add `GET /workers` and `GET /workers/:workerId` if needed by dashboard.
-- [ ] Require operator/admin permission for admin actions.
-- [ ] Audit register, heartbeat status changes, disable, enable, drain.
-- [ ] Add dashboard read-only worker list.
+- [x] Define `Worker` type with id, name, version, os, arch, labels, capabilities, workspaceRoots, status, currentJobId, lastHeartbeatAt, createdAt.
+- [x] Add worker statuses: `online`, `idle`, `busy`, `draining`, `disabled`, `offline`.
+- [x] Implement file-backed `WorkerStore` first unless the project has already chosen SQLite.
+- [x] Add `POST /workers/register`.
+- [x] Add `POST /workers/:workerId/heartbeat`.
+- [x] Add `POST /workers/:workerId/disable`.
+- [x] Add `POST /workers/:workerId/enable`.
+- [x] Add `POST /workers/:workerId/drain`.
+- [x] Add `GET /workers` and `GET /workers/:workerId` if needed by dashboard.
+- [x] Require operator/admin permission for admin actions.
+- [x] Audit register, heartbeat status changes, disable, enable, drain.
+- [x] Add dashboard read-only worker list.
 
 Acceptance criteria:
 
-- [ ] Worker can register and receive a worker id/session token.
-- [ ] Heartbeat updates `lastHeartbeatAt`, status, current job, disk/cpu fields.
-- [ ] Disable/enable/drain mutate status and write audit events.
-- [ ] Dashboard can show workers without affecting job execution.
-- [ ] Existing in-process `/jobs` flow still works.
+- [x] Worker can register and receive a worker id/session token.
+- [x] Heartbeat updates `lastHeartbeatAt`, status, current job, disk/cpu fields.
+- [x] Disable/enable/drain mutate status and write audit events.
+- [x] Dashboard can show workers without affecting job execution.
+- [x] Existing in-process `/jobs` flow still works.
 
 Recommended verification:
 
@@ -123,7 +138,15 @@ pnpm run dashboard:build
 Hand-off notes for next phase:
 
 - Document worker store path and worker id format.
-- Document worker auth/session token behavior.
+- Document worker auth/session token behavior:
+  - registration returns the bootstrap `sessionToken` once
+  - all read/update worker APIs must redact it from JSON responses
+
+Review result:
+
+- Phase 1A is complete.
+- The worker registry now has a file-backed store, register/heartbeat/admin routes, audit logging, and dashboard visibility without changing `/jobs` execution behavior.
+- Security and input validation gaps found in the first pass were fixed: worker tokens are no longer echoed back by read/update endpoints, and heartbeat status is validated before persistence.
 
 ---
 
@@ -647,4 +670,3 @@ Acceptance criteria:
 - [ ] Existing `cwd` and `repo.localPath` still work.
 - [ ] New `repoId` input resolves to worker-specific local path.
 - [ ] Repo registry cannot bypass workspace root policy.
-

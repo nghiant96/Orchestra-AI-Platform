@@ -287,3 +287,20 @@ export interface ConfigFormData {
   profile: string;
   providers: ProviderFormMap;
 }
+
+export interface WorkerInfo {
+  id: string;
+  name: string;
+  version: string;
+  os: string;
+  arch: string;
+  labels: string[];
+  capabilities: Record<string, boolean>;
+  workspaceRoots: string[];
+  status: "online" | "idle" | "busy" | "draining" | "disabled" | "offline";
+  currentJobId?: string;
+  lastHeartbeatAt: string;
+  freeDiskGb?: number;
+  cpuLoad?: number;
+  createdAt: string;
+}

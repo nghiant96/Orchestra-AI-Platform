@@ -17,6 +17,7 @@ import { adminRoute } from "./server/routes/admin.js";
 import { jobsRoute } from "./server/routes/jobs.js";
 import { configRoute } from "./server/routes/config.js";
 import { workItemsRoute } from "./server/routes/work-items.js";
+import { workerRoutes } from "./workers/worker-routes.js";
 import type { RouteHandler, ServerRouteContext } from "./server/routes-context.js";
 import type { Logger, RulesConfig } from "./types.js";
 export { mapRunSummaryToQueueJob } from "./jobs/job-service.js";
@@ -250,7 +251,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
       }
 
-      const routeHandlers: RouteHandler[] = [adminRoute, jobsRoute, configRoute, workItemsRoute];
+      const routeHandlers: RouteHandler[] = [adminRoute, jobsRoute, configRoute, workItemsRoute, workerRoutes];
       for (const route of routeHandlers) {
         if (await route.handle(req, res, url, routeContext)) {
           return;
