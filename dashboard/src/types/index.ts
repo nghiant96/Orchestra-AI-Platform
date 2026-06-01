@@ -181,7 +181,47 @@ export interface WorkItem {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  stage?: string;
+  executionMode?: string;
+  workflowProfile?: string;
+  routingProfile?: string;
+  requestedBy?: string;
+  repo?: {
+    localPath?: string;
+    remote?: string;
+  };
   linkedRuns: string[];
+  linkedJobs?: Array<{
+    jobId: string;
+    status: string;
+    workerId?: string;
+    lease?: {
+      workerId: string;
+      leaseId: string;
+      claimedAt: string;
+      expiresAt: string;
+      lastHeartbeatAt: string;
+    };
+    resultSummary?: string | null;
+    artifactPath?: string | null;
+    error?: string | null;
+    workerLogs?: string[];
+    updatedAt?: string;
+  }>;
+  events?: Array<{
+    id: string;
+    type: 'status' | 'log' | 'artifact' | 'approval' | 'audit' | 'run';
+    timestamp: string;
+    title: string;
+    message?: string;
+    status?: string;
+    jobId?: string;
+    leaseId?: string;
+    actorId?: string;
+    actorRole?: string;
+    ref?: string;
+    metadata?: Record<string, unknown>;
+  }>;
   branch?: string;
   worktreePath?: string;
   pullRequest?: {

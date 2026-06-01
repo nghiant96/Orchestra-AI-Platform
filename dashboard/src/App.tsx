@@ -401,6 +401,7 @@ function App() {
           <Suspense fallback={null}>
             <WorkItemDetailModal
               workItem={selectedWorkItem}
+              cwd={currentProject}
               onClose={() => setSelectedWorkItem(null)}
               onRefresh={fetchWorkItems}
               onAssess={handleWorkItemAssess}

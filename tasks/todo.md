@@ -2,6 +2,20 @@
 
 Last updated: 2026-06-01
 
+## Task: Complete Phase 3 Work Item API Normalization
+
+- [x] Preserve Hermes-style optional fields on work items.
+- [x] Normalize legacy `workflow` payloads into `workflowProfile`.
+- [x] Expose work item events and linked job/lease details from the server.
+- [x] Surface the enriched work item detail and timeline in the dashboard modal.
+- [x] Run typecheck, targeted work/workspace/server tests, and dashboard build.
+
+Review result:
+
+- Phase 3 is complete and work items now carry the compatibility fields required by Hermes without changing `WorkItemStatus`.
+- The new event route and linked job snapshots make the detail view explain status, run history, artifacts, approvals, and worker leases.
+- Verification passed with `./node_modules/.bin/tsc --noEmit`, targeted work-item/workspace/server/worker tests, and the dashboard production build.
+
 ## Task: Complete Phase 2 Local Worker CLI
 
 - [x] Add `ai worker start` CLI parsing and help text.

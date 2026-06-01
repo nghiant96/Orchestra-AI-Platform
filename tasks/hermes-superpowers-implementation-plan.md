@@ -418,6 +418,8 @@ Review result:
 
 Goal: make work items first-class for Hermes/Worker while preserving existing dashboard and CLI flows.
 
+Status: complete.
+
 Primary agent objective:
 
 - Normalize legacy and new work item payloads; add optional fields; expose event stream.
@@ -434,25 +436,25 @@ Expected files:
 
 Tasks:
 
-- [ ] Keep current `WorkItemStatus`.
-- [ ] Add optional `stage`.
-- [ ] Add optional `executionMode`.
-- [ ] Add optional `workflowProfile`.
-- [ ] Add optional `routingProfile`.
-- [ ] Add optional `requestedBy`.
-- [ ] Add optional `repo`/`RepoRef` if needed.
-- [ ] Normalize `cwd` and `repo.localPath` through allowed-root guards.
-- [ ] Normalize legacy `workflow` to `workflowProfile`.
-- [ ] Add `GET /work-items/:id/events`.
-- [ ] Link worker job ids and lease status back to work item detail.
+- [x] Keep current `WorkItemStatus`.
+- [x] Add optional `stage`.
+- [x] Add optional `executionMode`.
+- [x] Add optional `workflowProfile`.
+- [x] Add optional `routingProfile`.
+- [x] Add optional `requestedBy`.
+- [x] Add optional `repo`/`RepoRef` if needed.
+- [x] Normalize `cwd` and `repo.localPath` through allowed-root guards.
+- [x] Normalize legacy `workflow` to `workflowProfile`.
+- [x] Add `GET /work-items/:id/events`.
+- [x] Link worker job ids and lease status back to work item detail.
 
 Acceptance criteria:
 
-- [ ] Legacy work item create payload still works.
-- [ ] New Hermes-style payload normalizes to the same internal shape.
-- [ ] Dashboard work item list/detail still renders old items.
-- [ ] Work item event stream emits status/log/artifact/approval events.
-- [ ] No status enum migration is required.
+- [x] Legacy work item create payload still works.
+- [x] New Hermes-style payload normalizes to the same internal shape.
+- [x] Dashboard work item list/detail still renders old items.
+- [x] Work item event stream emits status/log/artifact/approval events.
+- [x] No status enum migration is required.
 
 Recommended verification:
 
@@ -464,8 +466,14 @@ pnpm run dashboard:build
 
 Hand-off notes for next phase:
 
-- Record final normalized work item shape.
-- Record event stream schema.
+- Final normalized work item shape now includes optional `stage`, `executionMode`, `workflowProfile`, `routingProfile`, `requestedBy`, `repo`, `linkedJobs`, and `events`.
+- Event stream schema is `WorkItemEvent` with `status`, `run`, `approval`, `artifact`, `log`, and `audit` entries, exposed via `GET /work-items/:id/events`.
+
+Review result:
+
+- Phase 3 is complete: work items now preserve Hermes-style optional fields, legacy payloads normalize correctly, linked job lease/status details are surfaced on the work item detail response, and the event stream API is available for the dashboard.
+- The dashboard detail modal now loads enriched work item detail plus the event timeline, and the runs tab shows linked job/lease state instead of only raw ids.
+- Verification passed with `./node_modules/.bin/tsc --noEmit`, targeted work-item/workspace/server/worker tests, and the dashboard production build.
 
 ---
 

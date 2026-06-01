@@ -7,10 +7,12 @@ import { FileBackedJobQueue } from "../ai-system/core/job-queue.js";
 import { FileAuditLog } from "../ai-system/core/audit-log.js";
 import { resolveJobQueueDirectory } from "../ai-system/core/job-queue.js";
 import { resolveAuditLogPath } from "../ai-system/core/audit-log.js";
+import { WorkStore } from "../ai-system/work/work-store.js";
 import {
   listWorkItems,
   createWorkItem,
   getWorkItem,
+  getWorkItemEvents,
   runWorkItem,
   normalizeWorkItemInput,
   normalizeWorkItemType,
@@ -51,6 +53,26 @@ describe("WorkItemService", () => {
     assert.equal(result.workItem.description, "Fix the login redirect");
     assert.equal(result.workItem.status, "created");
     assert.ok(result.workItem.id.startsWith("work-"));
+  });
+
+  test("createWorkItem preserves Hermes normalization fields", async () => {
+    const result = await createWorkItem(ctx(), tmpDir, {
+      title: "Refactor auth flow",
+      description: "Align the flow with workflow profiles",
+      workflow: "superpowers",
+      executionMode: "worker",
+      routingProfile: "balanced",
+      requestedBy: "hermes",
+      repo: { localPath: tmpDir, remote: "https://github.com/org/repo" }
+    });
+
+    const loaded = await getWorkItem(ctx(), tmpDir, result.workItem.id);
+    assert.equal(loaded.ok, true);
+    assert.equal(loaded.workItem?.workflowProfile, "superpowers");
+    assert.equal(loaded.workItem?.executionMode, "worker");
+    assert.equal(loaded.workItem?.routingProfile, "balanced");
+    assert.equal(loaded.workItem?.requestedBy, "hermes");
+    assert.deepEqual(loaded.workItem?.repo, { localPath: tmpDir, remote: "https://github.com/org/repo" });
   });
 
   test("createWorkItem rejects empty title", async () => {
@@ -128,6 +150,46 @@ describe("WorkItemService", () => {
     assert.equal(input.executionMode, undefined);
     assert.equal(input.workflowProfile, undefined);
     assert.equal(input.repo, undefined);
+  });
+
+  test("getWorkItemEvents returns timeline entries for linked jobs and audits", async () => {
+    const created = await createWorkItem(ctx(), tmpDir, { title: "Timeline test" });
+    const job = await queue.enqueue({ task: "linked job", cwd: tmpDir, dryRun: true });
+    const lease = {
+      workerId: "worker-1",
+      leaseId: "lease-1",
+      claimedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+      lastHeartbeatAt: new Date().toISOString()
+    };
+    const claimed = await queue.claimJob(job.jobId, lease);
+    assert.ok(claimed);
+    await queue.updateJob(claimed!, {
+      status: "completed",
+      resultSummary: "Completed linked job",
+      artifactPath: path.join(tmpDir, ".artifacts", "job.md"),
+      workerLogs: ["worker log line"],
+      lease
+    });
+    const store = new WorkStore(tmpDir, { artifacts: { data_dir: ".ai-system-artifacts" } } as any);
+    const storedItem = await store.load(created.workItem.id);
+    assert.ok(storedItem);
+    await store.save({ ...storedItem!, linkedRuns: [job.jobId] });
+    await auditLog.append({
+      actor: { id: "test-user", role: "operator" },
+      action: "work_item.run",
+      cwd: tmpDir,
+      details: { workItemId: created.workItem.id, jobIds: [job.jobId] }
+    });
+
+    const result = await getWorkItemEvents(ctx(), tmpDir, created.workItem.id);
+    assert.equal(result.ok, true);
+    assert.ok(result.events.some((event) => event.type === "status"));
+    assert.ok(result.events.some((event) => event.type === "log"));
+    assert.ok(result.events.some((event) => event.type === "artifact"));
+    assert.ok(result.events.some((event) => event.type === "approval"));
+    assert.ok(result.events.some((event) => event.type === "audit"));
+    assert.ok(result.workItem?.linkedJobs?.some((linkedJob) => linkedJob.jobId === job.jobId));
   });
 
   test("normalizeWorkItemType returns valid types", () => {

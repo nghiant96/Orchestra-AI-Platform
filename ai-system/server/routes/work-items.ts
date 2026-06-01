@@ -4,6 +4,7 @@ import {
   listWorkItems,
   createWorkItem,
   getWorkItem,
+  getWorkItemEvents,
   assessWorkItem,
   runWorkItem,
   handoffWorkItem,
@@ -71,6 +72,29 @@ export const workItemsRoute: RouteHandler = {
         queue: ctx.queue
       };
       const result = await getWorkItem(serviceCtx, cwd, workItemId);
+      if (!result.ok) {
+        ctx.respondJson(res, 404, result);
+        return true;
+      }
+      ctx.respondJson(res, 200, result);
+      return true;
+    }
+
+    const eventsMatch = /^\/work-items\/([^/]+)\/events$/.exec(url.pathname);
+    if (eventsMatch && req.method === "GET") {
+      const workItemId = eventsMatch[1] ?? "";
+      const cwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      if (!cwd) {
+        ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        return true;
+      }
+      const serviceCtx = {
+        actor: ctx.actor,
+        auditLog: ctx.auditLog,
+        rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules,
+        queue: ctx.queue
+      };
+      const result = await getWorkItemEvents(serviceCtx, cwd, workItemId);
       if (!result.ok) {
         ctx.respondJson(res, 404, result);
         return true;

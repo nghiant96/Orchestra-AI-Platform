@@ -252,3 +252,14 @@ test cleanup race open file handles and produced `ENOTEMPTY` on the queue direct
 **Rule**: Any server close path that owns a file-backed queue must await queue shutdown before invoking
 filesystem cleanup. If the close API is callback-based, bridge the async stop into the close callback so
 tests and local teardown see a stable terminal state.
+
+## 2026-06-01: Service tests must match runtime persistence rules
+
+**Mistake**: A work-item service test tried to mutate persisted data using a store configured with a test-only
+artifact directory, but the service itself loads the real runtime rules from `cwd`, so the test looked in the
+wrong on-disk location and failed to find the newly created item.
+
+**Rule**: When testing a service that internally calls `loadRules(cwd)` or another runtime config loader,
+initialize any direct store/helpers with the same runtime defaults or a matching config file. Do not assume
+the test harness's injected rule object controls the service's persistence path unless the service actually
+uses it.
