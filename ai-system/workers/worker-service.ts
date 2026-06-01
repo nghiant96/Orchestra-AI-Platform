@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import type { Worker, WorkerStatus } from "./worker-types.js";
 import { WorkerStore } from "./worker-store.js";
 import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
-import type { FileBackedJobQueue, QueueJob, JobLease } from "../core/job-queue.js";
+import type { FileBackedJobQueue, QueueJob, JobLease, MutationCheckpoint } from "../core/job-queue.js";
 import { resolveExecutionBackend } from "../core/execution-backend.js";
 
 export interface WorkerServiceContext {
@@ -187,6 +187,8 @@ export async function claimJob(ctx: WorkerServiceExtendedContext, workerId: stri
     return { job: null, lease: null, rejectionReason: "Execution backend is in-process. External workers cannot claim jobs." };
   }
 
+  await detectStaleLeases(ctx);
+
   const worker = await ctx.store.load(workerId);
   if (!worker) {
     return { job: null, lease: null, rejectionReason: "Worker not found" };
@@ -224,11 +226,13 @@ export async function claimJob(ctx: WorkerServiceExtendedContext, workerId: stri
     const claimed = await ctx.queue.claimJob(job.jobId, lease);
     if (!claimed) continue;
 
-    await ctx.store.save({
-      ...worker,
-      status: "busy",
-      currentJobId: job.jobId
-    });
+    if (worker) {
+      await ctx.store.save({
+        ...worker,
+        status: "busy",
+        currentJobId: job.jobId
+      });
+    }
 
     await ctx.auditLog.append({
       actor: ctx.actor,
@@ -245,6 +249,76 @@ export async function claimJob(ctx: WorkerServiceExtendedContext, workerId: stri
     retryAfterMs: 3000,
     rejectionReason: activeLeaseJobIds.size > 0 ? "All queued jobs have active leases" : "No matching jobs available"
   };
+}
+
+export async function renewLease(
+  ctx: WorkerServiceExtendedContext,
+  workerId: string,
+  jobId: string,
+  leaseId: string
+): Promise<JobLease | null> {
+  return ctx.queue.renewLease(jobId, leaseId);
+}
+
+export async function sendMutationCheckpoint(
+  ctx: WorkerServiceExtendedContext,
+  workerId: string,
+  jobId: string,
+  leaseId: string,
+  checkpoint: { stage: string; filesystemMutated: boolean; worktreePath?: string }
+): Promise<{ ok: boolean; error?: string }> {
+  const result = await ctx.queue.saveCheckpoint(jobId, leaseId, checkpoint);
+
+  if (result.ok) {
+    await ctx.auditLog.append({
+      actor: ctx.actor,
+      action: "worker.checkpoint",
+      details: { workerId, jobId, leaseId, stage: checkpoint.stage, filesystemMutated: checkpoint.filesystemMutated }
+    });
+  }
+
+  return result;
+}
+
+export async function recoverStalledJob(
+  ctx: WorkerServiceExtendedContext,
+  jobId: string
+): Promise<{ ok: boolean; error?: string }> {
+  const result = await ctx.queue.recoverStalledJob(jobId);
+
+  if (result.ok) {
+    await ctx.auditLog.append({
+      actor: ctx.actor,
+      action: "worker.recover",
+      details: { jobId }
+    });
+  }
+
+  return result;
+}
+
+export async function detectStaleLeases(
+  ctx: WorkerServiceExtendedContext
+): Promise<{ requeued: string[]; stalled: string[] }> {
+  const result = await ctx.queue.detectStaleLeases();
+
+  for (const jobId of result.stalled) {
+    await ctx.auditLog.append({
+      actor: ctx.actor,
+      action: "job.stalled",
+      details: { jobId }
+    });
+  }
+
+  for (const jobId of result.requeued) {
+    await ctx.auditLog.append({
+      actor: ctx.actor,
+      action: "job.requeued",
+      details: { jobId }
+    });
+  }
+
+  return result;
 }
 
 export async function completeJob(

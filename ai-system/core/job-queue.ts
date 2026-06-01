@@ -20,6 +20,15 @@ export interface JobLease {
   lastHeartbeatAt: string;
 }
 
+export interface MutationCheckpoint {
+  jobId: string;
+  leaseId: string;
+  stage: string;
+  filesystemMutated: boolean;
+  worktreePath?: string;
+  timestamp: string;
+}
+
 export interface QueueJob {
   version: number;
   jobId: string;
@@ -60,6 +69,7 @@ export interface QueueJob {
     labels?: string[];
   };
   requiredCapabilities?: Partial<WorkerCapabilities>;
+  mutationCheckpoint?: MutationCheckpoint;
 }
 
 export interface JobQueueRunInput {
@@ -353,6 +363,103 @@ export class FileBackedJobQueue {
     };
 
     await this.writeJob(updated);
+    return { ok: true };
+  }
+
+  async renewLease(jobId: string, leaseId: string): Promise<JobLease | null> {
+    const job = await this.get(jobId);
+    if (!job || !job.lease) return null;
+    if (job.lease.leaseId !== leaseId) return null;
+
+    const now = new Date();
+    const updated: JobLease = {
+      ...job.lease,
+      lastHeartbeatAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString()
+    };
+
+    const updatedJob: QueueJob = {
+      ...job,
+      lease: updated,
+      updatedAt: now.toISOString()
+    };
+
+    await this.writeJob(updatedJob);
+    return updated;
+  }
+
+  async saveCheckpoint(jobId: string, leaseId: string, checkpoint: { stage: string; filesystemMutated: boolean; worktreePath?: string }): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+    if (!job.lease || job.lease.leaseId !== leaseId) return { ok: false, error: "Invalid leaseId" };
+
+    const checkpointRecord: MutationCheckpoint = {
+      jobId,
+      leaseId,
+      stage: checkpoint.stage,
+      filesystemMutated: checkpoint.filesystemMutated,
+      worktreePath: checkpoint.worktreePath,
+      timestamp: new Date().toISOString()
+    };
+
+    const updated: QueueJob = {
+      ...job,
+      mutationCheckpoint: checkpointRecord,
+      updatedAt: new Date().toISOString()
+    };
+
+    await this.writeJob(updated);
+    return { ok: true };
+  }
+
+  async detectStaleLeases(): Promise<{ requeued: string[]; stalled: string[] }> {
+    const now = Date.now();
+    const all = await this.list(200);
+    const requeued: string[] = [];
+    const stalled: string[] = [];
+
+    for (const job of all) {
+      if (!job.lease) continue;
+      if (new Date(job.lease.expiresAt).getTime() > now) continue;
+      if (job.status !== "assigned" && job.status !== "running" && job.status !== "waiting_for_approval") continue;
+
+      const hasMutatedFilesystem = job.mutationCheckpoint?.filesystemMutated === true;
+
+      if (hasMutatedFilesystem) {
+        await this.updateJob(job, {
+          status: "stalled",
+          updatedAt: new Date().toISOString()
+        });
+        stalled.push(job.jobId);
+      } else {
+        await this.updateJob(job, {
+          status: "queued",
+          lease: undefined,
+          workerId: undefined,
+          mutationCheckpoint: undefined,
+          updatedAt: new Date().toISOString()
+        });
+        requeued.push(job.jobId);
+      }
+    }
+
+    return { requeued, stalled };
+  }
+
+  async recoverStalledJob(jobId: string): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+    if (job.status !== "stalled") return { ok: false, error: "Job is not stalled" };
+
+    await this.updateJob(job, {
+      status: "queued",
+      lease: undefined,
+      workerId: undefined,
+      mutationCheckpoint: undefined,
+      attempt: (job.attempt ?? 0) + 1,
+      updatedAt: new Date().toISOString()
+    });
+
     return { ok: true };
   }
 

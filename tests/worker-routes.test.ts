@@ -195,13 +195,26 @@ describe("Worker Routes", () => {
   });
 
   test("Existing /jobs API still works", async () => {
-    await requestJson(baseUrl, "POST", "/jobs", {
+    const created = await requestJson(baseUrl, "POST", "/jobs", {
       task: "worker coexistence test",
       dryRun: true,
       cwd: tmpDir
     }, 202);
 
+    await waitForJob(baseUrl, String(created.jobId), "completed");
+
     const jobs = await requestJson(baseUrl, "GET", "/jobs", undefined, 200);
     assert.ok(jobs.jobs.length > 0);
   });
 });
+
+async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
+  for (let i = 0; i < 20; i++) {
+    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`, undefined, 200);
+    if (job.status === status) {
+      return job;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Job ${jobId} did not reach ${status}`);
+}

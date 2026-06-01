@@ -225,6 +225,8 @@ Review result:
 
 Goal: worker crash, sleep, or network drop does not corrupt worktrees or run duplicate mutations.
 
+Status: complete.
+
 Primary agent objective:
 
 - Add lease renewal, stale lease detection, mutation checkpoints, and stalled recovery state.
@@ -239,23 +241,23 @@ Expected files:
 
 Tasks:
 
-- [ ] Renew active lease on heartbeat.
-- [ ] Add stale lease detection on claim and/or background maintenance.
-- [ ] Add mutation checkpoint endpoint or service function.
-- [ ] Store checkpoint fields: jobId, leaseId, stage, filesystemMutated, worktreePath, timestamp.
-- [ ] Before mutation, expired lease may return job to `queued`.
-- [ ] After mutation, expired lease must move job to `stalled`.
-- [ ] Add manual recovery path for `stalled` jobs.
-- [ ] Prevent any worker from claiming a `stalled` job automatically.
-- [ ] Add audit events for lease expired, job stalled, job requeued, manual recovery.
+- [x] Renew active lease on heartbeat.
+- [x] Add stale lease detection on claim and/or background maintenance.
+- [x] Add mutation checkpoint endpoint or service function.
+- [x] Store checkpoint fields: jobId, leaseId, stage, filesystemMutated, worktreePath, timestamp.
+- [x] Before mutation, expired lease may return job to `queued`.
+- [x] After mutation, expired lease must move job to `stalled`.
+- [x] Add manual recovery path for `stalled` jobs.
+- [x] Prevent any worker from claiming a `stalled` job automatically.
+- [x] Add audit events for lease expired, job stalled, job requeued, manual recovery.
 
 Acceptance criteria:
 
-- [ ] Expired pre-mutation lease can be safely requeued.
-- [ ] Expired post-mutation lease becomes `stalled`.
-- [ ] Stalled job requires manual recovery.
-- [ ] Reclaim never runs two workers against the same worktree.
-- [ ] Existing cancelled/failed/completed job behavior remains stable.
+- [x] Expired pre-mutation lease can be safely requeued.
+- [x] Expired post-mutation lease becomes `stalled`.
+- [x] Stalled job requires manual recovery.
+- [x] Reclaim never runs two workers against the same worktree.
+- [x] Existing cancelled/failed/completed job behavior remains stable.
 
 Recommended verification:
 
@@ -270,6 +272,12 @@ Hand-off notes for next phase:
 
 - Document the manual recovery endpoint/command.
 - Document stalled job dashboard state.
+
+Review result:
+
+- Phase 1C is complete: heartbeat renews leases, stale leases are swept on claim, mutation checkpoints decide requeue versus stall, and stalled jobs require explicit operator recovery.
+- The worker backend stays safe because expired pre-mutation leases can be reclaimed, while post-mutation expiry is forced into `stalled` and blocked from auto-claim.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted worker/server test set.
 
 ---
 

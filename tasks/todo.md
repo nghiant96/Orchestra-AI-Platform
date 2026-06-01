@@ -2,6 +2,20 @@
 
 Last updated: 2026-06-01
 
+## Task: Review & Fix Phase 1C Lease Expiry, Checkpoints, And Stall Policy
+
+- [x] Sweep stale leases through the claim path so expired jobs are requeued or stalled before the next claim.
+- [x] Preserve mutation checkpoints and use them to decide requeue versus stall.
+- [x] Keep stalled jobs blocked from automatic claim and recoverable via explicit operator action.
+- [x] Fix worker-route teardown flake by waiting for the final queued job to complete.
+- [x] Re-run typecheck and targeted worker/server tests.
+
+Review result:
+
+- Phase 1C is now aligned with the architecture: heartbeat renews leases, claim sweeps stale leases, mutation checkpoints decide whether an expired job requeues or stalls, and stalled jobs require manual recovery.
+- The worker-route smoke test now waits for its queued job to complete before server shutdown, which removes the teardown race that was obscuring the actual lease behavior.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted stale-lease, worker-route, worker-claim, worker-store, and server queue tests.
+
 ## Task: Review & Fix Phase 1B Worker Claim And Lease
 
 - [x] Align claim/lease state with architecture contract (`assigned` + lease metadata).

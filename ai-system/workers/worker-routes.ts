@@ -9,6 +9,9 @@ import {
   claimJob,
   completeJob,
   failJob,
+  renewLease,
+  sendMutationCheckpoint,
+  recoverStalledJob,
   WorkerServiceError
 } from "./worker-service.js";
 import { WorkerStore, resolveWorkerStoreDir } from "./worker-store.js";
@@ -112,6 +115,14 @@ export const workerRoutes: RouteHandler = {
               freeDiskGb: typeof payload?.freeDiskGb === "number" ? payload.freeDiskGb : undefined,
               cpuLoad: typeof payload?.cpuLoad === "number" ? payload.cpuLoad : undefined
             });
+
+            const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
+            const jobId = typeof payload?.jobId === "string" ? payload.jobId : worker.currentJobId || "";
+            if (leaseId && jobId) {
+              const extendedCtx = buildExtendedServiceCtx(req, ctx);
+              await renewLease(extendedCtx, workerId, jobId, leaseId);
+            }
+
             ctx.respondJson(res, 200, { ok: true, worker: sanitizeWorker(worker) });
             return true;
           } catch (err) {
@@ -183,6 +194,57 @@ export const workerRoutes: RouteHandler = {
           const result = await failJob(serviceCtx, workerId, jobId, leaseId, errorMsg);
           ctx.respondJson(res, result.ok ? 200 : 400, result);
         }
+        return true;
+      } catch (err) {
+        if (err instanceof WorkerServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
+      }
+    }
+
+    const checkpointMatch = /^\/jobs\/([^/]+)\/checkpoint$/.exec(url.pathname);
+    if (checkpointMatch && req.method === "POST") {
+      const jobId = checkpointMatch[1] ?? "";
+      const payload = await readJsonBody(req);
+      const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
+      const workerId = typeof payload?.workerId === "string" ? payload.workerId : "";
+      const serviceCtx = buildExtendedServiceCtx(req, ctx);
+
+      if (!leaseId || !workerId) {
+        ctx.respondJson(res, 400, { ok: false, error: "leaseId and workerId are required" });
+        return true;
+      }
+
+      try {
+        const result = await sendMutationCheckpoint(serviceCtx, workerId, jobId, leaseId, {
+          stage: typeof payload?.stage === "string" ? payload.stage : "unknown",
+          filesystemMutated: payload?.filesystemMutated === true,
+          worktreePath: typeof payload?.worktreePath === "string" ? payload.worktreePath : undefined
+        });
+        ctx.respondJson(res, result.ok ? 200 : 400, result);
+        return true;
+      } catch (err) {
+        if (err instanceof WorkerServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
+      }
+    }
+
+    const recoverMatch = /^\/jobs\/([^/]+)\/recover$/.exec(url.pathname);
+    if (recoverMatch && req.method === "POST") {
+      if (!canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "queue.pause")) {
+        ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
+        return true;
+      }
+      const jobId = recoverMatch[1] ?? "";
+      const serviceCtx = buildExtendedServiceCtx(req, ctx);
+      try {
+        const result = await recoverStalledJob(serviceCtx, jobId);
+        ctx.respondJson(res, result.ok ? 200 : 400, result);
         return true;
       } catch (err) {
         if (err instanceof WorkerServiceError) {

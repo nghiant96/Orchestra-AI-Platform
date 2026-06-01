@@ -206,3 +206,12 @@ flaky.
 
 **Rule**: When the execution backend is `worker`, pause or disable the server's in-process drain loop before
 starting queue processing. External claim mode must be the only active executor in that configuration.
+
+## 2026-06-01: Queue-backed tests must wait for the last job to settle before teardown
+
+**Mistake**: A worker-route smoke test enqueued a dry-run job and closed the server immediately, which let the
+job's async write race with teardown and produced an `ENOENT` rename failure after the assertions had already
+passed.
+
+**Rule**: If a test starts a queued job, it must either wait for the terminal state or pause/stop the queue
+before server teardown. Do not rely on the runner finishing "soon enough" during cleanup.
