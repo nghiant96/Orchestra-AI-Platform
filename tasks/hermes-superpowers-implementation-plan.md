@@ -481,6 +481,8 @@ Review result:
 
 Goal: add Superpowers as a methodology profile without replacing existing `WorkflowMode`.
 
+Status: complete.
+
 Primary agent objective:
 
 - Add workflow profile registry, Superpowers profile, prompt injection, evidence checklist, and approval gates.
@@ -500,29 +502,29 @@ Expected files:
 
 Tasks:
 
-- [ ] Add `WorkflowProfileId`.
-- [ ] Add `WorkflowProfile` type.
-- [ ] Add registry for default, fast-fix, balanced, superpowers, strict-review.
-- [ ] Preserve current `WorkflowMode` as `executionMode`.
-- [ ] Implement precedence:
-  - [ ] risk policy is the floor
-  - [ ] workflow profile can tighten, not weaken
-  - [ ] routing cannot bypass approval/security
-- [ ] Add Superpowers prompt block.
-- [ ] Add evidence checklist generation.
-- [ ] Require plan artifact for Superpowers.
-- [ ] Require plan approval for Superpowers.
-- [ ] Require delivery approval for Superpowers.
-- [ ] Bind approvals to immutable artifact ids and hashes.
+- [x] Add `WorkflowProfileId`.
+- [x] Add `WorkflowProfile` type.
+- [x] Add registry for default, fast-fix, balanced, superpowers, strict-review.
+- [x] Preserve current `WorkflowMode` as `executionMode`.
+- [x] Implement precedence:
+  - [x] risk policy is the floor
+  - [x] workflow profile can tighten, not weaken
+  - [x] routing cannot bypass approval/security
+- [x] Add Superpowers prompt block.
+- [x] Add evidence checklist generation.
+- [x] Require plan artifact for Superpowers.
+- [x] Require plan approval for Superpowers.
+- [x] Require delivery approval for Superpowers.
+- [x] Bind approvals to immutable artifact ids and hashes.
 
 Acceptance criteria:
 
-- [ ] `workflowProfile=superpowers` requires plan artifact.
-- [ ] Plan approval pauses execution.
-- [ ] Evidence checklist is generated.
-- [ ] Final delivery requires approval.
-- [ ] Approval becomes stale if referenced artifact changes.
-- [ ] Existing execution modes still work.
+- [x] `workflowProfile=superpowers` requires plan artifact.
+- [x] Plan approval pauses execution.
+- [x] Evidence checklist is generated.
+- [x] Final delivery requires approval.
+- [x] Approval becomes stale if referenced artifact changes.
+- [x] Existing execution modes still work.
 
 Recommended verification:
 
@@ -537,11 +539,19 @@ Hand-off notes for next phase:
 - Record profile config schema.
 - Record prompt injection location.
 
+Review result:
+
+- Phase 4 is complete: `workflowProfile` is now separate from `WorkflowMode`, profiles are registered under `ai-system/workflows/*`, and Superpowers tightens risk/approval policy without weakening security gates.
+- Superpowers prompt and evidence checklist are injected into work-item execution, queued jobs retain `workflowProfile`, and plan/delivery approvals are tied to immutable artifact ids and hashes.
+- Verification passed with root typecheck, workflow/profile tests, approval binding tests, and existing work-item/server/worker regression suites.
+
 ---
 
 ## Phase 5 — MCP Wrapper
 
 Goal: Hermes can call Orchestra through MCP tools that reuse internal services.
+
+Status: complete.
 
 Primary agent objective:
 
@@ -561,27 +571,27 @@ Expected files:
 
 Tasks:
 
-- [ ] Add MCP server entrypoint.
-- [ ] Add auth using `ORCHESTRA_HERMES_TOKEN`.
-- [ ] Implement `orchestra_create_work_item`.
-- [ ] Implement `orchestra_run_work_item`.
-- [ ] Implement `orchestra_get_work_item`.
-- [ ] Implement `orchestra_get_events` if streaming/polling is supported.
-- [ ] Implement `orchestra_get_artifacts`.
-- [ ] Implement `orchestra_approve_step`.
-- [ ] Implement `orchestra_cancel_work_item`.
-- [ ] Ensure tools call service layer, not route handlers.
-- [ ] Require approval proof: `approvedBy`, `approvalSource`, `userConfirmationId`, artifact hashes.
-- [ ] Audit all actions as `actor=hermes` with user approver where relevant.
+- [x] Add MCP server entrypoint.
+- [x] Add auth using `ORCHESTRA_HERMES_TOKEN`.
+- [x] Implement `orchestra_create_work_item`.
+- [x] Implement `orchestra_run_work_item`.
+- [x] Implement `orchestra_get_work_item`.
+- [x] Implement `orchestra_get_events` if streaming/polling is supported.
+- [x] Implement `orchestra_get_artifacts`.
+- [x] Implement `orchestra_approve_step`.
+- [x] Implement `orchestra_cancel_work_item`.
+- [x] Ensure tools call service layer, not route handlers.
+- [x] Require approval proof: `approvedBy`, `approvalSource`, `userConfirmationId`, artifact hashes.
+- [x] Audit all actions as `actor=hermes` with user approver where relevant.
 
 Acceptance criteria:
 
-- [ ] MCP client can create work item.
-- [ ] MCP client can run work item.
-- [ ] MCP client can fetch status.
-- [ ] MCP client can approve pending step only with proof and matching artifact hashes.
-- [ ] MCP tools cannot execute raw shell or read/write arbitrary files.
-- [ ] All MCP actions are audited.
+- [x] MCP client can create work item.
+- [x] MCP client can run work item.
+- [x] MCP client can fetch status.
+- [x] MCP client can approve pending step only with proof and matching artifact hashes.
+- [x] MCP tools cannot execute raw shell or read/write arbitrary files.
+- [x] All MCP actions are audited.
 
 Recommended verification:
 
@@ -595,11 +605,19 @@ Hand-off notes for next phase:
 - Record MCP tool schemas.
 - Record Hermes config example.
 
+Review result:
+
+- Phase 5 is complete: MCP has a token-authenticated tool dispatcher in `ai-system/mcp/*` that calls `work-item-service` and `job-service` directly.
+- Approval via MCP now requires proof fields and matching artifact id/hash; missing or stale proofs are rejected before resolving the pending approval.
+- Verification passed with MCP auth/tool tests and approval-artifact contract tests.
+
 ---
 
 ## Phase 6 — Hermes Lesson Loop
 
 Goal: completed or failed work items expose reusable lessons for Hermes memory.
+
+Status: complete.
 
 Primary agent objective:
 
@@ -616,22 +634,22 @@ Expected files:
 
 Tasks:
 
-- [ ] Add `GET /work-items/:id/lesson`.
-- [ ] Generate lesson from task, plan, failed checks, repairs, final diff, commands passed, changed files.
-- [ ] Add `summary` artifact.
-- [ ] Add `lesson` artifact.
-- [ ] Generate lesson for completed work items.
-- [ ] Generate failure lesson for failed work items.
-- [ ] Add MCP tool `orchestra_get_lesson`.
-- [ ] Ensure lesson artifact redacts secrets.
+- [x] Add `GET /work-items/:id/lesson`.
+- [x] Generate lesson from task, plan, failed checks, repairs, final diff, commands passed, changed files.
+- [x] Add `summary` artifact.
+- [x] Add `lesson` artifact.
+- [x] Generate lesson for completed work items.
+- [x] Generate failure lesson for failed work items.
+- [x] Add MCP tool `orchestra_get_lesson`.
+- [x] Ensure lesson artifact redacts secrets.
 
 Acceptance criteria:
 
-- [ ] Completed work item has lesson JSON.
-- [ ] Failed work item has failure lesson JSON.
-- [ ] Hermes can retrieve lesson through MCP/API.
-- [ ] Lesson includes evidence and changed files.
-- [ ] Lesson does not include raw secrets.
+- [x] Completed work item has lesson JSON.
+- [x] Failed work item has failure lesson JSON.
+- [x] Hermes can retrieve lesson through MCP/API.
+- [x] Lesson includes evidence and changed files.
+- [x] Lesson does not include raw secrets.
 
 Recommended verification:
 
@@ -641,11 +659,19 @@ pnpm test -- lesson
 pnpm test -- work
 ```
 
+Review result:
+
+- Phase 6 is complete: work items now expose `GET /work-items/:id/lesson`, generate `lesson.json` and `summary.md`, and MCP exposes `orchestra_get_lesson`.
+- Lesson artifacts include linked runs, evidence, changed files, commands, and failure metadata where available, with secret redaction applied before persistence.
+- Verification passed with lesson-exporter tests, root typecheck, and work-item regression tests.
+
 ---
 
 ## Dashboard Track — Run In Parallel After Phase 1A
 
 Goal: keep worker/work item state visible to operators.
+
+Status: complete.
 
 Primary agent objective:
 
@@ -663,20 +689,20 @@ Expected files:
 
 Tasks:
 
-- [ ] Add workers page.
-- [ ] Show worker status, labels, capabilities, current job, last heartbeat.
-- [ ] Add disable/enable/drain buttons with operator permission handling.
-- [ ] Improve approval UI to show artifact ids/hashes and stale state.
-- [ ] Improve artifact viewer for logs, diff, JSON, markdown summary.
-- [ ] Show evidence checklist and worker assignment in work item detail.
-- [ ] Ensure degraded 401/403 states render safely.
+- [x] Add workers page.
+- [x] Show worker status, labels, capabilities, current job, last heartbeat.
+- [x] Add disable/enable/drain buttons with operator permission handling.
+- [x] Improve approval UI to show artifact ids/hashes and stale state.
+- [x] Improve artifact viewer for logs, diff, JSON, markdown summary.
+- [x] Show evidence checklist and worker assignment in work item detail.
+- [x] Ensure degraded 401/403 states render safely.
 
 Acceptance criteria:
 
-- [ ] Dashboard builds.
-- [ ] Workers page handles empty, loading, error, and populated states.
-- [ ] Approval UI shows exact artifact references.
-- [ ] Work item detail remains backward-compatible with old work items.
+- [x] Dashboard builds.
+- [x] Workers page handles empty, loading, error, and populated states.
+- [x] Approval UI shows exact artifact references.
+- [x] Work item detail remains backward-compatible with old work items.
 
 Recommended verification:
 
@@ -685,11 +711,19 @@ pnpm run dashboard:build
 pnpm test -- dashboard
 ```
 
+Review result:
+
+- Dashboard track is complete: worker page now shows capabilities, error state, and disable/enable/drain actions; approval and artifact UI expose exact artifact references.
+- Work item detail remains backward-compatible and continues to show checklist, events, linked jobs, and worker assignment.
+- Verification passed with dashboard TypeScript build, Vite production build, and dashboard smoke test.
+
 ---
 
 ## Repo Registry Track — Roadmap, Do Not Block Phase 1
 
 Goal: Hermes submits `repoId` instead of local paths.
+
+Status: complete.
 
 Primary agent objective:
 
@@ -697,15 +731,21 @@ Primary agent objective:
 
 Tasks:
 
-- [ ] Define `RepoRegistryEntry`.
-- [ ] Add file-backed repo registry store.
-- [ ] Add `GET /repos`, `POST /repos`, `GET /repos/:repoId`.
-- [ ] Resolve worker-specific local path from `repoId`.
-- [ ] Validate resolved path against worker workspace roots.
-- [ ] Update Hermes/MCP schemas to prefer `repoId`.
+- [x] Define `RepoRegistryEntry`.
+- [x] Add file-backed repo registry store.
+- [x] Add `GET /repos`, `POST /repos`, `GET /repos/:repoId`.
+- [x] Resolve worker-specific local path from `repoId`.
+- [x] Validate resolved path against worker workspace roots.
+- [x] Update Hermes/MCP schemas to prefer `repoId`.
 
 Acceptance criteria:
 
-- [ ] Existing `cwd` and `repo.localPath` still work.
-- [ ] New `repoId` input resolves to worker-specific local path.
-- [ ] Repo registry cannot bypass workspace root policy.
+- [x] Existing `cwd` and `repo.localPath` still work.
+- [x] New `repoId` input resolves to worker-specific local path.
+- [x] Repo registry cannot bypass workspace root policy.
+
+Review result:
+
+- Repo Registry track is complete: repos are stored under `.ai-system-server/repos.json`, HTTP routes expose list/register/get, and work item/MCP inputs can resolve by `repoId`.
+- Registry resolution still validates canonical paths through `AI_SYSTEM_ALLOWED_WORKDIRS`, so `repoId` cannot bypass workspace root policy.
+- Verification passed with repo-registry tests and server/work-item regression tests.

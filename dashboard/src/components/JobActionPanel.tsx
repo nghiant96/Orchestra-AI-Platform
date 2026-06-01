@@ -28,6 +28,13 @@ export const JobActionPanel = ({ job, actioning, onApprove, onReject, onRetry, o
             <div>
               <p className="text-sm font-black uppercase tracking-tight">Human intervention required</p>
               <p className="text-xs font-medium opacity-80">Review the pending plan before continuing this job.</p>
+              {job.approvalArtifact && (
+                <div className="mt-2 grid gap-1 text-[10px] font-mono text-amber-900/80">
+                  <span>artifact: {job.approvalArtifact.artifactId}</span>
+                  <span>sha256: {job.approvalArtifact.artifactHash.slice(0, 24)}...</span>
+                  <span>type: {job.approvalArtifact.artifactType}</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap gap-3">

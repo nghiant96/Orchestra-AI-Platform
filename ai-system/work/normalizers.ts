@@ -30,6 +30,7 @@ export function normalizeWorkItem(data: any): WorkItem {
     requestedBy: typeof data.requestedBy === "string" ? data.requestedBy : undefined,
     repo: data.repo && typeof data.repo === "object"
       ? {
+          ...(typeof data.repo.repoId === "string" ? { repoId: data.repo.repoId } : {}),
           localPath: typeof data.repo.localPath === "string" ? data.repo.localPath : undefined,
           remote: typeof data.repo.remote === "string" ? data.repo.remote : undefined
         }

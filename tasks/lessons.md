@@ -263,3 +263,12 @@ wrong on-disk location and failed to find the newly created item.
 initialize any direct store/helpers with the same runtime defaults or a matching config file. Do not assume
 the test harness's injected rule object controls the service's persistence path unless the service actually
 uses it.
+
+## 2026-06-01: Optional compatibility fields must be omitted, not serialized as undefined
+
+**Mistake**: Added `repoId` to the work item repo shape by always emitting `repoId: undefined`, which broke
+legacy deep-equality expectations even though the value was absent.
+
+**Rule**: For backward-compatible persisted/API shapes, add optional fields only when they have a concrete
+value. Do not serialize `undefined` keys into legacy objects, especially in normalizers that feed tests,
+dashboard payloads, or JSON persistence.

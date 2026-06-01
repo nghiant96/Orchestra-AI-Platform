@@ -1,6 +1,6 @@
 import { roleCan } from "../../core/audit-log.js";
 import { canPerformAction } from "../../core/permissions.js";
-import { createSyncRun, createJob, listJobs, getJob, cancelJob, approveJob, getJobFileContent, parseWorkflowMode, JobServiceError } from "../../jobs/job-service.js";
+import { createSyncRun, createJob, listJobs, getJob, cancelJob, approveJob, getJobFileContent, parseWorkflowMode, normalizeApprovalProof, JobServiceError } from "../../jobs/job-service.js";
 export const jobsRoute = {
     async handle(req, res, url, ctx) {
         if (url.pathname === "/run" && req.method === "POST") {
@@ -26,7 +26,8 @@ export const jobsRoute = {
                 task,
                 cwd,
                 dryRun: payload?.dryRun !== false,
-                workflowMode: parseWorkflowMode(payload?.workflowMode) ?? "standard"
+                workflowMode: parseWorkflowMode(payload?.workflowMode) ?? "standard",
+                workflowProfile: payload?.workflowProfile
             });
             ctx.respondJson(res, 200, result);
             return true;
@@ -60,6 +61,7 @@ export const jobsRoute = {
                     cwd,
                     dryRun: payload?.dryRun !== false,
                     workflowMode: payload?.workflowMode,
+                    workflowProfile: payload?.workflowProfile,
                     externalUrl: externalUrl || undefined
                 });
                 ctx.respondJson(res, 202, job);
@@ -135,19 +137,30 @@ export const jobsRoute = {
             }
             const jobId = approvalMatch[1] ?? "";
             const action = approvalMatch[2];
+            const payload = await readJsonBody(req);
+            const proof = normalizeApprovalProof(payload?.approvalProof ?? payload);
             const serviceCtx = {
                 queue: ctx.queue,
                 auditLog: ctx.auditLog,
                 actor: ctx.actor,
                 rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules
             };
-            const result = await approveJob(serviceCtx, jobId, action, ctx.pendingApprovals);
-            if (!result) {
-                ctx.respondJson(res, 404, { ok: false, error: "Pending approval not found" });
+            try {
+                const result = await approveJob(serviceCtx, jobId, action, ctx.pendingApprovals, { proof });
+                if (!result) {
+                    ctx.respondJson(res, 404, { ok: false, error: "Pending approval not found" });
+                    return true;
+                }
+                ctx.respondJson(res, 200, result);
                 return true;
             }
-            ctx.respondJson(res, 200, result);
-            return true;
+            catch (err) {
+                if (err instanceof JobServiceError) {
+                    ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+                    return true;
+                }
+                throw err;
+            }
         }
         const contentMatch = /^\/jobs\/([^/]+)\/files\/content$/.exec(url.pathname);
         if (contentMatch && req.method === "GET") {

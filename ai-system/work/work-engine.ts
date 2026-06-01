@@ -1,6 +1,12 @@
 import type { RulesConfig } from "../types.js";
 import type { QueueJob } from "../core/job-queue.js";
 import type { WorkflowMode } from "../core/workflow-modes.js";
+import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
+import {
+  applyWorkflowProfileToTask,
+  mergeWorkflowEvidenceChecklist,
+  parseWorkflowProfileId
+} from "../workflows/workflow-registry.js";
 import { assessWorkItem } from "./assessment.js";
 import { buildChecklist } from "./checklist.js";
 import { buildTaskGraph } from "./task-graph.js";
@@ -14,6 +20,7 @@ export interface WorkNodeExecutionRequest {
   nodeId: string;
   task: string;
   workflowMode: WorkflowMode;
+  workflowProfile?: WorkflowProfileId;
   dryRun: boolean;
 }
 
@@ -28,7 +35,10 @@ export class WorkEngine {
   async assess(workItem: WorkItem): Promise<WorkItem> {
     const assessment = assessWorkItem(workItem, this.rules);
     const graph = workItem.graph && workItem.graph.nodes.length > 0 ? workItem.graph : buildTaskGraph(workItem);
-    const checklist = workItem.checklist && workItem.checklist.length > 0 ? workItem.checklist : buildChecklist(workItem, graph);
+    const checklist = mergeWorkflowEvidenceChecklist(
+      workItem.checklist && workItem.checklist.length > 0 ? workItem.checklist : buildChecklist(workItem, graph),
+      workItem.workflowProfile
+    );
     return { ...workItem, status: "assessing", assessment, graph, checklist };
   }
 
@@ -51,8 +61,9 @@ export class WorkEngine {
       workItem: planned,
       requests: nodes.map((node) => ({
         nodeId: node.id,
-        task: buildNodePrompt(planned, node),
+        task: applyWorkflowProfileToTask(buildNodePrompt(planned, node), planned.workflowProfile),
         workflowMode: workflowModeForNode(planned, node),
+        workflowProfile: parseWorkflowProfileId(planned.workflowProfile),
         dryRun: options.dryRun
       }))
     };

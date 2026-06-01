@@ -4,6 +4,8 @@ import { normalizeQueueJob } from "./normalizers.js";
 import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 import type { WorkerCapabilities } from "../workers/worker-types.js";
+import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
+import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
 import { scheduleWorkItems } from "../work/scheduler.js";
 import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
 import type { WorkItem } from "../work/work-item.js";
@@ -39,8 +41,10 @@ export interface QueueJob {
   dryRun: boolean;
   resume?: boolean;
   workflowMode?: WorkflowMode;
+  workflowProfile?: WorkflowProfileId;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
+  approvalArtifact?: ApprovalArtifactBinding | null;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -80,6 +84,7 @@ export interface JobQueueRunInput {
   dryRun: boolean;
   resume?: boolean;
   workflowMode?: WorkflowMode;
+  workflowProfile?: WorkflowProfileId;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
   externalTask?: import("../types.js").ExternalTaskRef;
@@ -133,8 +138,10 @@ export class FileBackedJobQueue {
       dryRun: input.dryRun,
       resume: input.resume,
       workflowMode: input.workflowMode,
+      workflowProfile: input.workflowProfile,
       approvalMode: input.approvalMode,
       approvalPolicy: input.approvalPolicy,
+      approvalArtifact: null,
       externalTask: input.externalTask,
       createdAt: now,
       updatedAt: now,
@@ -176,6 +183,7 @@ export class FileBackedJobQueue {
         dryRun: baseInput.dryRun,
         resume: baseInput.resume,
         workflowMode: baseInput.workflowMode,
+        workflowProfile: baseInput.workflowProfile,
         approvalMode: baseInput.approvalMode,
         approvalPolicy: baseInput.approvalPolicy,
         externalTask: item.externalTask ?? baseInput.externalTask
@@ -557,6 +565,10 @@ export class FileBackedJobQueue {
         dryRun: running.dryRun,
         resume: running.resume,
         workflowMode: running.workflowMode,
+        workflowProfile: running.workflowProfile,
+        approvalPolicy: running.approvalPolicy,
+        approvalMode: running.approvalMode,
+        externalTask: running.externalTask,
         signal: controller.signal
       });
 
@@ -587,6 +599,7 @@ export class FileBackedJobQueue {
         error: result.ok ? null : (result.execution?.failure?.reason ?? "Run failed."),
         approvalPolicy: result.approvalPolicy ?? current.approvalPolicy,
         approvalMode: result.approvalPolicy?.approvalMode ?? current.approvalMode,
+        approvalArtifact: current.approvalArtifact ?? null,
         diffSummaries: result.diffSummaries,
         latestToolResults: result.latestToolResults,
         execution: result.execution

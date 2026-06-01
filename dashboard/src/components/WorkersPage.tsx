@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Cpu, HardDrive, Activity, Wifi, WifiOff, Server } from "lucide-react";
+import { AlertTriangle, Cpu, HardDrive, Activity, Wifi, WifiOff, Server } from "lucide-react";
 import { cn } from "../utils/cn";
 import { useWorkers } from "../hooks/useWorkers";
 import type { WorkerInfo } from "../types/index.js";
@@ -34,7 +34,7 @@ function formatLastSeen(iso: string): string {
 }
 
 export function WorkersPage() {
-  const { workers, loading, stats } = useWorkers();
+  const { workers, loading, error, stats, setWorkerStatus, actioningWorkerId } = useWorkers();
 
   if (loading) {
     return (
@@ -67,6 +67,13 @@ export function WorkersPage() {
         <StatCard title="Offline" value={stats.offline} icon={WifiOff} color="bg-rose-50 text-rose-600" />
       </div>
 
+      {error && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-700 flex items-center gap-3">
+          <AlertTriangle size={18} />
+          {error}
+        </div>
+      )}
+
       {workers.length === 0 ? (
         <div className="bg-white rounded-3xl border border-slate-200 p-20 text-center shadow-sm">
           <Server size={48} className="mx-auto text-slate-300 mb-4" />
@@ -83,14 +90,21 @@ export function WorkersPage() {
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">OS / Arch</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Labels</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Capabilities</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Current Job</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Last Seen</th>
                   <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Resources</th>
+                  <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {workers.map((worker) => (
-                  <WorkerRow key={worker.id} worker={worker} />
+                  <WorkerRow
+                    key={worker.id}
+                    worker={worker}
+                    actioning={actioningWorkerId === worker.id}
+                    onAction={(action) => void setWorkerStatus(worker.id, action)}
+                  />
                 ))}
               </tbody>
             </table>
@@ -101,7 +115,16 @@ export function WorkersPage() {
   );
 }
 
-function WorkerRow({ worker }: { worker: WorkerInfo }) {
+function WorkerRow({
+  worker,
+  actioning,
+  onAction
+}: {
+  worker: WorkerInfo;
+  actioning: boolean;
+  onAction: (action: "disable" | "enable" | "drain") => void;
+}) {
+  const capabilities = Object.entries(worker.capabilities || {}).filter(([, enabled]) => Boolean(enabled));
   return (
     <tr className="hover:bg-slate-50/50 transition-colors">
       <td className="px-6 py-4">
@@ -133,6 +156,22 @@ function WorkerRow({ worker }: { worker: WorkerInfo }) {
         </div>
       </td>
       <td className="px-6 py-4">
+        <div className="flex flex-wrap gap-1 max-w-[220px]">
+          {capabilities.length === 0 ? (
+            <span className="text-slate-300 text-xs">—</span>
+          ) : capabilities.slice(0, 4).map(([capability]) => (
+            <span key={capability} className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 text-[9px] font-bold uppercase tracking-wider">
+              {capability}
+            </span>
+          ))}
+          {capabilities.length > 4 && (
+            <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold">
+              +{capabilities.length - 4}
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-6 py-4">
         {worker.currentJobId ? (
           <span className="font-mono text-xs text-indigo-600">{worker.currentJobId}</span>
         ) : (
@@ -156,6 +195,34 @@ function WorkerRow({ worker }: { worker: WorkerInfo }) {
               {(worker.cpuLoad * 100).toFixed(0)}%
             </span>
           )}
+        </div>
+      </td>
+      <td className="px-6 py-4">
+        <div className="flex flex-wrap gap-2">
+          {worker.status === "disabled" ? (
+            <button
+              disabled={actioning}
+              onClick={() => onAction("enable")}
+              className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] font-black uppercase tracking-wider disabled:opacity-50"
+            >
+              Enable
+            </button>
+          ) : (
+            <button
+              disabled={actioning}
+              onClick={() => onAction("disable")}
+              className="px-3 py-1.5 rounded-xl bg-rose-50 text-rose-700 border border-rose-100 text-[10px] font-black uppercase tracking-wider disabled:opacity-50"
+            >
+              Disable
+            </button>
+          )}
+          <button
+            disabled={actioning || worker.status === "draining" || worker.status === "disabled"}
+            onClick={() => onAction("drain")}
+            className="px-3 py-1.5 rounded-xl bg-orange-50 text-orange-700 border border-orange-100 text-[10px] font-black uppercase tracking-wider disabled:opacity-50"
+          >
+            Drain
+          </button>
         </div>
       </td>
     </tr>

@@ -3,6 +3,8 @@ import path from "node:path";
 import { Orchestrator } from "./core/orchestrator.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
+import { createApprovalArtifactBinding } from "./approvals/approval-proof.js";
+import { applyWorkflowProfileToTask, tightenApprovalPolicyForProfile } from "./workflows/workflow-registry.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
 import { runArtifactRetentionCleanup } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
@@ -16,6 +18,7 @@ import { adminRoute } from "./server/routes/admin.js";
 import { jobsRoute } from "./server/routes/jobs.js";
 import { configRoute } from "./server/routes/config.js";
 import { workItemsRoute } from "./server/routes/work-items.js";
+import { reposRoute } from "./server/routes/repos.js";
 import { workerRoutes } from "./workers/worker-routes.js";
 import { resolveExecutionBackend } from "./core/execution-backend.js";
 export { mapRunSummaryToQueueJob } from "./jobs/job-service.js";
@@ -46,15 +49,17 @@ export function createAiSystemServer(options) {
     const pendingApprovals = new Map();
     const auditLog = new FileAuditLog(resolveAuditLogPath(defaultCwd));
     const runner = options.runner ??
-        (async ({ jobId, task, cwd, dryRun, resume, workflowMode, externalTask, signal }) => {
+        (async ({ jobId, task, cwd, dryRun, resume, workflowMode, workflowProfile, approvalPolicy, externalTask, signal }) => {
             const confirmationHandler = {
                 confirmPlan: async (plan) => {
                     return new Promise((resolve) => {
-                        pendingApprovals.set(jobId, { resolve, type: "plan", data: plan });
+                        const binding = createApprovalArtifactBinding(plan, "plan");
+                        pendingApprovals.set(jobId, { resolve, type: "plan", data: plan, binding });
                         void queue.get(jobId).then((j) => {
                             if (j)
                                 queue.updateJob(j, {
                                     status: "waiting_for_approval",
+                                    approvalArtifact: binding,
                                     resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
                                     execution: {
                                         ...j.execution,
@@ -67,10 +72,12 @@ export function createAiSystemServer(options) {
                 },
                 confirmCheckpoint: async (message, artifactPath) => {
                     return new Promise((resolve) => {
-                        pendingApprovals.set(jobId, { resolve, type: "checkpoint", data: { message, artifactPath } });
+                        const checkpointData = { message, artifactPath };
+                        const binding = createApprovalArtifactBinding(checkpointData, "checkpoint");
+                        pendingApprovals.set(jobId, { resolve, type: "checkpoint", data: checkpointData, binding });
                         void queue.get(jobId).then((j) => {
                             if (j)
-                                queue.updateJob(j, { status: "waiting_for_approval" });
+                                queue.updateJob(j, { status: "waiting_for_approval", approvalArtifact: binding });
                         });
                         broadcastLog("info", `Checkpoint: ${message}. Waiting for approval...`, jobId);
                     });
@@ -99,8 +106,9 @@ export function createAiSystemServer(options) {
                 });
             }
             const { rules } = await loadRules(cwd);
-            const approvalMode = resolveApprovalPolicy(task, rules);
-            return orchestrator.run(task, {
+            const profiledTask = applyWorkflowProfileToTask(task, workflowProfile);
+            const approvalMode = tightenApprovalPolicyForProfile(approvalPolicy ?? resolveApprovalPolicy(profiledTask, rules, [], { workflowMode }), workflowProfile);
+            return orchestrator.run(profiledTask, {
                 dryRun,
                 interactive: approvalMode.interactive,
                 pauseAfterPlan: approvalMode.pauseAfterPlan,
@@ -225,7 +233,7 @@ export function createAiSystemServer(options) {
                     return;
                 }
             }
-            const routeHandlers = [adminRoute, jobsRoute, configRoute, workItemsRoute, workerRoutes];
+            const routeHandlers = [adminRoute, jobsRoute, configRoute, reposRoute, workItemsRoute, workerRoutes];
             for (const route of routeHandlers) {
                 if (await route.handle(req, res, url, routeContext)) {
                     return;

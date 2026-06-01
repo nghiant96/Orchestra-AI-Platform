@@ -64,6 +64,13 @@ export interface ApprovalPolicyDecision {
   reason: string;
 }
 
+export interface ApprovalArtifactBinding {
+  artifactId: string;
+  artifactHash: string;
+  artifactType: 'plan' | 'checkpoint' | 'delivery' | 'lesson' | 'unknown';
+  createdAt: string;
+}
+
 export interface TaskContract {
   id: string;
   description: string;
@@ -95,8 +102,11 @@ export interface Job {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  workflowMode?: 'standard' | 'implement' | 'review' | 'fix' | 'refactor';
+  workflowProfile?: 'default' | 'fast-fix' | 'balanced' | 'superpowers' | 'strict-review';
   approvalMode?: 'manual' | 'auto';
   approvalPolicy?: ApprovalPolicyDecision;
+  approvalArtifact?: ApprovalArtifactBinding | null;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -187,6 +197,7 @@ export interface WorkItem {
   routingProfile?: string;
   requestedBy?: string;
   repo?: {
+    repoId?: string;
     localPath?: string;
     remote?: string;
   };

@@ -1,6 +1,9 @@
 import path from "node:path";
 import { WorkStore } from "./work-store.js";
 import { WorkEngine } from "./work-engine.js";
+import { resolveApprovalPolicy } from "../core/risk-policy.js";
+import { parseWorkflowProfileId, tightenApprovalPolicyForProfile } from "../workflows/workflow-registry.js";
+import { generateAndPersistWorkItemLesson, loadWorkItemLesson } from "./lesson-exporter.js";
 export async function listWorkItems(ctx, cwd) {
     const { rules } = await loadRules(cwd);
     const store = new WorkStore(cwd, rules);
@@ -96,11 +99,15 @@ export async function runWorkItem(ctx, cwd, workItemId, options = {}) {
     }
     const jobs = [];
     for (const request of requests) {
+        const approvalPolicy = tightenApprovalPolicyForProfile(resolveApprovalPolicy(request.task, rules, [], { workflowMode: request.workflowMode }), request.workflowProfile);
         jobs.push(await ctx.queue.enqueue({
             task: request.task,
             cwd,
             dryRun: request.dryRun,
-            workflowMode: request.workflowMode
+            workflowMode: request.workflowMode,
+            workflowProfile: request.workflowProfile,
+            approvalMode: approvalPolicy.approvalMode,
+            approvalPolicy
         }));
     }
     const updated = engine.attachQueuedRuns(planned, jobs.map((job, index) => ({
@@ -176,6 +183,36 @@ export async function getWorkItemEvents(ctx, cwd, workItemId) {
     const events = await buildWorkItemEvents(ctx.auditLog, reconciled, linkedJobs);
     return { ok: true, version: 1, workItemId, events, workItem: attachLinkedJobs(reconciled, linkedJobs) };
 }
+export async function getWorkItemLesson(ctx, cwd, workItemId) {
+    const { rules } = await loadRules(cwd);
+    const store = new WorkStore(cwd, rules);
+    const workItem = await store.load(workItemId);
+    if (!workItem) {
+        return { ok: false, workItemId, error: "Work item not found" };
+    }
+    const engine = new WorkEngine(rules);
+    const reconciled = await reconcileWorkItem(workItem, engine, ctx.queue);
+    const jobs = await loadQueueJobs(reconciled, ctx.queue);
+    if (reconciled.updatedAt !== workItem.updatedAt) {
+        await store.save(reconciled);
+    }
+    const existing = await loadWorkItemLesson(cwd, rules, reconciled.id);
+    if (existing && (reconciled.status !== "done" && reconciled.status !== "failed")) {
+        return { ok: true, workItemId, ...existing };
+    }
+    const generated = await generateAndPersistWorkItemLesson(cwd, rules, reconciled, jobs);
+    await ctx.auditLog.append({
+        actor: ctx.actor,
+        action: "work_item.lesson",
+        cwd,
+        details: {
+            workItemId,
+            lessonPath: generated.lessonPath,
+            lessonType: generated.lesson.lessonType
+        }
+    });
+    return { ok: true, workItemId, ...generated };
+}
 export function normalizeWorkItemInput(payload) {
     return {
         title: typeof payload?.title === "string" ? payload.title.trim() : "",
@@ -188,15 +225,14 @@ export function normalizeWorkItemInput(payload) {
             : [],
         stage: typeof payload?.stage === "string" ? payload.stage : undefined,
         executionMode: typeof payload?.executionMode === "string" ? payload.executionMode : undefined,
-        workflowProfile: typeof payload?.workflowProfile === "string"
-            ? payload.workflowProfile
-            : typeof payload?.workflow === "string"
-                ? payload.workflow
-                : undefined,
+        workflowProfile: parseWorkflowProfileId(payload?.workflowProfile) ?? parseWorkflowProfileId(payload?.workflow),
         routingProfile: typeof payload?.routingProfile === "string" ? payload.routingProfile : undefined,
         requestedBy: typeof payload?.requestedBy === "string" ? payload.requestedBy : undefined,
         repo: typeof payload?.repo === "object" && payload.repo !== null
             ? {
+                ...(typeof payload.repo.repoId === "string"
+                    ? { repoId: payload.repo.repoId }
+                    : {}),
                 localPath: typeof payload.repo.localPath === "string"
                     ? payload.repo.localPath
                     : undefined,
@@ -255,6 +291,13 @@ async function loadLinkedJobs(workItem, queue) {
         workerLogs: job.workerLogs ?? [],
         updatedAt: job.updatedAt
     }));
+}
+async function loadQueueJobs(workItem, queue) {
+    if (workItem.linkedRuns.length === 0) {
+        return [];
+    }
+    const jobs = await Promise.all(workItem.linkedRuns.map((runId) => queue.get(runId)));
+    return jobs.filter((job) => job !== null);
 }
 function attachLinkedJobs(workItem, linkedJobs) {
     return { ...workItem, linkedJobs };

@@ -6,6 +6,7 @@ import type { RulesConfig } from "../types.js";
 import type { OrchestratorResult } from "../types.js";
 import type { TokenRole } from "../security/token-policy.js";
 import { canPerformAction } from "../core/permissions.js";
+import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
 
 export interface ServerRouteContext {
   defaultCwd: string;
@@ -18,7 +19,7 @@ export interface ServerRouteContext {
   queue: FileBackedJobQueue;
   runNow(input: JobQueueRunInput): Promise<OrchestratorResult>;
   auditLog: FileAuditLog;
-  pendingApprovals: Map<string, { resolve(value: boolean): void; type: "plan" | "checkpoint"; data?: unknown }>;
+  pendingApprovals: Map<string, { resolve(value: boolean): void; type: "plan" | "checkpoint"; data?: unknown; binding?: ApprovalArtifactBinding }>;
   currentGlobalRules: RulesConfig | null;
   globalRulesPromise: Promise<{ rules: RulesConfig }>;
   actor: AuditActor;

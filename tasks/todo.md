@@ -2,6 +2,23 @@
 
 Last updated: 2026-06-01
 
+## Task: Complete Remaining Hermes Superpowers Plan
+
+- [x] Inspect workflow, artifact, approval, MCP, lesson, dashboard, and repo-registry surfaces.
+- [x] Complete Phase 4 Superpowers workflow profile without replacing existing `WorkflowMode`.
+- [x] Complete Phase 5 MCP wrapper tools using service-layer functions.
+- [x] Complete Phase 6 Hermes lesson export through API/MCP.
+- [x] Complete dashboard worker/artifact/approval/work-item visibility gaps.
+- [x] Complete repo registry route/store and workspace-root validation.
+- [x] Run typecheck, targeted tests, dashboard build, and update implementation checklist.
+
+Review result:
+
+- Remaining Hermes Superpowers plan is complete across Phase 4, Phase 5, Phase 6, Dashboard Track, and Repo Registry Track.
+- Superpowers now exists as a workflow profile that tightens risk/approval gates, injects methodology prompts, creates evidence checklist items, and binds approvals to artifact id/hash proof.
+- MCP tools call the service layer directly, repo registry supports `repoId`, lessons are exported through API/MCP, and dashboard worker/approval/artifact visibility gaps are closed.
+- Verification passed with root typecheck, new workflow/approval/MCP/lesson/repo tests, server/work-item/worker regressions, dashboard TypeScript build, Vite production build, and dashboard smoke test.
+
 ## Task: Complete Phase 3 Work Item API Normalization
 
 - [x] Preserve Hermes-style optional fields on work items.

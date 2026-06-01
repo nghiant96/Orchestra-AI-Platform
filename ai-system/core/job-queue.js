@@ -41,8 +41,10 @@ export class FileBackedJobQueue {
             dryRun: input.dryRun,
             resume: input.resume,
             workflowMode: input.workflowMode,
+            workflowProfile: input.workflowProfile,
             approvalMode: input.approvalMode,
             approvalPolicy: input.approvalPolicy,
+            approvalArtifact: null,
             externalTask: input.externalTask,
             createdAt: now,
             updatedAt: now,
@@ -75,6 +77,7 @@ export class FileBackedJobQueue {
                 dryRun: baseInput.dryRun,
                 resume: baseInput.resume,
                 workflowMode: baseInput.workflowMode,
+                workflowProfile: baseInput.workflowProfile,
                 approvalMode: baseInput.approvalMode,
                 approvalPolicy: baseInput.approvalPolicy,
                 externalTask: item.externalTask ?? baseInput.externalTask
@@ -417,6 +420,10 @@ export class FileBackedJobQueue {
                 dryRun: running.dryRun,
                 resume: running.resume,
                 workflowMode: running.workflowMode,
+                workflowProfile: running.workflowProfile,
+                approvalPolicy: running.approvalPolicy,
+                approvalMode: running.approvalMode,
+                externalTask: running.externalTask,
                 signal: controller.signal
             });
             // Check if it was cancelled during execution
@@ -444,6 +451,7 @@ export class FileBackedJobQueue {
                 error: result.ok ? null : (result.execution?.failure?.reason ?? "Run failed."),
                 approvalPolicy: result.approvalPolicy ?? current.approvalPolicy,
                 approvalMode: result.approvalPolicy?.approvalMode ?? current.approvalMode,
+                approvalArtifact: current.approvalArtifact ?? null,
                 diffSummaries: result.diffSummaries,
                 latestToolResults: result.latestToolResults,
                 execution: result.execution

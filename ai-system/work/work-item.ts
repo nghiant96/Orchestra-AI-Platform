@@ -167,6 +167,7 @@ export interface WorkItem {
   routingProfile?: string;
   requestedBy?: string;
   repo?: {
+    repoId?: string;
     localPath?: string;
     remote?: string;
   };

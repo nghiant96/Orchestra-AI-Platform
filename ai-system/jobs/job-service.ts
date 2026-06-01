@@ -9,6 +9,19 @@ import { classifyServerError } from "../core/server-analytics.js";
 import { loadJsonIfExists } from "../utils/config.js";
 import type { RulesConfig, OrchestratorResult, ExternalTaskRef, RunStatus } from "../types.js";
 import type { WorkflowMode } from "../core/workflow-modes.js";
+import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
+import {
+  applyWorkflowProfileToTask,
+  parseWorkflowProfileId,
+  tightenApprovalPolicyForProfile
+} from "../workflows/workflow-registry.js";
+import {
+  createApprovalArtifactBinding,
+  normalizeApprovalProof,
+  validateApprovalProof,
+  type ApprovalArtifactBinding,
+  type ApprovalProof
+} from "../approvals/approval-proof.js";
 
 export interface JobServiceContext {
   queue: FileBackedJobQueue;
@@ -19,14 +32,16 @@ export interface JobServiceContext {
 
 export async function createSyncRun(
   ctx: JobServiceContext & { runNow: (input: JobQueueRunInput) => Promise<OrchestratorResult> },
-  input: { task: string; cwd: string; dryRun?: boolean; workflowMode?: WorkflowMode }
+  input: { task: string; cwd: string; dryRun?: boolean; workflowMode?: WorkflowMode; workflowProfile?: unknown }
 ): Promise<OrchestratorResult> {
+  const workflowProfile = parseWorkflowProfileId(input.workflowProfile);
   return ctx.runNow({
     jobId: `sync-${Date.now().toString(36)}`,
-    task: input.task,
+    task: applyWorkflowProfileToTask(input.task, workflowProfile),
     cwd: input.cwd,
     dryRun: input.dryRun !== false,
-    workflowMode: input.workflowMode ?? "standard"
+    workflowMode: input.workflowMode ?? "standard",
+    workflowProfile
   });
 }
 
@@ -37,6 +52,7 @@ export async function createJob(
     cwd: string;
     dryRun?: boolean;
     workflowMode?: unknown;
+    workflowProfile?: unknown;
     externalUrl?: string;
   }
 ): Promise<QueueJob> {
@@ -44,6 +60,7 @@ export async function createJob(
   let effectiveTask = input.task;
   let externalTask: ExternalTaskRef | undefined;
   const parsedWorkflowMode = parseWorkflowMode(input.workflowMode);
+  const workflowProfile = parseWorkflowProfileId(input.workflowProfile);
   let effectiveWorkflowMode: WorkflowMode = parsedWorkflowMode ?? "standard";
 
   if (input.externalUrl || input.task) {
@@ -61,12 +78,17 @@ export async function createJob(
     throw new JobServiceError("Missing task", 400);
   }
 
-  const approvalMode = resolveApprovalPolicy(effectiveTask, rules, [], { workflowMode: effectiveWorkflowMode });
+  const profiledTask = applyWorkflowProfileToTask(effectiveTask, workflowProfile);
+  const approvalMode = tightenApprovalPolicyForProfile(
+    resolveApprovalPolicy(profiledTask, rules, [], { workflowMode: effectiveWorkflowMode }),
+    workflowProfile
+  );
   const job = await ctx.queue.enqueue({
-    task: effectiveTask,
+    task: profiledTask,
     cwd: input.cwd,
     dryRun: input.dryRun !== false,
     workflowMode: effectiveWorkflowMode,
+    workflowProfile,
     approvalMode: approvalMode?.approvalMode ?? "manual",
     approvalPolicy: approvalMode ?? undefined,
     externalTask
@@ -77,7 +99,13 @@ export async function createJob(
     action: "job.create",
     cwd: input.cwd,
     jobId: job.jobId,
-    details: { dryRun: job.dryRun, approvalMode: job.approvalMode, riskClass: job.approvalPolicy?.riskClass ?? null }
+    details: {
+      dryRun: job.dryRun,
+      approvalMode: job.approvalMode,
+      riskClass: job.approvalPolicy?.riskClass ?? null,
+      workflowMode: job.workflowMode ?? null,
+      workflowProfile: job.workflowProfile ?? null
+    }
   });
 
   return job;
@@ -121,18 +149,45 @@ export async function approveJob(
   ctx: JobServiceContext,
   jobId: string,
   action: "approve" | "reject",
-  pendingApprovals: Map<string, { resolve(value: boolean): void; type: "plan" | "checkpoint"; data?: unknown }>
-): Promise<{ ok: boolean; jobId: string; approved: boolean } | null> {
+  pendingApprovals: Map<string, { resolve(value: boolean): void; type: "plan" | "checkpoint"; data?: unknown; binding?: ApprovalArtifactBinding }>,
+  options: { proof?: Partial<ApprovalProof>; requireProof?: boolean } = {}
+): Promise<{ ok: boolean; jobId: string; approved: boolean; approvalArtifact?: ApprovalArtifactBinding; proof?: ApprovalProof } | null> {
   const pendingApproval = pendingApprovals.get(jobId);
   const job = await ctx.queue.get(jobId);
   if (!pendingApproval || !job) {
     return null;
   }
+  const binding = pendingApproval.binding ?? createApprovalArtifactBinding(pendingApproval.data, pendingApproval.type);
+  const proofResult = validateApprovalProof(binding, options.proof, { requireProof: options.requireProof });
+  if (!proofResult.ok) {
+    throw new JobServiceError(proofResult.error, proofResult.statusCode);
+  }
   pendingApprovals.delete(jobId);
   pendingApproval.resolve(action === "approve");
-  await ctx.auditLog.append({ actor: ctx.actor, action: `job.${action}`, cwd: job.cwd, jobId });
-  return { ok: true, jobId, approved: action === "approve" };
+  await ctx.queue.updateJob(job, {
+    approvalArtifact: binding
+  });
+  await ctx.auditLog.append({
+    actor: ctx.actor,
+    action: `job.${action}`,
+    cwd: job.cwd,
+    jobId,
+    details: {
+      approvalType: pendingApproval.type,
+      approvalArtifact: binding,
+      approvalProof: proofResult.proof
+        ? {
+            approvedBy: proofResult.proof.approvedBy,
+            approvalSource: proofResult.proof.approvalSource,
+            userConfirmationId: proofResult.proof.userConfirmationId
+          }
+        : undefined
+    }
+  });
+  return { ok: true, jobId, approved: action === "approve", approvalArtifact: binding, proof: proofResult.proof };
 }
+
+export { normalizeApprovalProof };
 
 export async function getJobFileContent(
   ctx: JobServiceContext,

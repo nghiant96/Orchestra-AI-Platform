@@ -52,6 +52,12 @@ export function normalizeQueueJob(raw: any): QueueJob {
     task: raw.task ?? "unknown task",
     cwd: raw.cwd ?? ".",
     dryRun: raw.dryRun ?? false,
+    workflowMode: raw.workflowMode,
+    workflowProfile: raw.workflowProfile,
+    approvalMode: raw.approvalMode,
+    approvalPolicy: raw.approvalPolicy,
+    approvalArtifact: raw.approvalArtifact ?? null,
+    externalTask: raw.externalTask,
     workerSelector: raw.workerSelector,
     requiredCapabilities: raw.requiredCapabilities,
     workerLogs: Array.isArray(raw.workerLogs)
