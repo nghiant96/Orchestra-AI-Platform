@@ -10,6 +10,7 @@ import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js"
 
 test("server jobs API enqueues, completes, lists, and returns stable JSON", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-jobs-"));
+  const canonicalRepoRoot = await fs.realpath(repoRoot);
   const server = createAiSystemServer({
     defaultCwd: repoRoot,
     logger: silentLogger(),
@@ -24,8 +25,8 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
 
     const completed = await waitForJob(baseUrl, String(created.jobId), "completed");
     assert.equal(completed.task, "do queued work");
-    assert.equal(completed.cwd, repoRoot);
-    assert.equal(completed.artifactPath, path.join(repoRoot, ".ai-system-artifacts", "mock-run"));
+    assert.equal(completed.cwd, canonicalRepoRoot);
+    assert.equal(completed.artifactPath, path.join(canonicalRepoRoot, ".ai-system-artifacts", "mock-run"));
 
     const listed = await requestJson(baseUrl, "GET", "/jobs");
     assert.equal(Array.isArray(listed.jobs), true);
@@ -41,6 +42,7 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
 
 test("server keeps POST /run synchronous and rejects disallowed job cwd", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-run-"));
+  const canonicalRepoRoot = await fs.realpath(repoRoot);
   const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-outside-"));
   const server = createAiSystemServer({
     defaultCwd: repoRoot,
@@ -53,7 +55,7 @@ test("server keeps POST /run synchronous and rejects disallowed job cwd", async 
     const baseUrl = await listen(server);
     const runResult = await requestJson(baseUrl, "POST", "/run", { task: "sync run", dryRun: true });
     assert.equal(runResult.ok, true);
-    assert.equal(runResult.repoRoot, repoRoot);
+    assert.equal(runResult.repoRoot, canonicalRepoRoot);
 
     const rejected = await requestJson(baseUrl, "POST", "/jobs", { task: "bad cwd", cwd: outsideRoot }, 403);
     assert.equal(rejected.ok, false);
@@ -130,10 +132,51 @@ test("health and queued jobs expose effective approval mode", async () => {
     const health = await requestJson(baseUrl, "GET", "/health");
     assert.equal(health.queue.approvalMode, "auto");
     assert.equal(health.queue.skipApproval, true);
+    assert.equal(health.cwd, repoRoot);
 
     const created = await requestJson(baseUrl, "POST", "/jobs", { task: "auto approval mode" }, 202);
     assert.equal(created.approvalMode, "auto");
   } finally {
+    await closeServer(server);
+    await cleanupDir(repoRoot);
+  }
+});
+
+test("hybrid backend is worker-only until internal worker leases are implemented", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-hybrid-"));
+  const previousBackend = process.env.ORCHESTRA_EXECUTION_BACKEND;
+  process.env.ORCHESTRA_EXECUTION_BACKEND = "hybrid";
+  let inProcessRuns = 0;
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => {
+      inProcessRuns += 1;
+      return createResult({ task, cwd, dryRun, ok: true });
+    }
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    const health = await requestJson(baseUrl, "GET", "/health");
+    assert.equal(health.executionBackend, "hybrid");
+    assert.equal(health.queue.paused, true);
+
+    const created = await requestJson(baseUrl, "POST", "/jobs", { task: "hybrid claim", cwd: repoRoot, dryRun: true }, 202);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const queued = await requestJson(baseUrl, "GET", `/jobs/${created.jobId}`);
+    assert.equal(queued.status, "queued");
+    assert.equal(inProcessRuns, 0);
+
+    const registered = await requestJson(baseUrl, "POST", "/workers", {
+      name: "hybrid-worker",
+      os: "linux",
+      workspaceRoots: [repoRoot]
+    }, 201);
+    const claimed = await requestJson(baseUrl, "POST", `/workers/${registered.worker.id}/jobs/claim`, {}, 200);
+    assert.equal(claimed.job.jobId, created.jobId);
+  } finally {
+    process.env.ORCHESTRA_EXECUTION_BACKEND = previousBackend;
     await closeServer(server);
     await cleanupDir(repoRoot);
   }
@@ -203,7 +246,8 @@ test("project registry and audit log expose multi-project operations", async () 
 
 test("workspace registration persists and rehydrates on restart", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-workspace-register-"));
-  const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-workspace-register-other-"));
+  const otherRoot = await fs.mkdtemp(path.join(repoRoot, "workspace-register-other-"));
+  const canonicalOtherRoot = await fs.realpath(otherRoot);
   const firstServer = createAiSystemServer({
     defaultCwd: repoRoot,
     allowedWorkdirs: [repoRoot],
@@ -218,7 +262,7 @@ test("workspace registration persists and rehydrates on restart", async () => {
       "x-ai-system-actor": "dashboard"
     });
     assert.equal(registered.ok, true);
-    assert.ok(registered.allowedWorkdirs.includes(otherRoot));
+    assert.ok(registered.allowedWorkdirs.includes(canonicalOtherRoot));
   } finally {
     await closeServer(firstServer);
   }
@@ -233,10 +277,10 @@ test("workspace registration persists and rehydrates on restart", async () => {
   try {
     const baseUrl = await listen(secondServer);
     const health = await requestJson(baseUrl, "GET", "/health");
-    assert.ok(health.allowedWorkdirs.includes(otherRoot));
+    assert.ok(health.allowedWorkdirs.includes(canonicalOtherRoot));
 
     const projects = await requestJson(baseUrl, "GET", "/projects");
-    assert.ok(projects.projects.some((project: any) => project.cwd === otherRoot));
+    assert.ok(projects.projects.some((project: any) => project.cwd === canonicalOtherRoot));
   } finally {
     await closeServer(secondServer);
     await cleanupDir(repoRoot);
@@ -369,6 +413,8 @@ test("server smoke covers health projects jobs stats lessons and audit", async (
 test("jobs API filters queue records by requested project cwd", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-project-a-"));
   const otherRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-project-b-"));
+  const canonicalRepoRoot = await fs.realpath(repoRoot);
+  const canonicalOtherRoot = await fs.realpath(otherRoot);
   const server = createAiSystemServer({
     defaultCwd: repoRoot,
     allowedWorkdirs: [repoRoot, otherRoot],
@@ -386,13 +432,13 @@ test("jobs API filters queue records by requested project cwd", async () => {
     const projectA = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(repoRoot)}`);
     assert.deepEqual(
       projectA.jobs.map((job: any) => job.cwd),
-      [repoRoot]
+      [canonicalRepoRoot]
     );
 
     const projectB = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(otherRoot)}`);
     assert.deepEqual(
       projectB.jobs.map((job: any) => job.cwd),
-      [otherRoot]
+      [canonicalOtherRoot]
     );
 
     const rejected = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(path.dirname(repoRoot))}`, undefined, 403);

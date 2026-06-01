@@ -64,6 +64,13 @@ export interface ApprovalPolicyDecision {
   reason: string;
 }
 
+export interface ApprovalArtifactBinding {
+  artifactId: string;
+  artifactHash: string;
+  artifactType: 'plan' | 'checkpoint' | 'delivery' | 'lesson' | 'unknown';
+  createdAt: string;
+}
+
 export interface TaskContract {
   id: string;
   description: string;
@@ -95,8 +102,11 @@ export interface Job {
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
+  workflowMode?: 'standard' | 'implement' | 'review' | 'fix' | 'refactor';
+  workflowProfile?: 'default' | 'fast-fix' | 'balanced' | 'superpowers' | 'strict-review';
   approvalMode?: 'manual' | 'auto';
   approvalPolicy?: ApprovalPolicyDecision;
+  approvalArtifact?: ApprovalArtifactBinding | null;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -181,7 +191,48 @@ export interface WorkItem {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  stage?: string;
+  executionMode?: string;
+  workflowProfile?: string;
+  routingProfile?: string;
+  requestedBy?: string;
+  repo?: {
+    repoId?: string;
+    localPath?: string;
+    remote?: string;
+  };
   linkedRuns: string[];
+  linkedJobs?: Array<{
+    jobId: string;
+    status: string;
+    workerId?: string;
+    lease?: {
+      workerId: string;
+      leaseId: string;
+      claimedAt: string;
+      expiresAt: string;
+      lastHeartbeatAt: string;
+    };
+    resultSummary?: string | null;
+    artifactPath?: string | null;
+    error?: string | null;
+    workerLogs?: string[];
+    updatedAt?: string;
+  }>;
+  events?: Array<{
+    id: string;
+    type: 'status' | 'log' | 'artifact' | 'approval' | 'audit' | 'run';
+    timestamp: string;
+    title: string;
+    message?: string;
+    status?: string;
+    jobId?: string;
+    leaseId?: string;
+    actorId?: string;
+    actorRole?: string;
+    ref?: string;
+    metadata?: Record<string, unknown>;
+  }>;
   branch?: string;
   worktreePath?: string;
   pullRequest?: {
@@ -286,4 +337,21 @@ export interface ConfigFormData {
   skip_approval?: boolean;
   profile: string;
   providers: ProviderFormMap;
+}
+
+export interface WorkerInfo {
+  id: string;
+  name: string;
+  version: string;
+  os: string;
+  arch: string;
+  labels: string[];
+  capabilities: Record<string, boolean>;
+  workspaceRoots: string[];
+  status: "online" | "idle" | "busy" | "draining" | "disabled" | "offline";
+  currentJobId?: string;
+  lastHeartbeatAt: string;
+  freeDiskGb?: number;
+  cpuLoad?: number;
+  createdAt: string;
 }

@@ -1,0 +1,104 @@
+import { compilePrompt, loadPromptExamplesForTask, loadPromptTemplate } from "../utils/prompt-loader.js";
+export class PlannerAgent {
+    provider;
+    rules;
+    constructor({ provider, rules }) {
+        this.provider = provider;
+        this.rules = rules;
+    }
+    async planTask(task, treeString, cwd, memoryContext = "") {
+        const promptOptions = { repoRoot: cwd, rules: this.rules };
+        const template = await loadPromptTemplate("planner", promptOptions);
+        const examples = await loadPromptExamplesForTask(task, [], promptOptions);
+        const systemPrompt = compilePrompt(template, {
+            max_files: this.rules.max_files,
+            examples
+        });
+        const contractInstructions = "\n\nTask Contracts:\nDefine explicit requirements that must be verified after implementation. Each contract should have an ID, description, severity, target file paths, and an explanation of why it is needed. Use 'checkStrategy' to specify how it should be verified ('deterministic', 'review', or 'tool').";
+        const testPlanInstructions = "\n\nPre-Implementation Test Plan:\nDefine the testing strategy to verify the changes. Include commands to run, target test files, and the purpose of each test. Note any residual risk if a test is not practical.";
+        const classificationInstructions = "\n\nChange Classification:\nClassify each proposed change as 'mechanical' (refactors, renames, style changes), 'behavioral' (logic changes, new features), or 'mixed'. Provide a brief description and identify downstream impact.";
+        const finalSystemPrompt = systemPrompt + contractInstructions + testPlanInstructions + classificationInstructions;
+        const prompt = [
+            `Task: ${task}`,
+            memoryContext ? `\n${memoryContext}` : "",
+            "",
+            "Repository tree:",
+            treeString,
+            "",
+            "Return planner JSON."
+        ].join("\n");
+        return this.provider.runJson({
+            cwd,
+            label: "planner output",
+            systemPrompt: finalSystemPrompt,
+            prompt,
+            schema: PLAN_SCHEMA,
+            timeoutMs: this.rules.request_timeout_ms,
+            retries: this.rules.request_retries,
+            baseDelayMs: this.rules.retry_base_delay_ms
+        });
+    }
+}
+export const PLAN_SCHEMA = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+        prompt: { type: "string" },
+        readFiles: { type: "array", items: { type: "string" } },
+        writeTargets: { type: "array", items: { type: "string" } },
+        notes: { type: "array", items: { type: "string" } },
+        contracts: {
+            type: "array",
+            items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    id: { type: "string" },
+                    description: { type: "string" },
+                    severity: { type: "string", enum: ["high", "medium", "low"] },
+                    targetPaths: { type: "array", items: { type: "string" } },
+                    explanation: { type: "string" },
+                    checkStrategy: { type: "string", enum: ["deterministic", "review", "tool"] },
+                    suggestedFix: { type: "string" }
+                },
+                required: ["id", "description", "severity", "targetPaths"]
+            }
+        },
+        testPlan: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+                items: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        additionalProperties: false,
+                        properties: {
+                            command: { type: "string" },
+                            testFile: { type: "string" },
+                            purpose: { type: "string" },
+                            residualRisk: { type: "string" }
+                        },
+                        required: ["command", "purpose"]
+                    }
+                }
+            },
+            required: ["items"]
+        },
+        classifiedChanges: {
+            type: "array",
+            items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    path: { type: "string" },
+                    type: { type: "string", enum: ["mechanical", "behavioral", "mixed"] },
+                    description: { type: "string" },
+                    impact: { type: "string" }
+                },
+                required: ["path", "type", "description", "impact"]
+            }
+        }
+    },
+    required: ["prompt", "readFiles", "writeTargets", "notes"]
+};

@@ -46,9 +46,19 @@ test("workspace API can create assess run and list work items", async () => {
   try {
     const baseUrl = await listen(server);
     await waitForHttpReady(baseUrl);
-    const created = await requestJson(baseUrl, "POST", "/work-items", { cwd: repoRoot, title: "Fix signup flow", description: "Adjust auth callback" }, 201);
+    const created = await requestJson(baseUrl, "POST", "/work-items", {
+      cwd: repoRoot,
+      title: "Fix signup flow",
+      description: "Adjust auth callback",
+      workflow: "superpowers",
+      executionMode: "worker",
+      requestedBy: "dashboard"
+    }, 201);
     assert.equal(created.ok, true);
     assert.equal(created.workItem.status, "created");
+    assert.equal(created.workItem.workflowProfile, "superpowers");
+    assert.equal(created.workItem.executionMode, "worker");
+    assert.equal(created.workItem.requestedBy, "dashboard");
 
     const assessed = await requestJson(baseUrl, "POST", `/work-items/${created.workItem.id}/assess`, { cwd: repoRoot }, 200);
     assert.equal(assessed.ok, true);
@@ -66,6 +76,13 @@ test("workspace API can create assess run and list work items", async () => {
     const loaded = await requestJson(baseUrl, "GET", `/work-items/${created.workItem.id}?cwd=${encodeURIComponent(repoRoot)}`);
     assert.equal(loaded.workItem.graph.nodes.find((node: any) => node.id === "inspect-1").status, "completed");
     assert.equal(loaded.workItem.checklist.find((item: any) => item.id === "inspect-1").status, "passed");
+    assert.equal(loaded.workItem.linkedJobs?.[0]?.jobId, run.job.jobId);
+
+    const events = await requestJson(baseUrl, "GET", `/work-items/${created.workItem.id}/events?cwd=${encodeURIComponent(repoRoot)}`);
+    assert.equal(events.ok, true);
+    assert.ok(Array.isArray(events.events));
+    assert.ok(events.events.some((event: any) => event.type === "status"));
+    assert.ok(events.events.some((event: any) => event.type === "run"));
 
     const list = await requestJson(baseUrl, "GET", `/work-items?cwd=${encodeURIComponent(repoRoot)}`);
     assert.equal(list.ok, true);
@@ -73,6 +90,35 @@ test("workspace API can create assess run and list work items", async () => {
   } finally {
     await closeServer(server);
     await cleanupDir(repoRoot);
+  }
+});
+
+test("workspace registration rejects symlink escapes outside allowed roots", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-workspace-symlink-root-"));
+  const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-workspace-symlink-outside-"));
+  const linkedRoot = path.join(repoRoot, "linked-root");
+  await fs.symlink(outsideRoot, linkedRoot);
+
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult(task, cwd, dryRun)
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    await waitForHttpReady(baseUrl);
+    const result = await requestJson(baseUrl, "POST", "/workspaces", { cwd: linkedRoot }, 400, {
+      "x-ai-system-role": "operator",
+      "x-ai-system-actor": "dashboard"
+    });
+    assert.equal(result.ok, false);
+    assert.match(result.error, /outside current allowed workdirs/);
+  } finally {
+    await closeServer(server);
+    await cleanupDir(repoRoot);
+    await cleanupDir(outsideRoot);
   }
 });
 

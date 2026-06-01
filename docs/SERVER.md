@@ -42,6 +42,9 @@ docker run --rm -it \
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for API auth | None (required in server mode) |
 | `PORT` or `AI_SYSTEM_PORT` | HTTP port | `3927` |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated allowed directories | CWD only |
+| `ORCHESTRA_EXECUTION_BACKEND` | Execution owner mode: `in-process`, `worker`, or reserved `hybrid` | `in-process` |
+| `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
+| `ORCHESTRA_HERMES_TOKEN` | Bearer token for Hermes/MCP access | None |
 
 ---
 
@@ -102,6 +105,34 @@ POST /workspaces              → 201 Created  Register an additional allowed wo
 ```
 
 The dashboard uses this endpoint to persist extra workspace roots in `.ai-system-server/workspaces.json`.
+
+Workspace registration validates canonical realpaths against the current allowed roots. A path, including a symlink, that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected.
+
+### Workers
+
+```
+GET  /workers                              → 200 OK       List workers
+POST /workers                              → 201 Created  Register worker
+GET  /workers/:id                          → 200 OK       Get worker detail
+POST /workers/:id/heartbeat                → 200 OK       Update heartbeat and renew lease
+POST /workers/:id/disable                  → 200 OK       Disable worker
+POST /workers/:id/enable                   → 200 OK       Enable worker
+POST /workers/:id/drain                    → 200 OK       Drain worker
+POST /workers/:id/jobs/claim               → 200 OK       Claim next eligible job
+POST /workers/:id/jobs/:jobId/logs         → 200 OK       Upload redacted worker logs
+POST /jobs/:jobId/checkpoint               → 200 OK       Save mutation checkpoint
+POST /jobs/:jobId/complete                 → 200 OK       Complete job with valid lease
+POST /jobs/:jobId/fail                     → 200 OK       Fail job with valid lease
+POST /jobs/:jobId/recover                  → 200 OK       Manually recover stalled job
+```
+
+Worker contracts:
+
+- Worker registration validates `workspaceRoots` with canonical realpath checks against allowed roots and rejects symlink escapes before persisting the worker.
+- `dryRun=true` jobs must not mutate files or write mutation checkpoints.
+- Claim is race-resistant and lease-backed; only one worker can move a queued job to assigned.
+- Complete/fail payloads are forwarded into the queue record where supported: `summary`/`resultSummary`, `artifactPath`, `workerLogs`, `diffSummaries`, `latestToolResults`, `failure`, and `execution`.
+- `ORCHESTRA_EXECUTION_BACKEND=hybrid` is currently worker-only until internal-worker leasing is implemented.
 
 ### Administration
 

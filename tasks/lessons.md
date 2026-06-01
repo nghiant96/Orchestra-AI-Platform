@@ -180,3 +180,113 @@ official Antigravity CLI docs first. Those paths and model families are still pa
 **Rule**: Before removing a "legacy" brand string, confirm whether it is an official config path, storage
 location, or supported model family. A rename can be incomplete without being wrong, and not every `gemini`
 string in the repo is a CLI naming bug.
+
+## 2026-06-01: Worker bootstrap tokens must not leak after registration
+
+**Mistake**: Returned the worker `sessionToken` from list/detail/heartbeat/admin APIs after registration,
+which turned the bootstrap credential into a reusable secret for any client that could read worker data.
+
+**Rule**: If a token is only needed for first-time bootstrap, return it exactly once from the create/register
+response and strip it from every other serialized worker payload. Keep the persisted record private, but never
+echo it back through read/update endpoints.
+
+## 2026-06-01: Heartbeat enums must be validated before persistence
+
+**Mistake**: Accepted arbitrary string values for worker heartbeat `status`, which let malformed requests
+store invalid states and polluted both dashboard data and future lease logic.
+
+**Rule**: Validate enum-like input at the service boundary before persisting. If the value is invalid, reject
+the request with a client error instead of coercing it to a default that hides the bug.
+
+## 2026-06-01: Worker backend must not compete with external claimers
+
+**Mistake**: Left the internal file-backed queue drain running even when `ORCHESTRA_EXECUTION_BACKEND=worker`,
+which allowed the local runner to race external workers for the same queued jobs and made claim/lease tests
+flaky.
+
+**Rule**: When the execution backend is `worker`, pause or disable the server's in-process drain loop before
+starting queue processing. External claim mode must be the only active executor in that configuration.
+
+## 2026-06-01: Queue-backed tests must wait for the last job to settle before teardown
+
+**Mistake**: A worker-route smoke test enqueued a dry-run job and closed the server immediately, which let the
+job's async write race with teardown and produced an `ENOENT` rename failure after the assertions had already
+passed.
+
+**Rule**: If a test starts a queued job, it must either wait for the terminal state or pause/stop the queue
+before server teardown. Do not rely on the runner finishing "soon enough" during cleanup.
+
+## 2026-06-01: Route auth must be method-aware, not path-only
+
+**Mistake**: A role gate that only looked at the URL path let worker tokens reach the worker registry read
+routes even though they were supposed to be limited to register/heartbeat/claim completion flows.
+
+**Rule**: When a token role has mixed read/write capabilities on the same path prefix, the policy must check
+both the route and HTTP method. Keep worker tokens on the narrowest allowlist possible and add a regression
+test for the read-only dashboard paths they must not see.
+
+## 2026-06-01: Path validation should use canonical realpaths, not raw path strings
+
+**Mistake**: A path guard treated `/var/...` and `/private/var/...` as an escape on macOS even though they
+resolve to the same canonical location, which broke otherwise valid temp directories and workspace tests.
+
+**Rule**: Compare canonical realpaths when enforcing workspace/path boundaries, and only reject a candidate
+when the resolved target truly falls outside the allowed root. Do not equate platform-specific path aliases
+with an escape by default.
+
+## 2026-06-01: Server auth env must be set before server construction in tests
+
+**Mistake**: Set `ORCHESTRA_WORKER_TOKEN` after calling `createAiSystemServer()`, which meant the server
+captured an incomplete token policy and worker requests failed with `Unauthorized` even though the test
+restored the env afterward.
+
+**Rule**: If a server reads auth or role tokens at construction time, set and restore the relevant env vars
+before instantiating the server in the test. Treat auth policy as construction-time state, not request-time
+state, unless the code explicitly re-reads env on each request.
+
+## 2026-06-01: Queue-backed server teardown must wait for queue.stop before cleanup
+
+**Mistake**: The server close path returned before the file-backed queue had finished stopping, which let
+test cleanup race open file handles and produced `ENOTEMPTY` on the queue directory.
+
+**Rule**: Any server close path that owns a file-backed queue must await queue shutdown before invoking
+filesystem cleanup. If the close API is callback-based, bridge the async stop into the close callback so
+tests and local teardown see a stable terminal state.
+
+## 2026-06-01: Service tests must match runtime persistence rules
+
+**Mistake**: A work-item service test tried to mutate persisted data using a store configured with a test-only
+artifact directory, but the service itself loads the real runtime rules from `cwd`, so the test looked in the
+wrong on-disk location and failed to find the newly created item.
+
+**Rule**: When testing a service that internally calls `loadRules(cwd)` or another runtime config loader,
+initialize any direct store/helpers with the same runtime defaults or a matching config file. Do not assume
+the test harness's injected rule object controls the service's persistence path unless the service actually
+uses it.
+
+## 2026-06-01: Optional compatibility fields must be omitted, not serialized as undefined
+
+**Mistake**: Added `repoId` to the work item repo shape by always emitting `repoId: undefined`, which broke
+legacy deep-equality expectations even though the value was absent.
+
+**Rule**: For backward-compatible persisted/API shapes, add optional fields only when they have a concrete
+value. Do not serialize `undefined` keys into legacy objects, especially in normalizers that feed tests,
+dashboard payloads, or JSON persistence.
+
+## 2026-06-01: Dry-run and hybrid execution must have single-owner semantics
+
+**Mistake**: Allowed the worker dummy executor to mutate files even when the claimed job was marked `dryRun`,
+and left `hybrid` mode able to imply both in-process and external-worker execution.
+
+**Rule**: Dry-run paths must not mutate files or record mutation checkpoints. Any execution backend mode must
+have exactly one owner for a job; if true hybrid leasing is not implemented, define `hybrid` as worker-only or
+reject it instead of letting the in-process runner race external workers.
+
+## 2026-06-01: Apply realpath guards to every workspace boundary
+
+**Mistake**: Fixed canonical realpath validation for workspace registration but left worker registration using
+`path.resolve()`, which could accept a symlinked `workspaceRoots` entry that resolves outside allowed roots.
+
+**Rule**: Every API that accepts or persists workspace roots must use the shared canonical path policy before
+storing data. Do not duplicate path boundary checks with `path.resolve()`; add symlink escape regression tests
+at each route boundary that accepts roots.

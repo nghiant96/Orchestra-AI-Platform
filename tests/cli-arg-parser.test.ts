@@ -56,6 +56,46 @@ describe("CLI Arg Parser", () => {
     }
   });
 
+  it("parses worker start command options", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    process.stdin.isTTY = true;
+    try {
+      const options = await parseArgs([
+        "worker",
+        "start",
+        "--server-url",
+        "http://127.0.0.1:9999",
+        "--token",
+        "worker-token",
+        "--name",
+        "local-worker",
+        "--labels",
+        "mac,ios",
+        "--workspace-roots",
+        "/tmp/project-a,/tmp/project-b",
+        "--heartbeat-interval",
+        "2500",
+        "--poll-interval",
+        "500",
+        "--once"
+      ]);
+
+      assert.deepEqual(options.command, {
+        kind: "worker-start",
+        serverUrl: "http://127.0.0.1:9999",
+        workerToken: "worker-token",
+        workerName: "local-worker",
+        workerLabels: ["mac", "ios"],
+        workspaceRoots: ["/tmp/project-a", "/tmp/project-b"],
+        heartbeatIntervalMs: 2500,
+        pollIntervalMs: 500,
+        once: true
+      });
+    } finally {
+      process.stdin.isTTY = origIsTTY;
+    }
+  });
+
   it("normalizeRetryStage handles valid stages", () => {
     assert.equal(normalizeRetryStage("review"), "iteration-review");
     assert.equal(normalizeRetryStage("check"), "iteration-tools");

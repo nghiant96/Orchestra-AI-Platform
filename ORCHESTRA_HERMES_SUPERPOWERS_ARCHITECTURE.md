@@ -615,7 +615,7 @@ Body:
 ### Register worker
 
 ```http
-POST /workers/register
+POST /workers
 ```
 
 Body:
@@ -650,6 +650,11 @@ Response:
   "sessionToken": "..."
 }
 ```
+
+Implementation rule:
+
+- Worker registration must validate every `workspaceRoots` entry with canonical realpath checks against the server's allowed roots.
+- Symlinked worker roots that resolve outside allowed roots must be rejected, and accepted roots should be stored in canonical form.
 
 ### Heartbeat
 
@@ -693,6 +698,12 @@ worker can claim job only if:
 ```
 
 This policy should live in `worker-service.ts` or an equivalent service layer, not inside route handlers.
+
+Implementation rule:
+
+- Claim must be a locked compare-and-set style operation over the persisted job record.
+- File-backed stores must use a lock file, atomic rename, or equivalent primitive before moving `queued -> assigned`.
+- Two concurrent claim requests for one job must produce exactly one valid lease.
 
 Response:
 
@@ -814,6 +825,11 @@ Body:
   ]
 }
 ```
+
+Implementation rule:
+
+- The worker route must forward completion payload fields into the queue record, including summary/resultSummary, artifactPath, workerLogs, diffSummaries, latestToolResults, failure, and execution metadata when supplied.
+- Repeated complete/fail calls with the same terminal lease remain idempotent, but stale or mismatched leases are rejected.
 
 ### Fail job
 
@@ -1390,10 +1406,10 @@ Add CLI command:
 
 ```bash
 pnpm ai worker start \
-  --server http://localhost:3000 \
+  --server-url http://localhost:3000 \
   --name nghia-macbook-worker \
   --labels macbook,react-native,ios,android \
-  --workspace-root /Users/trungnghianguyen/Documents
+  --workspace-roots /Users/trungnghianguyen/Documents
 ```
 
 Or env:
@@ -1448,6 +1464,8 @@ Worker loop requirements:
 - Worker shutdown should mark current lease as releasing if no filesystem mutation is in progress.
 - Server must make `completeJob` and `failJob` idempotent for repeated network retries with the same `leaseId`.
 - Worker must never execute a job whose `repoLocalPath` is outside configured workspace roots, even if server assigned it.
+- Worker must not mutate files or create mutation checkpoints when `job.dryRun=true`.
+- If a worker receives a mutation-capable task while dry-run is true, it should report what it would do and complete without writing.
 
 ## 9.2.1. Execution backend mode
 
@@ -1462,14 +1480,15 @@ Allowed values:
 ```txt
 in-process   server queue runs jobs using the existing in-process runner
 worker       server only stores/assigns jobs; local workers execute
-hybrid       server may run jobs only when workerSelector allows internal worker
+hybrid       reserved; current implementation behaves as worker-only until internal-worker leasing exists
 ```
 
 Rules:
 
 - Default local development can remain `in-process`.
 - Production mini setup should use `worker`.
-- `hybrid` must model the server runner as an internal worker with labels and leases.
+- `hybrid` must not run in-process jobs unless the server runner is modeled as an internal worker with labels and leases.
+- Until that internal-worker leasing exists, `hybrid` is intentionally treated as worker-only and the internal queue drain is paused.
 - A job must have exactly one execution owner at a time.
 - Queue tests must cover at least `in-process` and `worker` modes.
 - Dashboard health should show the active backend mode.
@@ -1855,6 +1874,8 @@ Rule:
 - Phase đầu: accept `cwd`/`repo.localPath` with strict root guards.
 - Later: Hermes should submit `repoId`; Orchestra resolves worker-specific local path.
 - Repo registry must not bypass worker workspace root validation.
+- Workspace registration must also validate canonical realpaths against the current allowed roots.
+- A symlink that resolves outside the current allowed roots must be rejected instead of persisted as a new allowed workspace.
 
 ---
 
@@ -2054,7 +2075,7 @@ Tasks:
 1. Add `Worker` types.
 2. Add worker store.
 3. Add API:
-   - `POST /workers/register`
+   - `POST /workers`
    - `POST /workers/:workerId/heartbeat`
    - `POST /workers/:workerId/disable`
    - `POST /workers/:workerId/enable`
@@ -2428,10 +2449,10 @@ pnpm run server
 
 # Terminal 2
 pnpm ai worker start \
-  --server http://localhost:3000 \
+  --server-url http://localhost:3000 \
   --name local-test-worker \
   --labels local,test \
-  --workspace-root "$PWD"
+  --workspace-roots "$PWD"
 
 # Terminal 3
 curl -X POST http://localhost:3000/work-items \

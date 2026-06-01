@@ -72,6 +72,8 @@ export function printHelp(): void {
   ai runs latest
   ai runs list
   ai runs show last
+  ai worker start
+  ai worker start --once
   ai runs show last --json
   ai review --json --save /tmp/review.json
   ai runs show last --json --save /tmp/run.json
@@ -114,6 +116,8 @@ Examples:
   ai runs latest
   ai runs list
   ai runs show run-2026-...
+  ai worker start
+  ai worker start --once
   ai runs show last --json
   ai review --json --save /tmp/review.json
   ai runs show last --json --save /tmp/run.json

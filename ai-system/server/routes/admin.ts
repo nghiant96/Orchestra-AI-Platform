@@ -39,7 +39,7 @@ export const adminRoute: RouteHandler = {
     }
 
     if (url.pathname === "/stats" && req.method === "GET") {
-      const cwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -50,7 +50,7 @@ export const adminRoute: RouteHandler = {
     }
 
     if (url.pathname === "/lessons" && req.method === "GET") {
-      const cwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -66,7 +66,7 @@ export const adminRoute: RouteHandler = {
         return true;
       }
       const payload = await readJsonBody(req);
-      const cwd = ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
       const title = typeof payload?.title === "string" ? payload.title.trim() : "";
       const body = typeof payload?.body === "string" ? payload.body.trim() : "";
       if (!cwd) {

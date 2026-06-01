@@ -1,4 +1,4 @@
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { motion } from 'framer-motion';
 import {
     XCircle,
@@ -9,9 +9,11 @@ import {
     SearchCode,
     GitPullRequest,
     History,
+    Activity,
 } from 'lucide-react';
 import type { WorkItem } from '../../types';
 import { cn } from '../../utils/cn';
+import { apiJson } from '../../utils/api';
 import { AssessmentTab } from './AssessmentTab';
 import { GraphTab } from './GraphTab';
 import { ChecklistTab } from './ChecklistTab';
@@ -19,12 +21,14 @@ import { RunsTab } from './RunsTab';
 import { BranchTab } from './BranchTab';
 import { ChecksTab } from './ChecksTab';
 import { ActionsTab } from './ActionsTab';
+import { EventsTab } from './EventsTab';
 import { riskColors, statusColors } from './constants';
 
-type DetailTab = 'assessment' | 'graph' | 'checklist' | 'runs' | 'branch' | 'checks' | 'actions';
+type DetailTab = 'assessment' | 'graph' | 'checklist' | 'runs' | 'events' | 'branch' | 'checks' | 'actions';
 
 interface WorkItemDetailModalProps {
     workItem: WorkItem;
+    cwd: string;
     onClose: () => void;
     onRefresh: () => void;
     onAssess?: (workItem: WorkItem) => Promise<void>;
@@ -38,6 +42,7 @@ const tabs: { key: DetailTab; label: string; icon: ComponentType<{ size?: number
     { key: 'graph', label: 'Task Graph', icon: GitBranch },
     { key: 'checklist', label: 'Checklist', icon: ListChecks },
     { key: 'runs', label: 'Linked Runs', icon: History },
+    { key: 'events', label: 'Timeline', icon: Activity },
     { key: 'branch', label: 'Branch/PR', icon: GitPullRequest },
     { key: 'checks', label: 'CI/Checks', icon: ShieldCheck },
     { key: 'actions', label: 'Actions', icon: Play },
@@ -51,15 +56,53 @@ export const WorkItemDetailModal = ({
     onRun,
     onCancel,
     onRetry,
+    cwd,
 }: WorkItemDetailModalProps) => {
     const [activeTab, setActiveTab] = useState<DetailTab>('assessment');
     const [actioning, setActioning] = useState(false);
+    const [detail, setDetail] = useState<WorkItem>(workItem);
+    const [loadingDetail, setLoadingDetail] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        setDetail(workItem);
+        setLoadingDetail(true);
+
+        void (async () => {
+            try {
+                const detailResponse = await apiJson<{ ok?: boolean; workItem?: WorkItem }>(
+                    `/work-items/${encodeURIComponent(workItem.id)}?cwd=${encodeURIComponent(cwd)}&t=${Date.now()}`
+                );
+                const eventsResponse = await apiJson<{ ok?: boolean; events?: WorkItem['events'] }>(
+                    `/work-items/${encodeURIComponent(workItem.id)}/events?cwd=${encodeURIComponent(cwd)}&t=${Date.now()}`
+                );
+                if (!cancelled) {
+                    setDetail({
+                        ...(detailResponse.workItem || workItem),
+                        events: eventsResponse.events || [],
+                    });
+                }
+            } catch (error) {
+                if (!cancelled) {
+                    console.error('Failed to load work item detail:', error);
+                }
+            } finally {
+                if (!cancelled) {
+                    setLoadingDetail(false);
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [cwd, workItem.id]);
 
     const handleAction = async (fn?: (workItem: WorkItem) => Promise<void>) => {
         if (!fn) return;
         setActioning(true);
         try {
-            await fn(workItem);
+            await fn(detail);
             onRefresh();
         } catch (error) {
             console.error('Action failed:', error);
@@ -68,9 +111,9 @@ export const WorkItemDetailModal = ({
         }
     };
 
-    const assessment = workItem.assessment;
-    const graph = workItem.graph;
-    const checklist = workItem.checklist;
+    const assessment = detail.assessment;
+    const graph = detail.graph;
+    const checklist = detail.checklist;
 
     return (
         <motion.div
@@ -93,25 +136,25 @@ export const WorkItemDetailModal = ({
                     <div className="flex justify-between items-start mb-4">
                         <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-3 mb-1">
-                                <h2 className="text-xl font-bold text-slate-900 truncate">{workItem.title}</h2>
-                                <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest', statusColors[workItem.status] || statusColors.created)}>
-                                    {workItem.status}
+                                <h2 className="text-xl font-bold text-slate-900 truncate">{detail.title}</h2>
+                                <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest', statusColors[detail.status] || statusColors.created)}>
+                                    {detail.status}
                                 </span>
-                                <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest', riskColors[workItem.risk] || riskColors.low)}>
-                                    {workItem.risk}
+                                <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-widest', riskColors[detail.risk] || riskColors.low)}>
+                                    {detail.risk}
                                 </span>
                             </div>
                             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                                <span className="font-mono uppercase tracking-widest">{workItem.id}</span>
+                                <span className="font-mono uppercase tracking-widest">{detail.id}</span>
                                 <span>·</span>
-                                <span className="font-black uppercase tracking-widest">{workItem.type}</span>
+                                <span className="font-black uppercase tracking-widest">{detail.type}</span>
                                 <span>·</span>
-                                <span>{workItem.source}</span>
+                                <span>{detail.source}</span>
                                 <span>·</span>
-                                <span>runs {workItem.linkedRuns.length}</span>
+                                <span>runs {detail.linkedRuns.length}</span>
                             </div>
-                            {workItem.description && (
-                                <p className="mt-2 text-sm text-slate-600 line-clamp-2">{workItem.description}</p>
+                            {detail.description && (
+                                <p className="mt-2 text-sm text-slate-600 line-clamp-2">{detail.description}</p>
                             )}
                         </div>
                         <button
@@ -143,15 +186,21 @@ export const WorkItemDetailModal = ({
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-6">
+                    {loadingDetail && (
+                        <div className="mb-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-3 text-xs font-bold text-slate-500">
+                            Loading work item detail...
+                        </div>
+                    )}
                     {activeTab === 'assessment' && <AssessmentTab assessment={assessment} />}
                     {activeTab === 'graph' && <GraphTab graph={graph} />}
                     {activeTab === 'checklist' && <ChecklistTab checklist={checklist} />}
-                    {activeTab === 'runs' && <RunsTab linkedRuns={workItem.linkedRuns} />}
-                    {activeTab === 'branch' && <BranchTab workItem={workItem} />}
-                    {activeTab === 'checks' && <ChecksTab checks={workItem.checks} pullRequest={workItem.pullRequest} />}
+                    {activeTab === 'runs' && <RunsTab linkedRuns={detail.linkedRuns} linkedJobs={detail.linkedJobs} />}
+                    {activeTab === 'events' && <EventsTab events={detail.events} />}
+                    {activeTab === 'branch' && <BranchTab workItem={detail} />}
+                    {activeTab === 'checks' && <ChecksTab checks={detail.checks} pullRequest={detail.pullRequest} />}
                     {activeTab === 'actions' && (
                         <ActionsTab
-                            workItem={workItem}
+                            workItem={detail}
                             actioning={actioning}
                             onAssess={onAssess}
                             onRun={onRun}

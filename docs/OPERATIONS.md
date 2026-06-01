@@ -18,11 +18,13 @@ For multi-project operation, set `AI_SYSTEM_ALLOWED_WORKDIRS` to a comma-separat
 
 You can also register an additional workspace root from the dashboard. The server stores the extra root in `.ai-system-server/workspaces.json` under the repo root and merges it with `AI_SYSTEM_ALLOWED_WORKDIRS` on startup.
 
+Workspace registration is not an escape hatch around `AI_SYSTEM_ALLOWED_WORKDIRS`: the submitted path is resolved to its canonical realpath and must still be inside the current allowed roots. Symlinks that resolve outside those roots are rejected.
+
 ```bash
 AI_SYSTEM_ALLOWED_WORKDIRS="/repo/a,/repo/b" pnpm run server
 ```
 
-To register a new workspace root through the API or dashboard, send an absolute path to `POST /workspaces` with operator credentials.
+To register a new workspace root through the API or dashboard, send an absolute path under an already allowed root to `POST /workspaces` with operator credentials.
 
 Run the dashboard in another shell:
 
@@ -77,6 +79,13 @@ Creates a queued job. Body:
   "dryRun": true
 }
 ```
+
+Worker-mode semantics:
+
+- Worker registration validates `workspaceRoots` through canonical realpath checks against the server's allowed roots and rejects symlink escapes.
+- `dryRun=true` is non-mutating. A worker must report planned writes without changing files or recording mutation checkpoints.
+- Completion/failure payloads from workers are persisted on the queue record, including `resultSummary`/`summary`, `artifactPath`, `workerLogs`, `diffSummaries`, `latestToolResults`, `failure`, and `execution`.
+- Worker claims are lease-backed and race-resistant; concurrent claims for one queued job result in exactly one lease owner.
 
 The server resolves risk policy at enqueue time and persists `approvalMode` plus `approvalPolicy` on the job.
 
@@ -223,6 +232,12 @@ Runs as a background service with a web UI.
 - **Startup:** `AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=... pnpm run server`
 - **Dashboard:** `pnpm run dashboard:dev`
 - **Benefit:** Multi-project management, auditability, and async execution.
+
+#### Worker Backend Mode
+Runs the server as a control plane while local workers execute queued jobs.
+- **Startup:** `ORCHESTRA_EXECUTION_BACKEND=worker AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=... pnpm run server`
+- **Worker:** `node --import tsx ai-system/cli.ts worker start --server-url http://host:3927 --token "$ORCHESTRA_WORKER_TOKEN" --workspace-roots /allowed/root`
+- **Hybrid:** `ORCHESTRA_EXECUTION_BACKEND=hybrid` is currently treated as worker-only. The in-process queue drain stays paused until internal-worker leasing is implemented, so a job has one execution owner.
 
 ### Operational Tasks
 

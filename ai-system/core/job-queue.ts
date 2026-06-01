@@ -1,27 +1,50 @@
-import fs from "node:fs/promises";
+import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { normalizeQueueJob } from "./normalizers.js";
 import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
+import type { WorkerCapabilities } from "../workers/worker-types.js";
+import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
+import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
 import { scheduleWorkItems } from "../work/scheduler.js";
 import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
 import type { WorkItem } from "../work/work-item.js";
 
-export type QueueJobStatus = "queued" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled";
+export type QueueJobStatus = "queued" | "assigned" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled" | "stalled";
 
 export type QueueApprovalMode = "manual" | "auto";
+
+export interface JobLease {
+  workerId: string;
+  leaseId: string;
+  claimedAt: string;
+  expiresAt: string;
+  lastHeartbeatAt: string;
+}
+
+export interface MutationCheckpoint {
+  jobId: string;
+  leaseId: string;
+  stage: string;
+  filesystemMutated: boolean;
+  worktreePath?: string;
+  timestamp: string;
+}
 
 export interface QueueJob {
   version: number;
   jobId: string;
   status: QueueJobStatus;
+  workerId?: string;
   task: string;
   cwd: string;
   dryRun: boolean;
   resume?: boolean;
   workflowMode?: WorkflowMode;
+  workflowProfile?: WorkflowProfileId;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
+  approvalArtifact?: ApprovalArtifactBinding | null;
   createdAt: string;
   updatedAt: string;
   startedAt?: string;
@@ -43,6 +66,15 @@ export interface QueueJob {
     retryHint?: RetryHint | null;
   };
   externalTask?: import("../types.js").ExternalTaskRef;
+  lease?: JobLease;
+  attempt?: number;
+  workerSelector?: {
+    os?: string;
+    labels?: string[];
+  };
+  requiredCapabilities?: Partial<WorkerCapabilities>;
+  mutationCheckpoint?: MutationCheckpoint;
+  workerLogs?: string[];
 }
 
 export interface JobQueueRunInput {
@@ -52,6 +84,7 @@ export interface JobQueueRunInput {
   dryRun: boolean;
   resume?: boolean;
   workflowMode?: WorkflowMode;
+  workflowProfile?: WorkflowProfileId;
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
   externalTask?: import("../types.js").ExternalTaskRef;
@@ -105,8 +138,10 @@ export class FileBackedJobQueue {
       dryRun: input.dryRun,
       resume: input.resume,
       workflowMode: input.workflowMode,
+      workflowProfile: input.workflowProfile,
       approvalMode: input.approvalMode,
       approvalPolicy: input.approvalPolicy,
+      approvalArtifact: null,
       externalTask: input.externalTask,
       createdAt: now,
       updatedAt: now,
@@ -148,6 +183,7 @@ export class FileBackedJobQueue {
         dryRun: baseInput.dryRun,
         resume: baseInput.resume,
         workflowMode: baseInput.workflowMode,
+        workflowProfile: baseInput.workflowProfile,
         approvalMode: baseInput.approvalMode,
         approvalPolicy: baseInput.approvalPolicy,
         externalTask: item.externalTask ?? baseInput.externalTask
@@ -233,6 +269,211 @@ export class FileBackedJobQueue {
 
   async runRetentionCleanup(): Promise<void> {
     await this.cleanupOldJobs();
+  }
+
+  async claimJob(jobId: string, lease: JobLease): Promise<QueueJob | null> {
+    if (!isSafeJobId(jobId)) return null;
+
+    return this.withJobLock(jobId, async () => {
+      const job = await this.get(jobId);
+      if (!job) return null;
+      if (job.status !== "queued") return null;
+
+      const now = Date.now();
+      if (job.lease && new Date(job.lease.expiresAt).getTime() > now) {
+        return null;
+      }
+
+      const updated: QueueJob = {
+        ...job,
+        status: "assigned",
+        workerId: lease.workerId,
+        lease,
+        attempt: (job.attempt ?? 0) + 1,
+        updatedAt: new Date().toISOString()
+      };
+
+      await this.writeJob(updated);
+
+      const verify = await this.get(jobId);
+      if (!verify || verify.lease?.leaseId !== lease.leaseId) {
+        return null;
+      }
+
+      return verify;
+    });
+  }
+
+  async completeJob(jobId: string, leaseId: string, result: Partial<QueueJob>): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+
+    if (!job.lease) return { ok: false, error: "No active lease" };
+    if (job.lease.leaseId !== leaseId) {
+      if (job.status === "completed" || job.status === "failed") {
+        return { ok: true };
+      }
+      return { ok: false, error: "Invalid leaseId" };
+    }
+
+    if (job.status === "completed" || job.status === "failed") {
+      return { ok: true };
+    }
+
+    const now = Date.now();
+    if (new Date(job.lease.expiresAt).getTime() < now) {
+      return { ok: false, error: "Lease expired" };
+    }
+
+    const finishedAt = new Date().toISOString();
+    const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
+
+    const updated: QueueJob = {
+      ...job,
+      ...result,
+      status: "completed",
+      finishedAt,
+      executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
+      updatedAt: finishedAt
+    };
+
+    await this.writeJob(updated);
+    return { ok: true };
+  }
+
+  async failJob(jobId: string, leaseId: string, error: string, result: Partial<QueueJob> = {}): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+
+    if (!job.lease) return { ok: false, error: "No active lease" };
+    if (job.lease.leaseId !== leaseId) {
+      if (job.status === "completed" || job.status === "failed") {
+        return { ok: true };
+      }
+      return { ok: false, error: "Invalid leaseId" };
+    }
+
+    if (job.status === "completed" || job.status === "failed") {
+      return { ok: true };
+    }
+
+    const now = Date.now();
+    if (new Date(job.lease.expiresAt).getTime() < now) {
+      return { ok: false, error: "Lease expired" };
+    }
+
+    const finishedAt = new Date().toISOString();
+    const startedAt = job.startedAt ? new Date(job.startedAt) : new Date(finishedAt);
+
+    const updated: QueueJob = {
+      ...job,
+      ...result,
+      status: "failed",
+      error,
+      finishedAt,
+      executionTimeMs: new Date(finishedAt).getTime() - startedAt.getTime(),
+      updatedAt: finishedAt
+    };
+
+    await this.writeJob(updated);
+    return { ok: true };
+  }
+
+  async renewLease(jobId: string, leaseId: string): Promise<JobLease | null> {
+    const job = await this.get(jobId);
+    if (!job || !job.lease) return null;
+    if (job.lease.leaseId !== leaseId) return null;
+
+    const now = new Date();
+    const updated: JobLease = {
+      ...job.lease,
+      lastHeartbeatAt: now.toISOString(),
+      expiresAt: new Date(now.getTime() + 5 * 60 * 1000).toISOString()
+    };
+
+    const updatedJob: QueueJob = {
+      ...job,
+      lease: updated,
+      updatedAt: now.toISOString()
+    };
+
+    await this.writeJob(updatedJob);
+    return updated;
+  }
+
+  async saveCheckpoint(jobId: string, leaseId: string, checkpoint: { stage: string; filesystemMutated: boolean; worktreePath?: string }): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+    if (!job.lease || job.lease.leaseId !== leaseId) return { ok: false, error: "Invalid leaseId" };
+
+    const checkpointRecord: MutationCheckpoint = {
+      jobId,
+      leaseId,
+      stage: checkpoint.stage,
+      filesystemMutated: checkpoint.filesystemMutated,
+      worktreePath: checkpoint.worktreePath,
+      timestamp: new Date().toISOString()
+    };
+
+    const updated: QueueJob = {
+      ...job,
+      mutationCheckpoint: checkpointRecord,
+      updatedAt: new Date().toISOString()
+    };
+
+    await this.writeJob(updated);
+    return { ok: true };
+  }
+
+  async detectStaleLeases(): Promise<{ requeued: string[]; stalled: string[] }> {
+    const now = Date.now();
+    const all = await this.list(200);
+    const requeued: string[] = [];
+    const stalled: string[] = [];
+
+    for (const job of all) {
+      if (!job.lease) continue;
+      if (new Date(job.lease.expiresAt).getTime() > now) continue;
+      if (job.status !== "assigned" && job.status !== "running" && job.status !== "waiting_for_approval") continue;
+
+      const hasMutatedFilesystem = job.mutationCheckpoint?.filesystemMutated === true;
+
+      if (hasMutatedFilesystem) {
+        await this.updateJob(job, {
+          status: "stalled",
+          updatedAt: new Date().toISOString()
+        });
+        stalled.push(job.jobId);
+      } else {
+        await this.updateJob(job, {
+          status: "queued",
+          lease: undefined,
+          workerId: undefined,
+          mutationCheckpoint: undefined,
+          updatedAt: new Date().toISOString()
+        });
+        requeued.push(job.jobId);
+      }
+    }
+
+    return { requeued, stalled };
+  }
+
+  async recoverStalledJob(jobId: string): Promise<{ ok: boolean; error?: string }> {
+    const job = await this.get(jobId);
+    if (!job) return { ok: false, error: "Job not found" };
+    if (job.status !== "stalled") return { ok: false, error: "Job is not stalled" };
+
+    await this.updateJob(job, {
+      status: "queued",
+      lease: undefined,
+      workerId: undefined,
+      mutationCheckpoint: undefined,
+      attempt: (job.attempt ?? 0) + 1,
+      updatedAt: new Date().toISOString()
+    });
+
+    return { ok: true };
   }
 
   start(): void {
@@ -328,6 +569,10 @@ export class FileBackedJobQueue {
         dryRun: running.dryRun,
         resume: running.resume,
         workflowMode: running.workflowMode,
+        workflowProfile: running.workflowProfile,
+        approvalPolicy: running.approvalPolicy,
+        approvalMode: running.approvalMode,
+        externalTask: running.externalTask,
         signal: controller.signal
       });
 
@@ -358,6 +603,7 @@ export class FileBackedJobQueue {
         error: result.ok ? null : (result.execution?.failure?.reason ?? "Run failed."),
         approvalPolicy: result.approvalPolicy ?? current.approvalPolicy,
         approvalMode: result.approvalPolicy?.approvalMode ?? current.approvalMode,
+        approvalArtifact: current.approvalArtifact ?? null,
         diffSummaries: result.diffSummaries,
         latestToolResults: result.latestToolResults,
         execution: result.execution
@@ -407,6 +653,46 @@ export class FileBackedJobQueue {
 
   private jobPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.json`);
+  }
+
+  private async withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T | null> {
+    const lock = await this.acquireJobLock(jobId);
+    if (!lock) {
+      return null;
+    }
+    try {
+      return await fn();
+    } finally {
+      await lock.close().catch(() => {});
+      await fs.unlink(this.lockPath(jobId)).catch(() => {});
+    }
+  }
+
+  private async acquireJobLock(jobId: string): Promise<FileHandle | null> {
+    await fs.mkdir(this.jobsDir, { recursive: true });
+    const lockPath = this.lockPath(jobId);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const handle = await fs.open(lockPath, "wx");
+        await handle.writeFile(`${process.pid}:${Date.now()}\n`, "utf8");
+        return handle;
+      } catch (err: any) {
+        if (err.code !== "EEXIST") {
+          throw err;
+        }
+        const stat = await fs.stat(lockPath).catch(() => null);
+        if (stat && Date.now() - stat.mtimeMs > 30_000) {
+          await fs.unlink(lockPath).catch(() => {});
+          continue;
+        }
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private lockPath(jobId: string): string {
+    return `${this.jobPath(jobId)}.lock`;
   }
 
   private async cleanupOldJobs(): Promise<void> {

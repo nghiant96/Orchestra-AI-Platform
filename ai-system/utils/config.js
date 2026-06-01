@@ -1,0 +1,150 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+const PROJECT_CONFIG_PRESETS = {
+    "codex-all": {
+        routing: {
+            enabled: false
+        },
+        providers: {
+            planner: { type: "codex-cli" },
+            reviewer: { type: "codex-cli" },
+            generator: { type: "codex-cli" },
+            fixer: { type: "codex-cli" }
+        }
+    },
+    hybrid: {
+        routing: {
+            enabled: true
+        },
+        providers: {
+            planner: { type: "agy-cli" },
+            reviewer: { type: "agy-cli" },
+            generator: { type: "codex-cli" },
+            fixer: { type: "codex-cli" }
+        }
+    },
+    "safe-review": {
+        routing: {
+            enabled: false
+        },
+        providers: {
+            planner: { type: "agy-cli" },
+            reviewer: { type: "claude-cli" },
+            generator: { type: "codex-cli" },
+            fixer: { type: "codex-cli" }
+        }
+    }
+};
+export async function loadJsonIfExists(filePath) {
+    try {
+        const raw = await fs.readFile(filePath, "utf8");
+        return JSON.parse(raw);
+    }
+    catch (error) {
+        const normalized = error;
+        if (normalized?.code === "ENOENT") {
+            return null;
+        }
+        throw new Error(`Failed to load config ${filePath}: ${normalized?.message ?? "Unknown error"}`, { cause: error });
+    }
+}
+export async function writeJsonFile(filePath, value) {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+export async function resolveProjectConfigPath(repoRoot, explicitConfigPath) {
+    if (explicitConfigPath) {
+        return path.resolve(explicitConfigPath);
+    }
+    const candidate = path.join(repoRoot, ".ai-system.json");
+    try {
+        await fs.access(candidate);
+        return candidate;
+    }
+    catch {
+        return null;
+    }
+}
+export function getDefaultGlobalConfigPath() {
+    return path.join(os.homedir(), ".config", "ai-system", "config.json");
+}
+export async function resolveGlobalConfigPath(explicitGlobalConfigPath) {
+    const candidate = explicitGlobalConfigPath || process.env.AI_SYSTEM_GLOBAL_CONFIG || getDefaultGlobalConfigPath();
+    if (!candidate) {
+        return null;
+    }
+    const resolved = path.resolve(candidate);
+    try {
+        await fs.access(resolved);
+        return resolved;
+    }
+    catch {
+        return explicitGlobalConfigPath || process.env.AI_SYSTEM_GLOBAL_CONFIG ? resolved : null;
+    }
+}
+export function normalizeProjectConfigPresetName(value) {
+    const normalized = String(value || "").trim().toLowerCase();
+    if (!normalized) {
+        return null;
+    }
+    if (normalized === "codex-all" || normalized === "hybrid" || normalized === "safe-review") {
+        return normalized;
+    }
+    return null;
+}
+export function getProjectConfigPreset(name) {
+    const normalized = normalizeProjectConfigPresetName(name);
+    if (!normalized) {
+        return null;
+    }
+    return {
+        name: normalized,
+        config: PROJECT_CONFIG_PRESETS[normalized]
+    };
+}
+export function listProjectConfigPresets() {
+    return [
+        { name: "codex-all", summary: "Use Codex for planner, reviewer, generator, and fixer. Disable dynamic routing." },
+        { name: "hybrid", summary: "Use Agy for planning/review and Codex for generation/fixes. Keep dynamic routing enabled." },
+        { name: "safe-review", summary: "Use Agy planning, Claude review, and Codex generation/fixes. Disable dynamic routing." }
+    ];
+}
+export function stripProjectConfigProfile(config) {
+    if (!config) {
+        return null;
+    }
+    const { profile: _profile, ...rest } = config;
+    return rest;
+}
+export function mergeConfig(base, override) {
+    if (!override || typeof override !== "object" || Array.isArray(override)) {
+        return base;
+    }
+    const output = { ...base };
+    for (const [key, value] of Object.entries(override)) {
+        if (Array.isArray(value)) {
+            output[key] = [...value];
+            continue;
+        }
+        if (value && typeof value === "object") {
+            const current = output[key] && typeof output[key] === "object" && !Array.isArray(output[key])
+                ? output[key]
+                : {};
+            output[key] = mergeConfig(current, value);
+            continue;
+        }
+        output[key] = value;
+    }
+    return output;
+}
+export function summarizeRules(rules) {
+    const parts = [];
+    parts.push(`- max_files: ${rules.max_files ?? 10}`);
+    parts.push(`- max_iterations: ${rules.max_iterations ?? 3}`);
+    parts.push(`- vector_search: ${rules.vector_search?.enabled ? "enabled" : "disabled"}`);
+    if (rules.tools) {
+        parts.push(`- tools: ${rules.tools.enabled ? "enabled" : "disabled"} (validation=${rules.tools.json_validation !== false})`);
+    }
+    return parts.join("\n");
+}

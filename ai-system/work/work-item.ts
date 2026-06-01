@@ -112,6 +112,41 @@ export interface ChecklistItem {
   waivedAt?: string;
 }
 
+export interface LinkedJobLease {
+  workerId: string;
+  leaseId: string;
+  claimedAt: string;
+  expiresAt: string;
+  lastHeartbeatAt: string;
+}
+
+export interface LinkedJobSummary {
+  jobId: string;
+  status: string;
+  workerId?: string;
+  lease?: LinkedJobLease;
+  resultSummary?: string | null;
+  artifactPath?: string | null;
+  error?: string | null;
+  workerLogs?: string[];
+  updatedAt?: string;
+}
+
+export interface WorkItemEvent {
+  id: string;
+  type: "status" | "log" | "artifact" | "approval" | "audit" | "run";
+  timestamp: string;
+  title: string;
+  message?: string;
+  status?: string;
+  jobId?: string;
+  leaseId?: string;
+  actorId?: string;
+  actorRole?: string;
+  ref?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface WorkItem {
   schemaVersion: number;
   id: string;
@@ -126,8 +161,20 @@ export interface WorkItem {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  stage?: string;
+  executionMode?: string;
+  workflowProfile?: string;
+  routingProfile?: string;
+  requestedBy?: string;
+  repo?: {
+    repoId?: string;
+    localPath?: string;
+    remote?: string;
+  };
   externalTask?: ExternalTaskRef;
   linkedRuns: string[];
+  linkedJobs?: LinkedJobSummary[];
+  events?: WorkItemEvent[];
   branch?: string;
   worktreePath?: string;
   pullRequest?: {

@@ -3,23 +3,30 @@ import path from "node:path";
 import { Orchestrator } from "./core/orchestrator.js";
 import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
+import { createApprovalArtifactBinding, type ApprovalArtifactBinding } from "./approvals/approval-proof.js";
+import { applyWorkflowProfileToTask, tightenApprovalPolicyForProfile } from "./workflows/workflow-registry.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
 import {
   listRecentRunSummaries,
   runArtifactRetentionCleanup
 } from "./core/artifacts.js";
-import { classifyServerError } from "./core/server-analytics.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
 import { loadAllowedWorkdirs } from "./core/workspace-registry.js";
 import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
+import { resolveTokenRole, canAccessRoute, type TokenRole } from "./security/token-policy.js";
+import { validatePath } from "./security/path-policy.js";
 import { healthRoute } from "./server/routes/health.js";
 import { adminRoute } from "./server/routes/admin.js";
 import { jobsRoute } from "./server/routes/jobs.js";
 import { configRoute } from "./server/routes/config.js";
 import { workItemsRoute } from "./server/routes/work-items.js";
+import { reposRoute } from "./server/routes/repos.js";
+import { workerRoutes } from "./workers/worker-routes.js";
 import type { RouteHandler, ServerRouteContext } from "./server/routes-context.js";
-import type { Logger, RulesConfig, RunStatus } from "./types.js";
+import { resolveExecutionBackend } from "./core/execution-backend.js";
+import type { Logger, RulesConfig } from "./types.js";
+export { mapRunSummaryToQueueJob } from "./jobs/job-service.js";
 
 export interface ServerAppOptions {
   defaultCwd: string;
@@ -33,7 +40,14 @@ export interface ServerAppOptions {
 export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const defaultCwd = path.resolve(options.defaultCwd);
   const authToken = options.authToken?.trim() || "";
-  const requiresAuth = authToken.length > 0;
+  const workerToken = process.env.ORCHESTRA_WORKER_TOKEN?.trim() || "";
+  const hermesToken = process.env.ORCHESTRA_HERMES_TOKEN?.trim() || "";
+  const requiresAuth = authToken.length > 0 || workerToken.length > 0 || hermesToken.length > 0;
+  const tokenConfig = {
+    serverToken: authToken,
+    workerToken,
+    hermesToken
+  };
   const allowedRoots = loadAllowedWorkdirs(defaultCwd, options.allowedWorkdirs);
   const logClients = new Set<http.ServerResponse>();
   const originalOnLog = options.logger.onLog;
@@ -56,21 +70,24 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       resolve: (value: boolean) => void;
       type: "plan" | "checkpoint";
       data?: any;
+      binding?: ApprovalArtifactBinding;
     }
   >();
   const auditLog = new FileAuditLog(resolveAuditLogPath(defaultCwd));
 
   const runner: JobRunner =
     options.runner ??
-    (async ({ jobId, task, cwd, dryRun, resume, workflowMode, externalTask, signal }) => {
+    (async ({ jobId, task, cwd, dryRun, resume, workflowMode, workflowProfile, approvalPolicy, externalTask, signal }) => {
       const confirmationHandler: import("./types.js").ConfirmationHandler = {
         confirmPlan: async (plan) => {
           return new Promise((resolve) => {
-            pendingApprovals.set(jobId, { resolve, type: "plan", data: plan });
+            const binding = createApprovalArtifactBinding(plan, "plan");
+            pendingApprovals.set(jobId, { resolve, type: "plan", data: plan, binding });
             void queue.get(jobId).then((j) => {
               if (j)
                 queue.updateJob(j, {
                   status: "waiting_for_approval",
+                  approvalArtifact: binding,
                   resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
                   execution: {
                     ...j.execution,
@@ -83,9 +100,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         },
         confirmCheckpoint: async (message, artifactPath) => {
           return new Promise((resolve) => {
-            pendingApprovals.set(jobId, { resolve, type: "checkpoint", data: { message, artifactPath } });
+            const checkpointData = { message, artifactPath };
+            const binding = createApprovalArtifactBinding(checkpointData, "checkpoint");
+            pendingApprovals.set(jobId, { resolve, type: "checkpoint", data: checkpointData, binding });
             void queue.get(jobId).then((j) => {
-              if (j) queue.updateJob(j, { status: "waiting_for_approval" });
+              if (j) queue.updateJob(j, { status: "waiting_for_approval", approvalArtifact: binding });
             });
             broadcastLog("info", `Checkpoint: ${message}. Waiting for approval...`, jobId);
           });
@@ -118,8 +137,12 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       }
 
       const { rules } = await loadRules(cwd);
-      const approvalMode = resolveApprovalPolicy(task, rules);
-      return orchestrator.run(task, {
+      const profiledTask = applyWorkflowProfileToTask(task, workflowProfile);
+      const approvalMode = tightenApprovalPolicyForProfile(
+        approvalPolicy ?? resolveApprovalPolicy(profiledTask, rules, [], { workflowMode }),
+        workflowProfile
+      );
+      return orchestrator.run(profiledTask, {
         dryRun,
         interactive: approvalMode.interactive,
         pauseAfterPlan: approvalMode.pauseAfterPlan,
@@ -135,6 +158,13 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     concurrency: options.queueConcurrency,
     logger: options.logger
   });
+  const executionBackend = resolveExecutionBackend();
+  if (executionBackend === "worker" || executionBackend === "hybrid") {
+    queue.setPaused(true);
+    if (executionBackend === "hybrid") {
+      options.logger.warn("ORCHESTRA_EXECUTION_BACKEND=hybrid currently runs in worker-only mode until internal-worker leasing is implemented.");
+    }
+  }
   let maintenanceTimer: NodeJS.Timeout | null = null;
   let isClosed = false;
   let currentGlobalRules: RulesConfig | null = null;
@@ -220,14 +250,22 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         resolveRequestedCwd,
         resolveOptionalRequestedCwd,
         isAuthorized: (request) => isAuthorized(request, authToken),
+        tokenRole: "dashboard",
         respondJson
       };
 
-      if (requiresAuth && !isAuthorized(req, authToken)) {
-        return respondJson(res, 401, {
-          ok: false,
-          error: "Unauthorized"
-        });
+      if (requiresAuth) {
+        const headerValue = (req.headers.authorization || req.headers["x-api-key"] || "") as string;
+        const tokenResult = resolveTokenRole(tokenConfig, headerValue);
+        if (!tokenResult.valid) {
+          return respondJson(res, 401, { ok: false, error: "Unauthorized" });
+        }
+        if (!canAccessRoute(tokenResult.role, url.pathname, req.method)) {
+          return respondJson(res, 403, { ok: false, error: `Token role '${tokenResult.role}' cannot access ${url.pathname}` });
+        }
+        routeContext.tokenRole = tokenResult.role;
+      } else {
+        routeContext.tokenRole = "dashboard";
       }
 
       if (url.pathname === "/logs" && req.method === "GET") {
@@ -250,7 +288,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         }
       }
 
-      const routeHandlers: RouteHandler[] = [adminRoute, jobsRoute, configRoute, workItemsRoute];
+      const routeHandlers: RouteHandler[] = [adminRoute, jobsRoute, configRoute, reposRoute, workItemsRoute, workerRoutes];
       for (const route of routeHandlers) {
         if (await route.handle(req, res, url, routeContext)) {
           return;
@@ -269,35 +307,47 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       });
     }
   });
+  const originalClose = server.close.bind(server);
+  server.close = ((callback?: (err?: Error | undefined) => void) => {
+    void queue
+      .stop()
+      .then(() => {
+        isClosed = true;
+        if (maintenanceTimer) {
+          clearInterval(maintenanceTimer);
+          maintenanceTimer = null;
+        }
+        originalClose(callback);
+      })
+      .catch((error: Error) => {
+        callback?.(error);
+      });
+    return server;
+  }) as typeof server.close;
+
   server.on("close", () => {
     isClosed = true;
     if (maintenanceTimer) {
       clearInterval(maintenanceTimer);
       maintenanceTimer = null;
     }
-    void queue.stop();
   });
   return server;
 }
 
-function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {
+async function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): Promise<string | null> {
   const requested =
     typeof value === "string" && value.trim()
       ? path.isAbsolute(value)
         ? path.resolve(value)
         : path.resolve(defaultCwd, value)
       : defaultCwd;
-  return allowedRoots.some((root) => isPathWithinRoot(root, requested)) ? requested : null;
+  const validation = await validatePath(requested, allowedRoots);
+  return validation.allowed ? validation.realpath ?? requested : null;
 }
 
-function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {
+async function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): Promise<string | null> {
   return resolveRequestedCwd(typeof value === "string" && value.trim() ? value : undefined, defaultCwd, allowedRoots);
-}
-
-function isPathWithinRoot(root: string, candidate: string): boolean {
-  const resolvedRoot = path.resolve(root);
-  const resolvedCandidate = path.resolve(candidate);
-  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
 }
 
 function isAuthorized(req: http.IncomingMessage, token: string): boolean {
@@ -338,54 +388,6 @@ export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: 
     interactive: !skipApproval,
     pauseAfterPlan: !skipApproval
   };
-}
-
-export function mapRunSummaryToQueueJob(run: Awaited<ReturnType<typeof listRecentRunSummaries>>[number], defaultCwd: string): QueueJob {
-  return {
-    version: 1,
-    jobId: run.runName,
-    status: normalizeRunStatus(run.status),
-    task: run.task,
-    cwd: defaultCwd,
-    dryRun: run.dryRun,
-    approvalMode:
-      run.approvalPolicy?.approvalMode ??
-      (run.status === "paused_after_plan" || run.status === "paused_after_generate" ? "manual" : undefined),
-    approvalPolicy: run.approvalPolicy ?? undefined,
-    createdAt: run.updatedAt || new Date().toISOString(),
-    updatedAt: run.updatedAt || new Date().toISOString(),
-    artifactPath: run.runPath,
-    resultSummary: run.execution?.failure?.reason || run.status,
-    failure: run.status === "failed" ? classifyServerError(run.execution?.failure?.reason) : undefined,
-    diffSummaries: run.diffSummaries,
-    latestToolResults: run.latestToolResults,
-    execution: run.execution
-      ? {
-          transitions: run.execution.transitions,
-          providerMetrics: run.execution.providerMetrics,
-          budget: run.execution.budget,
-          totalDurationMs: run.execution.totalDurationMs,
-          retryHint: run.execution.retryHint ?? null
-        }
-      : undefined
-  };
-}
-
-function normalizeRunStatus(status: RunStatus | string): QueueJob["status"] {
-  switch (status) {
-    case "completed":
-    case "resumed_completed":
-      return "completed";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "cancelled";
-    case "paused_after_plan":
-    case "paused_after_generate":
-      return "waiting_for_approval";
-    default:
-      return "failed";
-  }
 }
 
 function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): boolean {

@@ -48,9 +48,21 @@ export function normalizeQueueJob(raw: any): QueueJob {
     ...raw,
     version: raw.version ?? 1,
     status: raw.status ?? "failed",
+    workerId: raw.workerId,
     task: raw.task ?? "unknown task",
     cwd: raw.cwd ?? ".",
     dryRun: raw.dryRun ?? false,
+    workflowMode: raw.workflowMode,
+    workflowProfile: raw.workflowProfile,
+    approvalMode: raw.approvalMode,
+    approvalPolicy: raw.approvalPolicy,
+    approvalArtifact: raw.approvalArtifact ?? null,
+    externalTask: raw.externalTask,
+    workerSelector: raw.workerSelector,
+    requiredCapabilities: raw.requiredCapabilities,
+    workerLogs: Array.isArray(raw.workerLogs)
+      ? raw.workerLogs.filter((entry: unknown): entry is string => typeof entry === "string")
+      : undefined,
     createdAt: raw.createdAt ?? new Date().toISOString(),
     updatedAt: raw.updatedAt ?? new Date().toISOString()
   };

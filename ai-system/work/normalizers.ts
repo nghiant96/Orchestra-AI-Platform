@@ -23,6 +23,18 @@ export function normalizeWorkItem(data: any): WorkItem {
     createdBy: String(data.createdBy || "system"),
     createdAt: data.createdAt || new Date().toISOString(),
     updatedAt: data.updatedAt || new Date().toISOString(),
+    stage: typeof data.stage === "string" ? data.stage : undefined,
+    executionMode: typeof data.executionMode === "string" ? data.executionMode : undefined,
+    workflowProfile: typeof data.workflowProfile === "string" ? data.workflowProfile : undefined,
+    routingProfile: typeof data.routingProfile === "string" ? data.routingProfile : undefined,
+    requestedBy: typeof data.requestedBy === "string" ? data.requestedBy : undefined,
+    repo: data.repo && typeof data.repo === "object"
+      ? {
+          ...(typeof data.repo.repoId === "string" ? { repoId: data.repo.repoId } : {}),
+          localPath: typeof data.repo.localPath === "string" ? data.repo.localPath : undefined,
+          remote: typeof data.repo.remote === "string" ? data.repo.remote : undefined
+        }
+      : undefined,
     externalTask: data.externalTask,
     linkedRuns: Array.isArray(data.linkedRuns) ? data.linkedRuns : [],
     branch: data.branch,

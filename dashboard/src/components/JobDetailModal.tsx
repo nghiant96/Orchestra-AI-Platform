@@ -27,6 +27,7 @@ import { JobSummarySection } from './JobSummarySection';
 import { JobDetailTabs, type JobDetailTab } from './JobDetailTabs';
 import { JobPromptSection } from './JobPromptSection';
 import { JobTimelineSection } from './JobTimelineSection';
+import { ArtifactViewer } from './ArtifactViewer';
 
 interface JobDetailModalProps {
   job: Job;
@@ -148,6 +149,7 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
                 {job.status === 'waiting_for_approval' && job.execution?.pendingPlan && (
                   <JobPlanSection job={job} />
                 )}
+                <ArtifactViewer job={job} />
                 <JobPromptSection task={job.task} />
                 <JobTimelineSection transitions={transitions} />
               </motion.div>
@@ -317,6 +319,7 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
                   />
                 ) : (
                   <div className="space-y-6">
+                    <ArtifactViewer job={job} />
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <Files size={14} />
                       Changed Files
