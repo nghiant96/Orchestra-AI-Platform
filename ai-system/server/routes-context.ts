@@ -4,6 +4,7 @@ import type { FileBackedJobQueue } from "../core/job-queue.js";
 import type { JobQueueRunInput } from "../core/job-queue.js";
 import type { RulesConfig } from "../types.js";
 import type { OrchestratorResult } from "../types.js";
+import type { TokenRole } from "../security/token-policy.js";
 import { canPerformAction } from "../core/permissions.js";
 
 export interface ServerRouteContext {
@@ -21,9 +22,10 @@ export interface ServerRouteContext {
   currentGlobalRules: RulesConfig | null;
   globalRulesPromise: Promise<{ rules: RulesConfig }>;
   actor: AuditActor;
+  tokenRole: TokenRole;
   broadcastLog(level: string, message: string, jobId?: string): void;
-  resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null;
-  resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null;
+  resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): Promise<string | null>;
+  resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): Promise<string | null>;
   isAuthorized(req: http.IncomingMessage): boolean;
   respondJson(res: http.ServerResponse, statusCode: number, body: unknown): boolean;
 }

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { truncate } from "./string.js";
+import { checkCommand } from "../security/command-policy.js";
 import type { CliCommandError, CommandRetryOptions, CommandRunOptions, CommandRunResult } from "../types.js";
 
 const DEFAULT_KILL_GRACE_MS = 5000;
@@ -157,6 +158,12 @@ export async function runCommand({
 }: CommandRunOptions): Promise<CommandRunResult> {
   if (signal?.aborted) {
     return Promise.reject(new Error('AbortError'));
+  }
+
+  const commandLine = [command, ...args].join(" ").trim();
+  const policy = checkCommand(commandLine);
+  if (!policy.allowed) {
+    return Promise.reject(new Error(policy.reason ?? `Blocked command: ${commandLine}`));
   }
 
   return new Promise((resolve, reject) => {

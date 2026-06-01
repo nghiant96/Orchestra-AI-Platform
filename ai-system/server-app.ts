@@ -12,6 +12,8 @@ import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
 import { loadAllowedWorkdirs } from "./core/workspace-registry.js";
 import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
+import { resolveTokenRole, canAccessRoute, type TokenRole } from "./security/token-policy.js";
+import { validatePath } from "./security/path-policy.js";
 import { healthRoute } from "./server/routes/health.js";
 import { adminRoute } from "./server/routes/admin.js";
 import { jobsRoute } from "./server/routes/jobs.js";
@@ -35,7 +37,14 @@ export interface ServerAppOptions {
 export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const defaultCwd = path.resolve(options.defaultCwd);
   const authToken = options.authToken?.trim() || "";
-  const requiresAuth = authToken.length > 0;
+  const workerToken = process.env.ORCHESTRA_WORKER_TOKEN?.trim() || "";
+  const hermesToken = process.env.ORCHESTRA_HERMES_TOKEN?.trim() || "";
+  const requiresAuth = authToken.length > 0 || workerToken.length > 0 || hermesToken.length > 0;
+  const tokenConfig = {
+    serverToken: authToken,
+    workerToken,
+    hermesToken
+  };
   const allowedRoots = loadAllowedWorkdirs(defaultCwd, options.allowedWorkdirs);
   const logClients = new Set<http.ServerResponse>();
   const originalOnLog = options.logger.onLog;
@@ -225,14 +234,22 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         resolveRequestedCwd,
         resolveOptionalRequestedCwd,
         isAuthorized: (request) => isAuthorized(request, authToken),
+        tokenRole: "dashboard",
         respondJson
       };
 
-      if (requiresAuth && !isAuthorized(req, authToken)) {
-        return respondJson(res, 401, {
-          ok: false,
-          error: "Unauthorized"
-        });
+      if (requiresAuth) {
+        const headerValue = (req.headers.authorization || req.headers["x-api-key"] || "") as string;
+        const tokenResult = resolveTokenRole(tokenConfig, headerValue);
+        if (!tokenResult.valid) {
+          return respondJson(res, 401, { ok: false, error: "Unauthorized" });
+        }
+        if (!canAccessRoute(tokenResult.role, url.pathname, req.method)) {
+          return respondJson(res, 403, { ok: false, error: `Token role '${tokenResult.role}' cannot access ${url.pathname}` });
+        }
+        routeContext.tokenRole = tokenResult.role;
+      } else {
+        routeContext.tokenRole = "dashboard";
       }
 
       if (url.pathname === "/logs" && req.method === "GET") {
@@ -285,24 +302,19 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   return server;
 }
 
-function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {
+async function resolveRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): Promise<string | null> {
   const requested =
     typeof value === "string" && value.trim()
       ? path.isAbsolute(value)
         ? path.resolve(value)
         : path.resolve(defaultCwd, value)
       : defaultCwd;
-  return allowedRoots.some((root) => isPathWithinRoot(root, requested)) ? requested : null;
+  const validation = await validatePath(requested, allowedRoots);
+  return validation.allowed ? validation.realpath ?? requested : null;
 }
 
-function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): string | null {
+async function resolveOptionalRequestedCwd(value: unknown, defaultCwd: string, allowedRoots: string[]): Promise<string | null> {
   return resolveRequestedCwd(typeof value === "string" && value.trim() ? value : undefined, defaultCwd, allowedRoots);
-}
-
-function isPathWithinRoot(root: string, candidate: string): boolean {
-  const resolvedRoot = path.resolve(root);
-  const resolvedCandidate = path.resolve(candidate);
-  return resolvedCandidate === resolvedRoot || resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
 }
 
 function isAuthorized(req: http.IncomingMessage, token: string): boolean {

@@ -14,7 +14,7 @@ import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 export const workItemsRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
     if (url.pathname === "/work-items" && req.method === "GET") {
-      const cwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -36,7 +36,7 @@ export const workItemsRoute: RouteHandler = {
         return true;
       }
       const payload = await readJsonBody(req);
-      const cwd = ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -59,7 +59,7 @@ export const workItemsRoute: RouteHandler = {
     const workItemMatch = /^\/work-items\/([^/]+)(?:\/(assess|run|cancel|retry|handoff))?$/.exec(url.pathname);
     if (workItemMatch && req.method === "GET" && !workItemMatch[2]) {
       const workItemId = workItemMatch[1] ?? "";
-      const cwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -87,7 +87,7 @@ export const workItemsRoute: RouteHandler = {
       const workItemId = workItemMatch[1] ?? "";
       const action = workItemMatch[2];
       const payload = await readJsonBody(req);
-      const cwd = ctx.resolveRequestedCwd(payload?.cwd ?? url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveRequestedCwd(payload?.cwd ?? url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;

@@ -76,6 +76,36 @@ test("workspace API can create assess run and list work items", async () => {
   }
 });
 
+test("workspace registration normalizes symlinked paths", async () => {
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-workspace-symlink-root-"));
+  const outsideRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-workspace-symlink-outside-"));
+  const linkedRoot = path.join(repoRoot, "linked-root");
+  await fs.symlink(outsideRoot, linkedRoot);
+  const canonicalLinkedRoot = await fs.realpath(linkedRoot);
+
+  const server = createAiSystemServer({
+    defaultCwd: repoRoot,
+    allowedWorkdirs: [repoRoot],
+    logger: silentLogger(),
+    runner: async ({ task, cwd, dryRun }) => createResult(task, cwd, dryRun)
+  });
+
+  try {
+    const baseUrl = await listen(server);
+    await waitForHttpReady(baseUrl);
+    const result = await requestJson(baseUrl, "POST", "/workspaces", { cwd: linkedRoot }, 201, {
+      "x-ai-system-role": "operator",
+      "x-ai-system-actor": "dashboard"
+    });
+    assert.equal(result.ok, true);
+    assert.ok(result.allowedWorkdirs.includes(canonicalLinkedRoot));
+  } finally {
+    await closeServer(server);
+    await cleanupDir(repoRoot);
+    await cleanupDir(outsideRoot);
+  }
+});
+
 function createResult(task: string, cwd: string, dryRun: boolean) {
   return {
     version: 1,

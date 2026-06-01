@@ -215,3 +215,21 @@ passed.
 
 **Rule**: If a test starts a queued job, it must either wait for the terminal state or pause/stop the queue
 before server teardown. Do not rely on the runner finishing "soon enough" during cleanup.
+
+## 2026-06-01: Route auth must be method-aware, not path-only
+
+**Mistake**: A role gate that only looked at the URL path let worker tokens reach the worker registry read
+routes even though they were supposed to be limited to register/heartbeat/claim completion flows.
+
+**Rule**: When a token role has mixed read/write capabilities on the same path prefix, the policy must check
+both the route and HTTP method. Keep worker tokens on the narrowest allowlist possible and add a regression
+test for the read-only dashboard paths they must not see.
+
+## 2026-06-01: Path validation should use canonical realpaths, not raw path strings
+
+**Mistake**: A path guard treated `/var/...` and `/private/var/...` as an escape on macOS even though they
+resolve to the same canonical location, which broke otherwise valid temp directories and workspace tests.
+
+**Rule**: Compare canonical realpaths when enforcing workspace/path boundaries, and only reject a candidate
+when the resolved target truly falls outside the allowed root. Do not equate platform-specific path aliases
+with an escape by default.

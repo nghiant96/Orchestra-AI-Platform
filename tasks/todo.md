@@ -16,6 +16,21 @@ Review result:
 - The worker-route smoke test now waits for its queued job to complete before server shutdown, which removes the teardown race that was obscuring the actual lease behavior.
 - Verification passed with `./node_modules/.bin/tsc --noEmit` and the targeted stale-lease, worker-route, worker-claim, worker-store, and server queue tests.
 
+## Task: Complete Phase 1.5 Security Foundation
+
+- [x] Redact common API keys, GitHub/GitLab tokens, JWTs, AWS secrets, and npm tokens.
+- [x] Enforce destructive command blocking in the command execution path.
+- [x] Make route access method-aware so worker tokens only reach worker endpoints.
+- [x] Validate canonical workspace paths and reject runtime symlink escapes.
+- [x] Add regression coverage for redaction, command policy, path policy, token separation, and workspace registration.
+- [x] Re-run typecheck and targeted security/server/workspace tests.
+
+Review result:
+
+- Phase 1.5 is complete: redaction now covers the tested secret formats, command policy is enforced before spawning processes, token routing is split by role and HTTP method, and workspace/job path resolution uses canonical realpaths instead of trusting raw user input.
+- The targeted regression tests are green, including worker token gating, symlink/path handling, and workspace registration normalization on macOS-style temp paths.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` plus the targeted security, worker, workspace, and server queue test suites.
+
 ## Task: Review & Fix Phase 1B Worker Claim And Lease
 
 - [x] Align claim/lease state with architecture contract (`assigned` + lease metadata).

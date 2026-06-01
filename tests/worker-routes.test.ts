@@ -199,11 +199,17 @@ describe("Worker Routes", () => {
       task: "worker coexistence test",
       dryRun: true,
       cwd: tmpDir
-    }, 202);
+    }, 202, {
+      "x-ai-system-role": "operator",
+      "x-ai-system-actor": "dashboard"
+    });
 
     await waitForJob(baseUrl, String(created.jobId), "completed");
 
-    const jobs = await requestJson(baseUrl, "GET", "/jobs", undefined, 200);
+    const jobs = await requestJson(baseUrl, "GET", "/jobs", undefined, 200, {
+      "x-ai-system-role": "operator",
+      "x-ai-system-actor": "dashboard"
+    });
     assert.ok(jobs.jobs.length > 0);
   });
 });

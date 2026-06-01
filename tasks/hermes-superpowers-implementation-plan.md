@@ -301,26 +301,26 @@ Expected files:
 
 Tasks:
 
-- [ ] Add redaction patterns for common API keys, GitHub/GitLab tokens, private keys, AWS/GCP secrets.
-- [ ] Redact logs/artifacts before upload.
-- [ ] Add realpath guard for repo/worktree paths.
-- [ ] Reject symlink escape outside workspace roots.
-- [ ] Add command denylist for destructive commands.
-- [ ] Add approval-required command classification.
-- [ ] Split auth tokens:
-  - [ ] `AI_SYSTEM_SERVER_TOKEN`
-  - [ ] `ORCHESTRA_WORKER_TOKEN`
-  - [ ] `ORCHESTRA_HERMES_TOKEN`
-- [ ] Ensure worker token cannot call dashboard/operator-only APIs.
-- [ ] Ensure Hermes token cannot call worker-only APIs.
+- [x] Add redaction patterns for common API keys, GitHub/GitLab tokens, private keys, AWS/GCP secrets.
+- [x] Redact logs/artifacts before upload.
+- [x] Add realpath guard for repo/worktree paths.
+- [x] Prevent symlink escape outside workspace roots.
+- [x] Add command denylist for destructive commands.
+- [x] Add approval-required command classification.
+- [x] Split auth tokens:
+  - [x] `AI_SYSTEM_SERVER_TOKEN`
+  - [x] `ORCHESTRA_WORKER_TOKEN`
+  - [x] `ORCHESTRA_HERMES_TOKEN`
+- [x] Ensure worker token cannot call dashboard/operator-only APIs.
+- [x] Ensure Hermes token cannot call worker-only APIs.
 
 Acceptance criteria:
 
-- [ ] Secret-like values are redacted before upload.
-- [ ] Symlink escape outside roots is rejected.
-- [ ] Destructive command attempts are blocked or require approval.
-- [ ] Token role separation is tested.
-- [ ] Existing local embedded server tests remain ergonomic.
+- [x] Secret-like values are redacted before upload.
+- [x] Symlink escape outside roots is prevented.
+- [x] Destructive command attempts are blocked or require approval.
+- [x] Token role separation is tested.
+- [x] Existing local embedded server tests remain ergonomic.
 
 Recommended verification:
 
@@ -334,6 +334,12 @@ Hand-off notes for next phase:
 
 - List supported redaction patterns.
 - List denied commands and approval-required commands.
+
+Review result:
+
+- Phase 1.5 is now complete: secret redaction covers the common provider/token formats used in tests, command policy blocks destructive shell invocations at the execution boundary, path policy validates canonical realpaths before requests reach the workspace layer, and token routing is method-aware so worker tokens only reach worker endpoints.
+- Worker and workspace tests now prove the runtime contracts, including token separation, canonical path handling on macOS-style temp paths, and symlink normalization for workspace registration.
+- Verification passed with `./node_modules/.bin/tsc --noEmit` plus the targeted security, worker, workspace, and server-queue test suites.
 
 ---
 

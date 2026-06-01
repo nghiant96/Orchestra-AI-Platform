@@ -23,7 +23,7 @@ export const jobsRoute: RouteHandler = {
         ctx.respondJson(res, 400, { ok: false, error: "Missing task" });
         return true;
       }
-      const cwd = ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -57,7 +57,7 @@ export const jobsRoute: RouteHandler = {
         ctx.respondJson(res, 400, { ok: false, error: "Missing task" });
         return true;
       }
-      const cwd = ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
+      const cwd = await ctx.resolveRequestedCwd(payload?.cwd, ctx.defaultCwd, ctx.allowedRoots);
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -88,7 +88,7 @@ export const jobsRoute: RouteHandler = {
     }
 
     if (url.pathname === "/jobs" && req.method === "GET") {
-      const filterCwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const filterCwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!filterCwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;
@@ -172,7 +172,7 @@ export const jobsRoute: RouteHandler = {
       const jobId = contentMatch[1] ?? "";
       const filePath = url.searchParams.get("path");
       const type = url.searchParams.get("type") || "generated";
-      const requestedCwd = ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
+      const requestedCwd = await ctx.resolveOptionalRequestedCwd(url.searchParams.get("cwd"), ctx.defaultCwd, ctx.allowedRoots);
       if (!requestedCwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
         return true;

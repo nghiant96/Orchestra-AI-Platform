@@ -27,12 +27,17 @@ export async function registerWorkspaceRoot(defaultCwd: string, cwd: string, exi
     throw new Error("Workspace path is required");
   }
 
-  const stat = await fsPromises.stat(resolved).catch(() => null);
+  const realpath = await fsPromises.realpath(resolved).catch(() => null);
+  if (!realpath) {
+    throw new Error("Workspace path must point to an existing directory");
+  }
+
+  const stat = await fsPromises.stat(realpath).catch(() => null);
   if (!stat || !stat.isDirectory()) {
     throw new Error("Workspace path must point to an existing directory");
   }
 
-  const roots = unique([...normalizeRoots(existingRoots), resolved]);
+  const roots = unique([...normalizeRoots(existingRoots), realpath]);
   await persistWorkspaceRoots(defaultCwd, roots);
   return roots;
 }
