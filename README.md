@@ -407,6 +407,7 @@ ai worker start \
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for server auth | None |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated workspace roots the server may operate in | Current working directory |
 | `ORCHESTRA_EXECUTION_BACKEND` | Queue execution owner: `in-process`, `worker`, `hybrid` | `in-process` |
+| `ORCHESTRA_STORE` | Runtime store mode: `file`, `sqlite`, `postgres` | `file` |
 | `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
 | `ORCHESTRA_WORKER_PROVIDER` | Local worker provider adapter. v1 supports `codex`; `dummy` is for tests/smoke only | `codex` |
 | `ORCHESTRA_CODEX_COMMAND` | Command used by CodexProvider v1 | `codex` |
@@ -483,7 +484,7 @@ When running as a team service, Orchestra exposes a RESTful HTTP API:
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/health` | Server health + queue stats |
+| `GET` | `/health` | Server health + queue, worker, and store stats |
 | `GET` | `/stats` | Analytics (cost, latency, failure rates) |
 | `GET` | `/audit` | Audit log events |
 | `GET` | `/audit/export` | Export audit as JSON/CSV |

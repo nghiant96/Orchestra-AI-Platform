@@ -47,6 +47,11 @@ test("Dashboard smoke tests: verify core API endpoints and CORS", async () => {
         const health = await requestJson(baseUrl, "GET", "/health", undefined, 200);
         assert.equal(health.ok, true);
         assert.equal(health.status, "online");
+        assert.equal(health.store.mode, "file");
+        assert.equal(health.store.capabilities.durable, false);
+        assert.equal(health.queue.stalledCount, 0);
+        assert.equal(health.workers.totalCount, 0);
+        assert.equal(health.workers.busyCount, 0);
         // Test 2: CORS headers on OPTIONS
         const optionsReq = await fetch(`${baseUrl}/health`, { method: "OPTIONS" });
         assert.equal(optionsReq.status, 204);

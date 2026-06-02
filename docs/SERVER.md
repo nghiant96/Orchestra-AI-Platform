@@ -137,7 +137,7 @@ Worker contracts:
 ### Administration
 
 ```
-GET  /health                  → 200 OK       Server health + queue stats
+GET  /health                  → 200 OK       Server health + queue, worker, and store stats
 GET  /stats                   → 200 OK       Analytics dashboard data
 GET  /audit                   → 200 OK       Audit log events
 GET  /audit/export            → 200 OK       Export audit as JSON/CSV

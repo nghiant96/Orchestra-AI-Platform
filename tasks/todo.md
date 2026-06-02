@@ -2,6 +2,41 @@
 
 Last updated: 2026-06-01
 
+## Task: Handle Sprint 0-3 Execution Tranche
+
+- [x] Add store mode and capability descriptor to runtime health metadata.
+- [x] Expose worker counts and stalled queue counts in `/health`.
+- [x] Update dashboard smoke coverage to lock the new health contract.
+- [x] Keep README aligned with the new store/runtime knob.
+- [x] Run typecheck and dashboard smoke verification.
+
+Review result:
+
+- Sprint 0/Sprint 2 hardening is now reflected in runtime health: the server reports store mode, store capabilities, queue stalled counts, and worker counts.
+- Sprint 1 is now grounded by an explicit store descriptor, but the actual SQLite/Postgres durable backend is still the next implementation step rather than a claimed completion.
+
+## Task: Write Realistic Assessment And Product-Ready Roadmap
+
+- [x] Read current docs and implementation to separate as-is behavior from roadmap assumptions.
+- [x] Write one canonical document that describes the real system state and the next upgrade path.
+- [x] Verify the document only claims implemented behavior in the as-is section.
+
+Review result:
+
+- Added [ORCHESTRA_REALISTIC_ASSESSMENT_AND_ROADMAP.md](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ORCHESTRA_REALISTIC_ASSESSMENT_AND_ROADMAP.md) as the canonical document for current-state assessment plus the path to product-ready.
+- The new doc keeps the as-is section grounded in implemented control-plane, worker-lease, worktree, and preview Workspace/Hermes behavior, and moves SQLite/Postgres/Hermes PM work into explicit roadmap phases.
+
+## Task: Split Roadmap Into Sprints And Issues
+
+- [x] Break the product-ready roadmap into sprint-level execution buckets.
+- [x] Define concrete issue slices with dependencies and done criteria.
+- [x] Save the issue breakdown in a repo-local planning document.
+
+Review result:
+
+- Added [tasks/orchestra-product-roadmap-issues.md](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/tasks/orchestra-product-roadmap-issues.md) with Sprint 0-5, concrete issue slices, dependencies, and done criteria.
+- The issue breakdown keeps Sprint 0 and Sprint 1 as prerequisites for anything Hermes or scale-out related.
+
 ## Task: Implement Worker Foundation Hardening And Real Provider P2
 
 - [x] Add alpha scripts and JS mirror sync check.
