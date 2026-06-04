@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## 2026-06-04: pnpm v11 moves workspace policy out of package.json
+
+**Mistake**: Left `pnpm.overrides` in `package.json`, which pnpm 11 ignores. That let the lockfile drift to a different transitive version and kept a noisy warning in every install.
+
+**Rule**: For pnpm 11, keep workspace policy in `pnpm-workspace.yaml` instead of `package.json#pnpm`. Put `overrides` there, and use `pnpm approve-builds --all` to persist build-script allowlists when native dependencies need postinstall scripts.
+
+## 2026-06-04: Codex CLI should use process cwd, not a `--cwd` flag
+
+**Mistake**: Invoked `codex exec --cwd <worktree>` even though this Codex CLI version rejects `--cwd` and expects the working directory to be set by the spawned process environment, or via `-C/--cd` if explicitly needed.
+
+**Rule**: Before wiring an external CLI into a worker provider, check that exact CLI version's help text and use the working-directory mechanism it actually supports. Do not assume flags match the provider binary you remember from another version.
+
 ## 2026-06-04: Compiled dist builds must carry runtime assets, not just JS output
 
 **Mistake**: Switched the runtime entrypoints to `dist/` but only emitted compiled `.js` files. The server then failed at runtime because `rules.json`, prompt templates, and package metadata were still resolved by relative paths that only existed in the source tree.
@@ -203,6 +215,17 @@ store invalid states and polluted both dashboard data and future lease logic.
 
 **Rule**: Validate enum-like input at the service boundary before persisting. If the value is invalid, reject
 the request with a client error instead of coercing it to a default that hides the bug.
+
+## 2026-06-04: Worker checkpoint calls can race with heartbeats during phase-heavy smoke runs
+
+**Mistake**: Ran a real worker smoke with a very aggressive heartbeat interval while the worker was still doing
+initial worktree prep and checkpointing. That created a `Job is locked; retry` failure even though the runtime
+logic itself was fine.
+
+**Rule**: When adding checkpoint/resume logic to the worker, keep heartbeat intervals comfortably above the
+slowest startup path or serialize lock-taking operations more carefully. Phase planning tests should also verify
+the checkpoint state file before reading the final job record so a mid-run lock does not look like a missing
+artifact.
 
 ## 2026-06-01: Worker backend must not compete with external claimers
 

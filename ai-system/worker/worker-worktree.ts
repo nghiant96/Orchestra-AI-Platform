@@ -37,16 +37,21 @@ export async function prepareWorkerWorktree(input: {
     path.join(sourceRepoPath, ".ai-system-server", "worker-artifacts", sanitizePathPart(input.jobId))
   );
 
-  await fs.rm(worktreePath, { recursive: true, force: true });
   await fs.mkdir(path.dirname(worktreePath), { recursive: true });
   await fs.mkdir(artifactDir, { recursive: true });
 
-  await runCommand({
-    command: "git",
-    args: ["worktree", "add", "--detach", worktreePath, "HEAD"],
-    cwd: sourceRepoPath,
-    timeoutMs: 30000
-  });
+  const resumeStatePath = path.join(artifactDir, "phase-state.json");
+  const shouldReuseExisting = await pathExists(resumeStatePath);
+
+  if (!shouldReuseExisting || !(await pathExists(worktreePath))) {
+    await fs.rm(worktreePath, { recursive: true, force: true });
+    await runCommand({
+      command: "git",
+      args: ["worktree", "add", "--detach", worktreePath, "HEAD"],
+      cwd: sourceRepoPath,
+      timeoutMs: 30000
+    });
+  }
 
   return {
     workspaceRoot,
@@ -71,6 +76,15 @@ async function findContainingRoot(candidate: string, roots: string[]): Promise<s
 
 async function resolveExistingPath(value: string): Promise<string> {
   return fs.realpath(value);
+}
+
+async function pathExists(value: string): Promise<boolean> {
+  try {
+    await fs.access(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sanitizePathPart(value: string): string {

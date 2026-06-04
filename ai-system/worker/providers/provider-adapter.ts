@@ -1,4 +1,5 @@
 import type { DiffSummary, FailureMetadata, ToolExecutionResult } from "../../types.js";
+import type { PreparedWorkerWorktree } from "../worker-worktree.js";
 
 export type WorkerProviderId = "codex" | "dummy";
 
@@ -9,6 +10,7 @@ export interface WorkerProviderExecutionInput {
   worktreePath: string;
   workspaceRoot: string;
   artifactDir: string;
+  preparedWorktree?: PreparedWorkerWorktree;
   dryRun: boolean;
   workflowMode?: string;
   workflowProfile?: string;

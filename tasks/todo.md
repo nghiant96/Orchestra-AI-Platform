@@ -2,6 +2,20 @@
 
 Last updated: 2026-06-04
 
+## Task: Add Worker Phase Planning And Resume
+
+- [x] Add a worker task phase planner that splits larger tasks into smaller Codex phases.
+- [x] Persist phase checkpoint state alongside worker artifacts so a rerun can resume from the next unfinished phase.
+- [x] Reuse the worker worktree when a phase checkpoint already exists.
+- [x] Add regression coverage for phase planning and phase-state resume.
+- [x] Run typecheck, targeted tests, and a real codex worker smoke run.
+
+Review result:
+
+- The worker now plans tasks into phased slices, persists `phase-state.json`, and resumes from the next unfinished phase on rerun instead of starting over.
+- The worker smoke reached all three phases for a real `codex` job: implementation slice 1, implementation slice 2, and verification.
+- A real end-to-end smoke run completed with `claimedJobs: 1`, `completedJobs: 1`, `failedJobs: 0`, and `3/3` phase completion in the artifact state.
+
 ## Task: Switch From JS Mirrors To Standard Dist Build
 
 - [x] Add a root build config that emits compiled output into `dist/`.

@@ -6,6 +6,7 @@ import { runCommand } from "../../utils/api.js";
 import { redactSecrets } from "../../security/secret-redaction.js";
 import { ensurePathWithinRoot } from "../worker-safety.js";
 import { WorkerProcessSupervisor } from "../worker-process-supervisor.js";
+import { prepareWorkerWorktree } from "../worker-worktree.js";
 import type { WorkerProviderAdapter, WorkerProviderExecutionInput, WorkerProviderExecutionResult } from "./provider-adapter.js";
 
 export class CodexProvider implements WorkerProviderAdapter {
@@ -39,8 +40,17 @@ export class CodexProvider implements WorkerProviderAdapter {
       return failureResult(input, "Provider worktree is outside workspace root", error);
     }
 
+    const prepared = input.preparedWorktree ?? await prepareWorkerWorktree({
+      jobId: input.jobId,
+      cwd: input.cwd,
+      workspaceRoots: [input.workspaceRoot]
+    });
+    if (prepared.worktreePath !== input.worktreePath) {
+      return failureResult(input, "Provider worktree preparation did not resolve the expected path");
+    }
+
     const prompt = buildPrompt(input);
-    const commandLine = `${this.command} exec --cwd ${input.worktreePath} <prompt>`;
+    const commandLine = `${this.command} exec <prompt>`;
     const policy = checkCommand(commandLine);
     if (!policy.allowed || policy.requiresApproval) {
       return failureResult(input, policy.reason || "Provider command is not allowed");
@@ -55,7 +65,7 @@ export class CodexProvider implements WorkerProviderAdapter {
     try {
       const result = await this.supervisor.run({
         command: this.command,
-        args: ["exec", "--cwd", input.worktreePath, prompt],
+        args: ["exec", prompt],
         cwd: input.worktreePath,
         env: input.env,
         timeoutMs: Number(process.env.ORCHESTRA_CODEX_TIMEOUT_MS || 10 * 60 * 1000),
@@ -82,7 +92,7 @@ export class CodexProvider implements WorkerProviderAdapter {
         durationMs,
         summary: ok ? "Codex provider completed." : failureMessage,
         command: this.command,
-        args: ["exec", "--cwd", input.worktreePath, "<prompt>"],
+        args: ["exec", "<prompt>"],
         workingDirectory: input.worktreePath,
         stdout: scrub(stdout),
         stderr: scrub(stderr)
@@ -156,8 +166,7 @@ async function captureArtifacts(input: WorkerProviderExecutionInput, stdout: str
     fs.writeFile(path.join(input.artifactDir, "diff-stat.txt"), diffStat, "utf8"),
     fs.writeFile(path.join(input.artifactDir, "changed-files.json"), `${JSON.stringify(changedFiles, null, 2)}\n`, "utf8"),
     fs.writeFile(path.join(input.artifactDir, "provider-stdout.log"), shouldUploadRaw ? stdout : scrub(stdout), "utf8"),
-    fs.writeFile(path.join(input.artifactDir, "provider-stderr.log"), shouldUploadRaw ? stderr : scrub(stderr), "utf8"),
-    fs.writeFile(path.join(input.artifactDir, "verification.json"), `${JSON.stringify({ checks: [], note: "Verification policy is not configured in CodexProvider v1." }, null, 2)}\n`, "utf8")
+    fs.writeFile(path.join(input.artifactDir, "provider-stderr.log"), shouldUploadRaw ? stderr : scrub(stderr), "utf8")
   ]);
 
   return { changedFiles, diffText, diffSummaries };

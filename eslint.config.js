@@ -14,6 +14,8 @@ export default tseslint.config(
       "dist/**",
       "node_modules/**",
       "**/dist/**",
+      ".orchestra/**",
+      "**/.orchestra/**",
       ".ai-system-artifacts/**",
       ".ai-system-memory/**",
       "ai-system/**/*.js",

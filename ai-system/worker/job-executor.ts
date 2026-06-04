@@ -9,6 +9,17 @@ import { prepareWorkerWorktree } from "./worker-worktree.js";
 import { buildProviderEnv } from "./provider-env.js";
 import { resolveWorkerProvider } from "./providers/index.js";
 import { runWorkerVerification } from "./verification-runner.js";
+import {
+  ensureWorkerTaskPhaseState,
+  getWorkerTaskPhaseResumeIndex,
+  loadWorkerTaskPhaseState,
+  saveWorkerTaskPhaseState,
+  updateWorkerTaskPhaseStateForCompletion,
+  updateWorkerTaskPhaseStateForFailure,
+  updateWorkerTaskPhaseStateForStart,
+  type WorkerTaskPhase,
+  type WorkerTaskPhaseState
+} from "./task-phases.js";
 
 export interface WorkerJobExecutionContext {
   client: WorkerApiClient;
@@ -140,13 +151,13 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   }
 
   const provider = resolveWorkerProvider(providerId, { codexCommand: ctx.providerCommand });
-  const input = {
+  const providerInputBase = {
     jobId: ctx.job.jobId,
-    task: ctx.job.task,
     cwd: ctx.job.cwd,
     worktreePath: prepared.worktreePath,
     workspaceRoot: prepared.workspaceRoot,
     artifactDir: prepared.artifactDir,
+    preparedWorktree: prepared,
     dryRun: ctx.job.dryRun,
     workflowMode: ctx.job.workflowMode,
     workflowProfile: ctx.job.workflowProfile,
@@ -154,7 +165,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     env: buildProviderEnv(),
   };
 
-  if (!(await provider.isAvailable(input))) {
+  if (!(await provider.isAvailable({ ...providerInputBase, task: ctx.job.task }))) {
     const message = `Worker provider is not available: ${provider.id}`;
     emit(message);
     return {
@@ -173,17 +184,71 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     };
   }
 
-  const result = await provider.execute(input);
-  for (const line of result.workerLogs ?? []) {
-    emit(line);
+  const loadedState = await loadWorkerTaskPhaseState(prepared.artifactDir);
+  const { plan, state: initialPhaseState } = ensureWorkerTaskPhaseState(ctx.job.jobId, ctx.job.task, loadedState);
+  let phaseState = initialPhaseState;
+  if (!loadedState) {
+    await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
   }
 
-  if (!ctx.job.dryRun && result.ok) {
+  const resumeIndex = getWorkerTaskPhaseResumeIndex(phaseState);
+  if (resumeIndex > 0) {
+    emit(`resuming from phase ${resumeIndex + 1}/${plan.phases.length}`);
+  }
+
+  if (!ctx.job.dryRun && plan.phases.length > 0) {
+    await ctx.markFilesystemMutation(`phase:${plan.phases[resumeIndex]?.id ?? "initial"}`, prepared.worktreePath);
+  }
+
+  let latestResult: Awaited<ReturnType<typeof provider.execute>> | null = null;
+  for (let index = resumeIndex; index < plan.phases.length; index += 1) {
+    const phase = plan.phases[index];
+    emit(`phase ${index + 1}/${plan.phases.length}: ${phase.title}`);
+    phaseState = updateWorkerTaskPhaseStateForStart(phaseState, phase.id);
+    await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
+
+    const phaseResult = await provider.execute({
+      ...providerInputBase,
+      task: phase.prompt
+    });
+    latestResult = phaseResult;
+    await persistWorkerPhaseArtifact(prepared.artifactDir, phase, phaseResult);
+    for (const line of phaseResult.workerLogs ?? []) {
+      emit(line);
+    }
+
+    if (!phaseResult.ok) {
+      phaseState = updateWorkerTaskPhaseStateForFailure(phaseState, phase.id, phaseResult.summary);
+      await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
+      return {
+        ok: false,
+        summary: phaseResult.summary,
+        logs,
+        filesystemMutated: !ctx.job.dryRun,
+        artifactPath: phaseResult.artifactPath ?? prepared.artifactDir,
+        diffSummaries: phaseResult.diffSummaries,
+        latestToolResults: phaseResult.latestToolResults,
+        failure: phaseResult.failure
+      };
+    }
+
+    phaseState = updateWorkerTaskPhaseStateForCompletion(phaseState, phase.id, {
+      summary: phaseResult.summary,
+      changedFiles: phaseResult.changedFiles,
+      diffSummaries: phaseResult.diffSummaries,
+      latestToolResults: phaseResult.latestToolResults,
+      artifactPath: phaseResult.artifactPath ?? prepared.artifactDir
+    });
+    await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
+  }
+
+  const finalResult = latestResult ?? buildResumedResultFromState(phaseState, prepared.artifactDir);
+  if (!ctx.job.dryRun && finalResult.ok) {
     const verification = await runWorkerVerification({
       repoRoot: ctx.job.cwd,
       worktreePath: prepared.worktreePath,
       artifactDir: prepared.artifactDir,
-      changedFiles: result.changedFiles,
+      changedFiles: finalResult.changedFiles,
       signal: undefined,
       logger: {
         info: (message) => emit(`verification: ${message}`),
@@ -200,9 +265,9 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         summary: verification.summary,
         logs,
         filesystemMutated: true,
-        artifactPath: result.artifactPath ?? prepared.artifactDir,
-        diffSummaries: result.diffSummaries,
-        latestToolResults: [...(result.latestToolResults ?? []), ...verification.results],
+        artifactPath: finalResult.artifactPath ?? prepared.artifactDir,
+        diffSummaries: finalResult.diffSummaries,
+        latestToolResults: [...(finalResult.latestToolResults ?? []), ...verification.results],
         failure: {
           class: "tool-check-failed",
           message: verification.summary,
@@ -215,16 +280,75 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   }
 
   return {
-    ok: result.ok,
-    summary: result.summary,
+    ok: finalResult.ok,
+    summary: finalResult.summary,
     logs,
     filesystemMutated: !ctx.job.dryRun,
-    artifactPath: result.artifactPath ?? prepared.artifactDir,
-    diffSummaries: result.diffSummaries,
-    latestToolResults: result.latestToolResults,
-    failure: result.failure
+    artifactPath: finalResult.artifactPath ?? prepared.artifactDir,
+    diffSummaries: finalResult.diffSummaries,
+    latestToolResults: finalResult.latestToolResults,
+    failure: finalResult.failure
   };
 }
+
+async function persistWorkerPhaseArtifact(
+  artifactDir: string,
+  phase: WorkerTaskPhase,
+  result: WorkerProviderExecutionResultLike
+): Promise<void> {
+  await fs.mkdir(path.join(artifactDir, "phases"), { recursive: true });
+  const phasePath = path.join(artifactDir, "phases", `${phase.id}.json`);
+  const body = {
+    phase: {
+      id: phase.id,
+      index: phase.index,
+      kind: phase.kind,
+      title: phase.title,
+      goal: phase.goal
+    },
+    ok: result.ok,
+    summary: result.summary,
+    changedFiles: result.changedFiles,
+    diffSummaries: result.diffSummaries,
+    latestToolResults: result.latestToolResults,
+    artifactPath: result.artifactPath,
+    failure: result.failure
+  };
+  await fs.writeFile(phasePath, `${JSON.stringify(body, null, 2)}\n`, "utf8");
+}
+
+function buildResumedResultFromState(state: WorkerTaskPhaseState, artifactDir: string): WorkerProviderExecutionResultLike {
+  const lastCompleted = [...state.phases].reverse().find((phase) => phase.status === "completed");
+  if (!lastCompleted) {
+    return {
+      ok: true,
+      summary: "No-op worker execution completed.",
+      changedFiles: [],
+      artifactPath: artifactDir,
+      latestToolResults: [],
+      diffSummaries: []
+    };
+  }
+
+  return {
+    ok: true,
+    summary: lastCompleted.summary || "Worker phases completed.",
+    changedFiles: lastCompleted.changedFiles ?? [],
+    artifactPath: lastCompleted.artifactPath ?? artifactDir,
+    latestToolResults: lastCompleted.latestToolResults ?? [],
+    diffSummaries: lastCompleted.diffSummaries ?? []
+  };
+}
+
+type WorkerProviderExecutionResultLike = {
+  ok: boolean;
+  summary: string;
+  changedFiles: string[];
+  artifactPath?: string | null;
+  latestToolResults?: ToolExecutionResult[];
+  diffSummaries?: DiffSummary[];
+  failure?: FailureMetadata;
+};
 
 function parseMutationInstruction(task: string): MutationInstruction | null {
   const trimmed = task.trim();
