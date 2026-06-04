@@ -6,8 +6,8 @@ import { createAiSystemServer } from "../ai-system/server-app.js";
 import { loadWorkerRuntimeConfig } from "../ai-system/worker/worker-config.js";
 import { runWorkerRuntime } from "../ai-system/worker/worker-runtime.js";
 
-const token = process.env.AI_SYSTEM_SERVER_TOKEN || "smoke-server-token";
-const workerToken = process.env.ORCHESTRA_WORKER_TOKEN || "smoke-worker-token";
+const token = process.env.AI_SYSTEM_SERVER_TOKEN || "smoke-server-real-token";
+const workerToken = process.env.ORCHESTRA_WORKER_TOKEN || "smoke-worker-real-token";
 
 async function main(): Promise<void> {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "orchestra-smoke-"));

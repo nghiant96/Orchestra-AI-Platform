@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { createRequire } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const cliPath = path.resolve(currentDir, "../ai-system/cli.ts");
-const require = createRequire(import.meta.url);
-const tsxPackagePath = require.resolve("tsx/package.json");
-const tsxLoaderPath = path.resolve(path.dirname(tsxPackagePath), "dist/loader.mjs");
+const cliPath = path.resolve(currentDir, "../dist/ai-system/cli.js");
 
-const child = spawn(process.execPath, ["--import", tsxLoaderPath, cliPath, ...process.argv.slice(2)], {
+if (!fs.existsSync(cliPath)) {
+  console.error("[ai] Build output not found. Run `npm run build` first.");
+  process.exit(1);
+}
+
+const child = spawn(process.execPath, [cliPath, ...process.argv.slice(2)], {
   stdio: "inherit",
   env: process.env
 });

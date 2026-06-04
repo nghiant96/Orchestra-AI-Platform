@@ -67,6 +67,9 @@ export function hashArtifact(value: unknown): string {
 }
 
 function stableStringify(value: unknown): string {
+  if (typeof value === "undefined") {
+    return "undefined";
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }

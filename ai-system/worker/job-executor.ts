@@ -8,6 +8,7 @@ import { ensurePathWithinRoot, redactWorkerLogLine } from "./worker-safety.js";
 import { prepareWorkerWorktree } from "./worker-worktree.js";
 import { buildProviderEnv } from "./provider-env.js";
 import { resolveWorkerProvider } from "./providers/index.js";
+import { runWorkerVerification } from "./verification-runner.js";
 
 export interface WorkerJobExecutionContext {
   client: WorkerApiClient;
@@ -175,6 +176,42 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   const result = await provider.execute(input);
   for (const line of result.workerLogs ?? []) {
     emit(line);
+  }
+
+  if (!ctx.job.dryRun && result.ok) {
+    const verification = await runWorkerVerification({
+      repoRoot: ctx.job.cwd,
+      worktreePath: prepared.worktreePath,
+      artifactDir: prepared.artifactDir,
+      changedFiles: result.changedFiles,
+      signal: undefined,
+      logger: {
+        info: (message) => emit(`verification: ${message}`),
+        warn: (message) => emit(`verification warning: ${message}`),
+        error: (message) => emit(`verification error: ${message}`),
+        step: (message) => emit(`verification step: ${message}`),
+        success: (message) => emit(`verification success: ${message}`)
+      }
+    });
+
+    if (!verification.ok) {
+      return {
+        ok: false,
+        summary: verification.summary,
+        logs,
+        filesystemMutated: true,
+        artifactPath: result.artifactPath ?? prepared.artifactDir,
+        diffSummaries: result.diffSummaries,
+        latestToolResults: [...(result.latestToolResults ?? []), ...verification.results],
+        failure: {
+          class: "tool-check-failed",
+          message: verification.summary,
+          step: "worker-verification",
+          retryable: true,
+          suggestion: "Fix the failing verification commands and rerun the worker job."
+        }
+      };
+    }
   }
 
   return {

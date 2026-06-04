@@ -5,10 +5,12 @@ import type { DiffSummary, ToolExecutionResult } from "../../types.js";
 import { runCommand } from "../../utils/api.js";
 import { redactSecrets } from "../../security/secret-redaction.js";
 import { ensurePathWithinRoot } from "../worker-safety.js";
+import { WorkerProcessSupervisor } from "../worker-process-supervisor.js";
 import type { WorkerProviderAdapter, WorkerProviderExecutionInput, WorkerProviderExecutionResult } from "./provider-adapter.js";
 
 export class CodexProvider implements WorkerProviderAdapter {
   readonly id = "codex" as const;
+  private readonly supervisor = new WorkerProcessSupervisor();
 
   constructor(private readonly command = process.env.ORCHESTRA_CODEX_COMMAND || "codex") {}
 
@@ -16,7 +18,7 @@ export class CodexProvider implements WorkerProviderAdapter {
     const policy = checkCommand(`${this.command} --version`);
     if (!policy.allowed) return false;
     try {
-      await runCommand({
+      await this.supervisor.run({
         command: this.command,
         args: ["--version"],
         cwd: input.worktreePath,
@@ -51,7 +53,7 @@ export class CodexProvider implements WorkerProviderAdapter {
     let failureMessage = "";
 
     try {
-      const result = await runCommand({
+      const result = await this.supervisor.run({
         command: this.command,
         args: ["exec", "--cwd", input.worktreePath, prompt],
         cwd: input.worktreePath,

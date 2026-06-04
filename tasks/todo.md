@@ -1,6 +1,59 @@
 # Current Project Tasks
 
-Last updated: 2026-06-01
+Last updated: 2026-06-04
+
+## Task: Switch From JS Mirrors To Standard Dist Build
+
+- [x] Add a root build config that emits compiled output into `dist/`.
+- [x] Point runtime entrypoints and smoke scripts at the compiled `dist/` files.
+- [x] Remove the JS mirror drift check from the readiness gate.
+- [x] Delete the remaining committed mirror files once the `dist/` build is fully confirmed in practice.
+
+Review result:
+
+- The project now has a standard compiled build path in `dist/` for runtime entrypoints, smoke scripts, and packaged assets.
+- Dev and test flows still use `tsx` where appropriate, but production-style execution now goes through compiled JS instead of source-side mirrors.
+- The mirror files have now been removed from the source tree. Runtime execution is compiled-first, with `dist/` carrying the build output and static assets.
+
+## Task: Rewrite Production-Ready Readiness Doc Into Grounded Checklist
+
+- [x] Audit current production-ready claims against implemented code paths.
+- [x] Rewrite `production-ready.md` into implemented / partial / missing status sections.
+- [x] Add an ordered fastest-path list and a concrete production-ready checklist.
+
+Review result:
+
+- `production-ready.md` now reads as a status document instead of a roadmap pitch.
+- The doc separates implemented foundations from the remaining blockers: truthful store reporting, verification runner, worker supervisor, production token guard, dashboard smoke, `check:all`, and durable state.
+- The new checklist is intentionally narrow so the next implementation work can move toward production readiness as fast as possible.
+
+## Task: Advance Production-Ready Fast-Path Batch
+
+- [x] Make the store descriptor truthful for file/sqlite/postgres modes.
+- [x] Add a server startup token guard that rejects missing and placeholder tokens.
+- [x] Add `dashboard:smoke` and `check:all` project scripts.
+- [x] Add regression tests for the new store descriptor and server token guard.
+- [x] Run mirror sync, typecheck, lint, unit tests, smoke checks, and dashboard build verification.
+
+Review result:
+
+- Store reporting is now honest: `file` is implemented, while `sqlite` and `postgres` are explicitly reserved instead of being overclaimed.
+- Server startup now rejects missing/placeholder tokens, and the project has a unified `check:all` gate plus a dashboard smoke script.
+- Verification for the new work passed on the targeted path, including typecheck, JS mirror sync, dashboard smoke, worker provider regressions, and orchestra smoke. The shell in this environment does not expose `pnpm`, so the `check:all` script was validated by running its component commands directly instead of via the script entrypoint.
+
+## Task: Close Remaining Runtime Readiness Gaps
+
+- [x] Add a real verification runner that writes `verification.json` and per-check artifacts.
+- [x] Introduce a dedicated worker process supervisor seam for provider command execution.
+- [x] Mark the dashboard smoke path as an actual headless readiness check.
+- [ ] Decide whether the queue/store layer should move from file-backed persistence to a real SQLite backend now or remain explicitly partial.
+- [x] Re-run targeted regressions for store, auth, dashboard smoke, and worker execution.
+
+Review result:
+
+- The worker runtime now uses a dedicated verification runner after provider success and a dedicated process supervisor seam for provider command execution.
+- Dashboard smoke is now part of the real readiness checks, not just a placeholder script.
+- The remaining true blocker is durable queue/state storage: `sqlite` and `postgres` are still reserved modes, so the project is not yet fully production-ready even though the worker setup/run path is now testable end to end.
 
 ## Task: Handle Sprint 0-3 Execution Tranche
 

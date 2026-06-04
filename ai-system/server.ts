@@ -2,19 +2,14 @@ import process from "node:process";
 import { createAiSystemServer } from "./server-app.js";
 import { loadEnvironment } from "./utils/api.js";
 import { createLogger } from "./utils/logger.js";
+import { resolveServerAuthToken } from "./server-startup.js";
 
 async function main(): Promise<void> {
   await loadEnvironment(process.cwd());
 
   const port = Number(process.env.PORT || process.env.AI_SYSTEM_PORT || 3927);
   const defaultCwd = process.env.AI_SYSTEM_WORKDIR || process.cwd();
-  const authToken = process.env.AI_SYSTEM_SERVER_TOKEN?.trim() || "";
-
-  if (!authToken) {
-    const logger = createLogger();
-    logger.error("AI_SYSTEM_SERVER_TOKEN is required in server mode.");
-    process.exit(1);
-  }
+  const authToken = resolveServerAuthToken(process.env.AI_SYSTEM_SERVER_TOKEN);
 
   const allowedWorkdirs = (process.env.AI_SYSTEM_ALLOWED_WORKDIRS || defaultCwd)
     .split(",")

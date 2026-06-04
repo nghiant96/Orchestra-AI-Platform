@@ -37,6 +37,9 @@ export function loadWorkerRuntimeConfig(input: WorkerRuntimeConfigInput): Worker
   if (!workerToken) {
     throw new Error("ORCHESTRA_WORKER_TOKEN is required for worker start.");
   }
+  if (isPlaceholderToken(workerToken)) {
+    throw new Error("ORCHESTRA_WORKER_TOKEN must be set to a real secret, not a placeholder value.");
+  }
 
   const workerName =
     String(input.workerName ?? process.env.ORCHESTRA_WORKER_NAME ?? "").trim() ||
@@ -95,4 +98,12 @@ function normalizeUrl(url: string): string {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function isPlaceholderToken(token: string): boolean {
+  return new Set([
+    "change-me",
+    "change-me-worker",
+    "smoke-worker-token"
+  ]).has(token);
 }

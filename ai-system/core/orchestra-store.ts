@@ -8,17 +8,35 @@ export interface OrchestraStoreCapabilities {
 
 export interface OrchestraStoreDescriptor {
   mode: OrchestraStoreMode;
+  implemented: boolean;
   capabilities: OrchestraStoreCapabilities;
+  warning?: string;
 }
 
 export function resolveOrchestraStoreDescriptor(): OrchestraStoreDescriptor {
   const mode = resolveStoreMode();
+  if (mode === "file") {
+    return {
+      mode,
+      implemented: true,
+      capabilities: {
+        durable: false,
+        migrations: false,
+        multiProcess: false
+      }
+    };
+  }
+
   return {
     mode,
+    implemented: false,
     capabilities: {
-      durable: mode !== "file",
-      migrations: mode !== "file",
-      multiProcess: mode !== "file"
-    }
+      durable: false,
+      migrations: false,
+      multiProcess: false
+    },
+    warning: mode === "sqlite"
+      ? "SQLite store is reserved but not implemented yet."
+      : "Postgres store is reserved but not implemented yet."
   };
 }

@@ -5,6 +5,7 @@
 .ai-system-vector/
 .ai-system-server/
 .orchestra/
+dist/
 *.log
 *.yaml
 .aider*

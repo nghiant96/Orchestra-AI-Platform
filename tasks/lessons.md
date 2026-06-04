@@ -1,5 +1,11 @@
 # Lessons Learned
 
+## 2026-06-04: Compiled dist builds must carry runtime assets, not just JS output
+
+**Mistake**: Switched the runtime entrypoints to `dist/` but only emitted compiled `.js` files. The server then failed at runtime because `rules.json`, prompt templates, and package metadata were still resolved by relative paths that only existed in the source tree.
+
+**Rule**: When moving a Node/TypeScript app to a compiled build, audit every `readFile`, `new URL(...)`, and `__dirname`-based path lookup. Copy or rewrite all runtime assets into the build output before declaring the build runnable.
+
 ## 2026-04-23: Do NOT batch-modify files outside scope
 
 **Mistake**: Used `grep | sed` to batch-replace `from "node:` → `from "` across ~30 files,

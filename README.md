@@ -322,6 +322,9 @@ If you are running in server mode, place `AI_SYSTEM_SERVER_TOKEN` in the repo-ro
 Use worker mode when you want the server to own queue/control-plane state while a local machine executes claimed jobs.
 
 ```bash
+# Compile the runtime first
+pnpm build
+
 # Terminal 1: server as control plane with worker queue ownership
 AI_SYSTEM_SERVER_TOKEN=dev-token \
 ORCHESTRA_WORKER_TOKEN=worker-token \
@@ -340,6 +343,8 @@ pnpm orchestra:worker -- \
 # Local end-to-end dry-run smoke test
 pnpm orchestra:smoke
 ```
+
+The `start`, `server`, `ai`, `orchestra:server`, `orchestra:worker`, and `orchestra:smoke` entrypoints now run from compiled `dist/` output. Development and tests still use `tsx`, but production-style execution should start from `pnpm build`.
 
 Worker registration validates `workspaceRoots` with canonical realpath checks. A symlink that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected. Provider jobs run in `.orchestra/worktrees/<jobId>` and write artifacts to `.ai-system-server/worker-artifacts/<jobId>`. Dummy dry-run jobs must not mutate files or write mutation checkpoints; CodexProvider dry-runs may create diffs inside the isolated worktree, but never mutate the main checkout.
 
