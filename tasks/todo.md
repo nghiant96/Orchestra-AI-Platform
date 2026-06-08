@@ -29,6 +29,25 @@ Review result:
 - Worker jobs now run a diff boundary check before verification and persist `diff-boundary-check.json`; default behavior is warn-only except explicit `doNotTouch` violations and strict env modes.
 - Verification passed with targeted worker context/boundary/phase tests, root typecheck, build compile, targeted ESLint, and `git diff --check`.
 
+## Task: Add Context Pack Rollout Policy And Smoke Coverage
+
+- [x] Add `ORCHESTRA_CONTEXT_PACK_MODE=off|auto|required` planning behavior.
+- [x] Expand auto setup selection for high-risk worker tasks and strict workflow profiles.
+- [x] Add worker execution coverage that proves context pack and boundary artifacts are written together.
+- [x] Add a repo convention scanner artifact for lightweight local pattern detection.
+- [x] Add a warn-first naming guard artifact with strict mode support.
+- [x] Expose whitelisted worker artifacts through the jobs API.
+- [x] Render Context Pack, boundary, naming, and verification artifacts in the dashboard artifact viewer.
+- [x] Run targeted worker/job-service tests, backend typecheck/build, dashboard build, lint, and diff checks.
+
+Review result:
+
+- Worker phase planning now supports `ORCHESTRA_CONTEXT_PACK_MODE=off|auto|required`.
+- Auto mode now creates setup/context-pack phases for high-risk worker tasks and strict/safe/superpowers profiles, while `off` preserves the smallest simple-task path.
+- A provider-style worker test now proves `context-pack.json`, `context-pack.md`, `diff-boundary-check.json`, `naming-check.json`, `repo-conventions.json`, and `verification.json` are written together in one execution.
+- The dashboard can now read whitelisted worker artifacts from `/jobs/:id/artifacts/content` and summarize guard/verification state without exposing raw provider transcripts.
+- Verification passed with targeted worker/job-service tests, root typecheck/build, dashboard build, targeted ESLint, and `git diff --check`.
+
 ## Task: Add Worker Phase Planning And Resume
 
 - [x] Add a worker task phase planner that splits larger tasks into smaller Codex phases.

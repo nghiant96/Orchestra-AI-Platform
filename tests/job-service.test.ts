@@ -15,6 +15,7 @@ import {
   cancelJob,
   approveJob,
   getJobFileContent,
+  getJobArtifactContent,
   parseWorkflowMode,
   isPathWithinRoot,
   mapRunSummaryToQueueJob
@@ -213,6 +214,33 @@ describe("JobService", () => {
       assert.equal(result.ok, false);
       assert.equal(result.statusCode, 500);
       assert.match(result.error ?? "", /Failed to load config|Unexpected token/);
+    } finally {
+      queue.get = originalGet;
+    }
+  });
+
+  test("getJobArtifactContent reads whitelisted worker artifacts only", async () => {
+    const artifactPath = path.join(tmpDir, ".ai-system-server", "worker-artifacts", "job-readable-artifact");
+    await fs.mkdir(artifactPath, { recursive: true });
+    await fs.writeFile(path.join(artifactPath, "context-pack.md"), "# Context\n", "utf8");
+    await fs.writeFile(path.join(artifactPath, "provider-stdout.log"), "secret transcript\n", "utf8");
+
+    const jobId = "job-readable-artifact";
+    const originalGet = queue.get.bind(queue);
+    queue.get = async (id: string) => id === jobId ? ({
+      jobId,
+      artifactPath,
+      cwd: tmpDir
+    } as any) : originalGet(id);
+
+    try {
+      const readable = await getJobArtifactContent(ctx(), jobId, "context-pack.md");
+      assert.equal(readable.ok, true);
+      assert.equal(readable.content, "# Context\n");
+
+      const blocked = await getJobArtifactContent(ctx(), jobId, "provider-stdout.log");
+      assert.equal(blocked.ok, false);
+      assert.equal(blocked.statusCode, 400);
     } finally {
       queue.get = originalGet;
     }

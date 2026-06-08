@@ -16,6 +16,8 @@ import {
 import { extractContextPackFromProviderResult } from "./context-pack-parser.js";
 import { buildImplementationPromptWithContext } from "./contextual-phase-prompt.js";
 import { runDiffBoundaryCheck, writeDiffBoundaryCheckArtifact } from "./diff-boundary-checker.js";
+import { runNamingGuard, writeNamingGuardArtifact } from "./naming-guard.js";
+import { scanRepoConventions, writeRepoConventionScanArtifact } from "./repo-convention-scanner.js";
 import { resolveWorkerProvider } from "./providers/index.js";
 import { runWorkerVerification } from "./verification-runner.js";
 import {
@@ -194,7 +196,9 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   }
 
   const loadedState = await loadWorkerTaskPhaseState(prepared.artifactDir);
-  const { plan, state: initialPhaseState } = ensureWorkerTaskPhaseState(ctx.job.jobId, ctx.job.task, loadedState);
+  const { plan, state: initialPhaseState } = ensureWorkerTaskPhaseState(ctx.job.jobId, ctx.job.task, loadedState, {
+    workflowProfile: ctx.job.workflowProfile
+  });
   let phaseState = initialPhaseState;
   if (!loadedState) {
     await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
@@ -211,6 +215,8 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
 
   let latestResult: Awaited<ReturnType<typeof provider.execute>> | null = null;
   let contextPack: WorkerContextPack | null = await loadWorkerContextPack(prepared.artifactDir);
+  const repoConventions = await scanRepoConventions(prepared.worktreePath);
+  await writeRepoConventionScanArtifact(prepared.artifactDir, repoConventions);
   for (let index = resumeIndex; index < plan.phases.length; index += 1) {
     const phase = plan.phases[index];
     emit(`phase ${index + 1}/${plan.phases.length}: ${phase.title}`);
@@ -309,6 +315,33 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           step: "worker-diff-boundary",
           retryable: false,
           suggestion: "Review diff-boundary-check.json and keep changes inside the context pack boundary."
+        }
+      };
+    }
+
+    const namingCheck = runNamingGuard({
+      changedFiles: finalResult.changedFiles,
+      conventions: repoConventions
+    });
+    await writeNamingGuardArtifact(prepared.artifactDir, namingCheck);
+    for (const finding of namingCheck.findings) {
+      emit(`naming ${finding.severity}: ${finding.code} (${finding.filePath})`);
+    }
+    if (!namingCheck.ok) {
+      return {
+        ok: false,
+        summary: "Naming guard failed.",
+        logs,
+        filesystemMutated: true,
+        artifactPath: finalResult.artifactPath ?? prepared.artifactDir,
+        diffSummaries: finalResult.diffSummaries,
+        latestToolResults: finalResult.latestToolResults,
+        failure: {
+          class: "tool-check-failed",
+          message: "Naming guard failed.",
+          step: "worker-naming-guard",
+          retryable: false,
+          suggestion: "Review naming-check.json and rename generated files to durable domain names."
         }
       };
     }

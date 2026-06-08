@@ -6,7 +6,11 @@ import test from "node:test";
 import { buildImplementationPromptWithContext } from "../ai-system/worker/contextual-phase-prompt.js";
 import { extractContextPackFromProviderResult } from "../ai-system/worker/context-pack-parser.js";
 import { renderWorkerContextPackMarkdown, saveWorkerContextPack, loadWorkerContextPack } from "../ai-system/worker/context-pack.js";
-import { buildWorkerTaskPhasePlan } from "../ai-system/worker/task-phases.js";
+import {
+  buildWorkerTaskPhasePlan,
+  resolveWorkerContextPackMode,
+  shouldCreateSetupPhase
+} from "../ai-system/worker/task-phases.js";
 
 test("setup phase prompt requires an ORCHESTRA_CONTEXT_PACK block", () => {
   const plan = buildWorkerTaskPhasePlan(
@@ -21,6 +25,36 @@ test("setup phase prompt requires an ORCHESTRA_CONTEXT_PACK block", () => {
   assert.ok(setupPhase);
   assert.match(setupPhase.prompt, /ORCHESTRA_CONTEXT_PACK/);
   assert.match(setupPhase.prompt, /allowedDiffBoundary/);
+});
+
+test("context pack mode controls setup phase creation", () => {
+  const tinyTask = "Fix a README typo.";
+
+  assert.equal(resolveWorkerContextPackMode("required"), "required");
+  assert.equal(resolveWorkerContextPackMode("off"), "off");
+  assert.equal(resolveWorkerContextPackMode("unexpected"), "auto");
+
+  assert.equal(shouldCreateSetupPhase({
+    task: tinyTask,
+    implementationPhaseCount: 1,
+    contextPackMode: "required"
+  }), true);
+  assert.equal(shouldCreateSetupPhase({
+    task: "Integrate the payment SDK.",
+    implementationPhaseCount: 1,
+    contextPackMode: "off"
+  }), false);
+  assert.equal(shouldCreateSetupPhase({
+    task: "Integrate the payment SDK.",
+    implementationPhaseCount: 1,
+    contextPackMode: "auto"
+  }), true);
+  assert.equal(shouldCreateSetupPhase({
+    task: tinyTask,
+    implementationPhaseCount: 1,
+    contextPackMode: "auto",
+    workflowProfile: "strict"
+  }), true);
 });
 
 test("extractContextPackFromProviderResult parses provider output JSON", () => {

@@ -46,14 +46,24 @@ export interface WorkerTaskPhasePlan {
   phases: WorkerTaskPhase[];
 }
 
-export function buildWorkerTaskPhasePlan(task: string): WorkerTaskPhasePlan {
+export type WorkerContextPackMode = "off" | "auto" | "required";
+
+export function buildWorkerTaskPhasePlan(task: string, options: {
+  contextPackMode?: WorkerContextPackMode;
+  workflowProfile?: string;
+} = {}): WorkerTaskPhasePlan {
   const trimmed = task.trim();
   const clauses = extractTaskClauses(trimmed);
   const implementationClauses = clauses.length > 1 ? clauses : (trimmed.length > 180 ? splitLongTask(trimmed) : [trimmed]);
   const implementationPhaseTexts = implementationClauses.length > 1 ? implementationClauses : [trimmed];
   const phases: WorkerTaskPhase[] = [];
 
-  const needsSetupPhase = trimmed.length > 220 || implementationPhaseTexts.length > 2;
+  const needsSetupPhase = shouldCreateSetupPhase({
+    task: trimmed,
+    implementationPhaseCount: implementationPhaseTexts.length,
+    contextPackMode: options.contextPackMode ?? resolveWorkerContextPackMode(),
+    workflowProfile: options.workflowProfile || process.env.ORCHESTRA_WORKFLOW_PROFILE || process.env.AI_SYSTEM_WORKFLOW_PROFILE
+  });
   if (needsSetupPhase) {
     phases.push(createPhase({
       index: phases.length,
@@ -103,6 +113,30 @@ export function buildWorkerTaskPhasePlan(task: string): WorkerTaskPhasePlan {
   return finalizePlan(plan);
 }
 
+export function resolveWorkerContextPackMode(value = process.env.ORCHESTRA_CONTEXT_PACK_MODE): WorkerContextPackMode {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "off" || normalized === "required" || normalized === "auto" ? normalized : "auto";
+}
+
+export function shouldCreateSetupPhase(input: {
+  task: string;
+  implementationPhaseCount: number;
+  contextPackMode?: WorkerContextPackMode;
+  workflowProfile?: string;
+}): boolean {
+  const mode = input.contextPackMode ?? "auto";
+  if (mode === "off") return false;
+  if (mode === "required") return true;
+
+  const task = input.task.trim();
+  return (
+    task.length > 220 ||
+    input.implementationPhaseCount > 2 ||
+    isStrictWorkflowProfile(input.workflowProfile) ||
+    isHighRiskContextPackTask(task)
+  );
+}
+
 export async function loadWorkerTaskPhaseState(artifactDir: string): Promise<WorkerTaskPhaseState | null> {
   try {
     const raw = await fs.readFile(path.join(artifactDir, "phase-state.json"), "utf8");
@@ -140,7 +174,15 @@ export function createWorkerTaskPhaseState(jobId: string, plan: WorkerTaskPhaseP
   };
 }
 
-export function ensureWorkerTaskPhaseState(jobId: string, task: string, existing: WorkerTaskPhaseState | null): { plan: WorkerTaskPhasePlan; state: WorkerTaskPhaseState } {
+export function ensureWorkerTaskPhaseState(
+  jobId: string,
+  task: string,
+  existing: WorkerTaskPhaseState | null,
+  options: {
+    contextPackMode?: WorkerContextPackMode;
+    workflowProfile?: string;
+  } = {}
+): { plan: WorkerTaskPhasePlan; state: WorkerTaskPhaseState } {
   if (existing) {
     const plan = finalizePlan({
       task: existing.task,
@@ -157,7 +199,7 @@ export function ensureWorkerTaskPhaseState(jobId: string, task: string, existing
     return { plan, state: existing };
   }
 
-  const plan = buildWorkerTaskPhasePlan(task);
+  const plan = buildWorkerTaskPhasePlan(task, options);
   const state = createWorkerTaskPhaseState(jobId, plan);
   return {
     plan,
@@ -392,4 +434,12 @@ function slugify(value: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 32) || "phase";
+}
+
+function isStrictWorkflowProfile(value: string | undefined): boolean {
+  return /^(strict|superpowers|safe)$/i.test(value?.trim() ?? "");
+}
+
+function isHighRiskContextPackTask(task: string): boolean {
+  return /\b(integrate|integration|sdk|api|refactor|migration|migrate|auth|permission|payment|billing|security|backend|frontend|database|schema|worker|queue|route|endpoint|webhook)\b/i.test(task);
 }

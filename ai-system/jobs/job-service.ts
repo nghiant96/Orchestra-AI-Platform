@@ -234,6 +234,54 @@ export async function getJobFileContent(
   }
 }
 
+const READABLE_JOB_ARTIFACTS = new Set([
+  "context-pack.md",
+  "context-pack.json",
+  "diff-boundary-check.json",
+  "naming-check.json",
+  "repo-conventions.json",
+  "verification.json",
+  "diff-stat.txt",
+  "changed-files.json"
+]);
+
+export async function getJobArtifactContent(
+  ctx: JobServiceContext,
+  jobId: string,
+  artifactName: string
+): Promise<{ ok: boolean; content?: string; artifactName?: string; error?: string; statusCode?: number }> {
+  const job = await ctx.queue.get(jobId);
+  const artifactPath = job?.artifactPath;
+  const normalizedName = artifactName.replace(/\\/g, "/").replace(/^\/+/, "");
+
+  if (!artifactPath) {
+    return { ok: false, statusCode: 404, error: "Job not found or no artifacts" };
+  }
+
+  if (!READABLE_JOB_ARTIFACTS.has(normalizedName)) {
+    return { ok: false, statusCode: 400, error: "Artifact is not readable through this endpoint" };
+  }
+
+  try {
+    const fullPath = path.join(artifactPath, normalizedName);
+    if (!isPathWithinRoot(artifactPath, fullPath)) {
+      return { ok: false, statusCode: 400, error: "Artifact path is outside the job artifact root" };
+    }
+    const content = await fs.readFile(fullPath, "utf8");
+    return { ok: true, artifactName: normalizedName, content };
+  } catch (err) {
+    const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code?: unknown }).code) : "";
+    if (code === "ENOENT") {
+      return { ok: false, statusCode: 404, error: "Artifact not found" };
+    }
+    return {
+      ok: false,
+      statusCode: 500,
+      error: err instanceof Error ? err.message : "Failed to read job artifact"
+    };
+  }
+}
+
 export function parseWorkflowMode(value: unknown): WorkflowMode | null {
   return value === "standard" || value === "implement" || value === "review" || value === "fix" || value === "refactor"
     ? value

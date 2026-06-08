@@ -21,6 +21,73 @@ describe("Worker phase planning", () => {
 });
 
 describe("Worker phase execution", () => {
+  test("writes context pack and diff boundary artifacts during provider execution", async () => {
+    const repoRoot = await createGitRepo("worker-context-artifacts-");
+    const fakeCodex = await createContextPackFakeCodex();
+    const workspaceRoot = repoRoot;
+    const jobId = "job-context-artifacts";
+    const artifactDir = path.join(repoRoot, ".ai-system-server", "worker-artifacts", jobId);
+    const emitted: string[] = [];
+
+    const job = {
+      jobId,
+      task: "Integrate the payment API client with a focused worker implementation.",
+      cwd: repoRoot,
+      dryRun: false,
+      workflowMode: "worker",
+      workflowProfile: "balanced",
+      approvalPolicy: null
+    } as any;
+
+    const worker = {
+      id: "worker-context-artifacts-test",
+      name: "worker-context-artifacts-test",
+      version: "0.1.0",
+      os: process.platform,
+      arch: process.arch,
+      labels: [],
+      capabilities: { codex: true, node: true, pnpm: true },
+      workspaceRoots: [workspaceRoot],
+      status: "idle",
+      lastHeartbeatAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
+    } as any;
+
+    try {
+      const result = await executeWorkerJob({
+        client: {} as any,
+        worker,
+        job,
+        workspaceRoots: [workspaceRoot],
+        providerId: "codex",
+        providerCommand: fakeCodex,
+        emitLog(message: string) {
+          emitted.push(message);
+        },
+        async markFilesystemMutation() {}
+      });
+
+      assert.equal(result.ok, true);
+      assert.ok(await exists(path.join(artifactDir, "context-pack.json")));
+      assert.ok(await exists(path.join(artifactDir, "context-pack.md")));
+      assert.ok(await exists(path.join(artifactDir, "diff-boundary-check.json")));
+      assert.ok(await exists(path.join(artifactDir, "naming-check.json")));
+      assert.ok(await exists(path.join(artifactDir, "repo-conventions.json")));
+      assert.ok(await exists(path.join(artifactDir, "verification.json")));
+      assert.ok(emitted.some((line) => /context pack saved/i.test(line)));
+
+      const contextPack = JSON.parse(await fs.readFile(path.join(artifactDir, "context-pack.json"), "utf8"));
+      const boundaryCheck = JSON.parse(await fs.readFile(path.join(artifactDir, "diff-boundary-check.json"), "utf8"));
+      const namingCheck = JSON.parse(await fs.readFile(path.join(artifactDir, "naming-check.json"), "utf8"));
+      assert.equal(contextPack.confidence, "high");
+      assert.equal(boundaryCheck.ok, true);
+      assert.equal(namingCheck.ok, true);
+    } finally {
+      await fs.rm(repoRoot, { recursive: true, force: true });
+      await fs.rm(fakeCodex, { force: true });
+    }
+  });
+
   test("persists phase checkpoints and resumes from the next unfinished phase", async () => {
     const repoRoot = await createGitRepo("worker-phase-runtime-");
     const fakeCodex = await createFakeCodex();
@@ -106,6 +173,57 @@ async function createGitRepo(prefix: string): Promise<string> {
   await runCommand({ command: "git", args: ["add", "README.md"], cwd: repoRoot });
   await runCommand({ command: "git", args: ["commit", "-m", "init"], cwd: repoRoot });
   return repoRoot;
+}
+
+async function createContextPackFakeCodex(): Promise<string> {
+  const filePath = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "fake-codex-context-")), "codex.js");
+  const source = `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  console.log("fake-codex 1.0.0");
+  process.exit(0);
+}
+const prompt = args[1] || "";
+const cwd = process.cwd();
+const statePath = path.join(cwd, ".fake-codex-context-state.json");
+let state = { count: 0 };
+try {
+  state = JSON.parse(fs.readFileSync(statePath, "utf8"));
+} catch {}
+state.count += 1;
+fs.writeFileSync(statePath, JSON.stringify(state), "utf8");
+if (prompt.includes("Phase kind: setup")) {
+  console.log('ORCHESTRA_CONTEXT_PACK:');
+  console.log(JSON.stringify({
+    summary: "Payment API worker context",
+    relevantFiles: [
+      { path: "src/payment/api.ts", reason: "Payment API client target", status: "proposed", role: "api-client" }
+    ],
+    allowedDiffBoundary: ["src/payment/**"],
+    doNotTouch: ["src/auth/**"],
+    conventions: { apiClientPatterns: ["*Api.ts"] },
+    implementationPlan: ["Create payment API client"],
+    verificationCommands: [],
+    assumptions: [],
+    missingContextWarnings: [],
+    confidence: "high"
+  }, null, 2));
+  process.exit(0);
+}
+if (prompt.includes("Phase kind: implementation")) {
+  const target = path.join(cwd, "src", "payment", "api.ts");
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, "export const paymentApi = () => 'ok';\\n", "utf8");
+  console.log("implemented payment api");
+  process.exit(0);
+}
+console.log("verification phase complete");
+`;
+  await fs.writeFile(filePath, source, "utf8");
+  await fs.chmod(filePath, 0o755);
+  return filePath;
 }
 
 async function createFakeCodex(): Promise<string> {

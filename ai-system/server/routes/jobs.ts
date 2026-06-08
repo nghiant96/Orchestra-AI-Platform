@@ -9,6 +9,7 @@ import {
   cancelJob,
   approveJob,
   getJobFileContent,
+  getJobArtifactContent,
   parseWorkflowMode,
   normalizeApprovalProof,
   JobServiceError
@@ -201,6 +202,25 @@ export const jobsRoute: RouteHandler = {
         rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules
       };
       const result = await getJobFileContent(serviceCtx, jobId, filePath, type, requestedCwd);
+      ctx.respondJson(res, result.ok ? 200 : result.statusCode ?? 404, result);
+      return true;
+    }
+
+    const artifactContentMatch = /^\/jobs\/([^/]+)\/artifacts\/content$/.exec(url.pathname);
+    if (artifactContentMatch && req.method === "GET") {
+      const jobId = artifactContentMatch[1] ?? "";
+      const artifactName = url.searchParams.get("name");
+      if (!artifactName) {
+        ctx.respondJson(res, 400, { ok: false, error: "Missing name parameter" });
+        return true;
+      }
+      const serviceCtx = {
+        queue: ctx.queue,
+        auditLog: ctx.auditLog,
+        actor: ctx.actor,
+        rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules
+      };
+      const result = await getJobArtifactContent(serviceCtx, jobId, artifactName);
       ctx.respondJson(res, result.ok ? 200 : result.statusCode ?? 404, result);
       return true;
     }

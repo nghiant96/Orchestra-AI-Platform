@@ -1,5 +1,14 @@
 # Lessons Learned
 
+## 2026-06-08: Do not drip-feed an already approved implementation scope
+
+**Mistake**: Split a clearly approved follow-up into tiny sequential slices and stopped after each slice even
+though the remaining work was known and low-risk to continue.
+
+**Rule**: When the user approves a concrete implementation direction and asks for the important next work,
+batch the coherent remaining scope into one implementation pass. Only stop early for genuine blockers,
+material product decisions, or verification failures that need user input.
+
 ## 2026-06-04: Experimental Node modules can exist at runtime before TypeScript knows them
 
 **Mistake**: Added `node:sqlite` support and spent time fighting ambient typings even though the runtime already exposed `DatabaseSync`.
