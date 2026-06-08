@@ -1,6 +1,33 @@
 # Current Project Tasks
 
-Last updated: 2026-06-04
+Last updated: 2026-06-06
+
+## Task: Evaluate Worker Context Pack And Guard Pipeline
+
+- [x] Read the proposed Context Pack, boundary guard, naming guard, convention scanner, and rollout plan.
+- [x] Compare the proposal against current worker phase execution, provider artifact capture, and verification flow.
+- [x] Identify implementation value, risks, sequencing, and recommended MVP scope.
+
+Review result:
+
+- The proposal fits the current worker architecture: phase execution, provider stdout/stderr artifacts, changed-file capture, and verification runner already provide natural integration points.
+- Recommended MVP is Context Pack core plus warn-only diff boundary guard before verification. Naming guard and convention scanner are useful but should follow after artifact/schema stability is proven.
+- The context builder/vector portion should reuse existing `expandContextReadFiles()` and blast-radius primitives instead of building a separate discovery system.
+
+## Task: Implement Worker Context Pack MVP
+
+- [x] Add a serializable worker context pack model, persistence helpers, markdown renderer, and provider-output parser.
+- [x] Require setup phases to emit an `ORCHESTRA_CONTEXT_PACK` block.
+- [x] Inject saved context pack guidance into implementation phases.
+- [x] Add a diff boundary guard that writes `diff-boundary-check.json` before verification and defaults to warn-only.
+- [x] Add focused regression coverage for parsing, prompt wiring, and boundary checks.
+- [x] Run targeted tests and typecheck.
+
+Review result:
+
+- Worker setup phases now ask for a structured `ORCHESTRA_CONTEXT_PACK`, save `context-pack.json` and `context-pack.md`, and implementation phases receive that pack as phase guidance.
+- Worker jobs now run a diff boundary check before verification and persist `diff-boundary-check.json`; default behavior is warn-only except explicit `doNotTouch` violations and strict env modes.
+- Verification passed with targeted worker context/boundary/phase tests, root typecheck, build compile, targeted ESLint, and `git diff --check`.
 
 ## Task: Add Worker Phase Planning And Resume
 
@@ -29,6 +56,34 @@ Review result:
 - Dev and test flows still use `tsx` where appropriate, but production-style execution now goes through compiled JS instead of source-side mirrors.
 - The mirror files have now been removed from the source tree. Runtime execution is compiled-first, with `dist/` carrying the build output and static assets.
 
+## Task: Add SQLite Durable Queue Backend
+
+- [x] Add SQLite-backed persistence to the job queue while preserving file-mirror compatibility for analytics and legacy file readers.
+- [x] Persist queued and claimed jobs across queue restart in `ORCHESTRA_STORE=sqlite` mode.
+- [x] Update the store descriptor so SQLite is reported as implemented instead of reserved.
+- [x] Add regression coverage for SQLite restart durability and claim preservation.
+- [x] Run typecheck plus targeted SQLite and store descriptor smoke tests.
+
+Review result:
+
+- `ORCHESTRA_STORE=sqlite` now writes queue state to a real SQLite database under `.ai-system-server/jobs/jobs.sqlite` and keeps the JSON mirror in sync for existing readers.
+- A restart regression now proves that an enqueued job survives queue restart, can be claimed, and remains assigned after a second restart.
+- The store descriptor now reports SQLite as implemented and durable, while `postgres` remains reserved.
+
+## Task: Add Docker Pilot And Rich Verification Artifacts
+
+- [x] Make the Docker compose service default to `ORCHESTRA_STORE=sqlite` for pilot runs.
+- [x] Persist queue state and artifacts in named Docker volumes so container restarts do not lose pilot data.
+- [x] Write machine-readable per-check verification artifacts alongside the human-readable logs.
+- [x] Add regression coverage for verification failure artifacts.
+- [x] Run typecheck, targeted tests, and smoke verification in the updated runtime path.
+
+Review result:
+
+- The Docker pilot path now boots with SQLite durable state by default and keeps queue state plus artifacts in named volumes.
+- Verification output now includes `verification.json` with passed/failed/skipped command summaries and one `.json` plus `.log` file per check, so a failed run is diagnosable without scraping stdout.
+- The new regression confirms a failing command writes exit code, failure class, stdout/stderr, and summary into the artifact bundle.
+
 ## Task: Rewrite Production-Ready Readiness Doc Into Grounded Checklist
 
 - [x] Audit current production-ready claims against implemented code paths.
@@ -52,6 +107,7 @@ Review result:
 Review result:
 
 - Store reporting is now honest: `file` is implemented, while `sqlite` and `postgres` are explicitly reserved instead of being overclaimed.
+- Store reporting is now honest: `file` is implemented, `sqlite` is implemented as a durable backend, and `postgres` remains reserved.
 - Server startup now rejects missing/placeholder tokens, and the project has a unified `check:all` gate plus a dashboard smoke script.
 - Verification for the new work passed on the targeted path, including typecheck, JS mirror sync, dashboard smoke, worker provider regressions, and orchestra smoke. The shell in this environment does not expose `pnpm`, so the `check:all` script was validated by running its component commands directly instead of via the script entrypoint.
 
@@ -60,14 +116,14 @@ Review result:
 - [x] Add a real verification runner that writes `verification.json` and per-check artifacts.
 - [x] Introduce a dedicated worker process supervisor seam for provider command execution.
 - [x] Mark the dashboard smoke path as an actual headless readiness check.
-- [ ] Decide whether the queue/store layer should move from file-backed persistence to a real SQLite backend now or remain explicitly partial.
+- [x] Decide whether the queue/store layer should move from file-backed persistence to a real SQLite backend now or remain explicitly partial.
 - [x] Re-run targeted regressions for store, auth, dashboard smoke, and worker execution.
 
 Review result:
 
 - The worker runtime now uses a dedicated verification runner after provider success and a dedicated process supervisor seam for provider command execution.
 - Dashboard smoke is now part of the real readiness checks, not just a placeholder script.
-- The remaining true blocker is durable queue/state storage: `sqlite` and `postgres` are still reserved modes, so the project is not yet fully production-ready even though the worker setup/run path is now testable end to end.
+- Durable queue/state storage is no longer purely hypothetical: SQLite persistence is implemented and restart-safe for queue state, the Docker pilot path now defaults to SQLite, and the remaining hardening work is about whether SQLite should become the default or whether Postgres should replace it for the next scale step.
 
 ## Task: Handle Sprint 0-3 Execution Tranche
 
@@ -80,7 +136,7 @@ Review result:
 Review result:
 
 - Sprint 0/Sprint 2 hardening is now reflected in runtime health: the server reports store mode, store capabilities, queue stalled counts, and worker counts.
-- Sprint 1 is now grounded by an explicit store descriptor, but the actual SQLite/Postgres durable backend is still the next implementation step rather than a claimed completion.
+- Sprint 1 now has a real SQLite-backed queue backend for durability-sensitive runs, while the remaining decision is whether that should become the default or whether Postgres is the next scale target.
 
 ## Task: Write Realistic Assessment And Product-Ready Roadmap
 

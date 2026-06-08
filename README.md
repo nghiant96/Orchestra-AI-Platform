@@ -401,6 +401,18 @@ ai worker start \
   --workspace-roots /allowed/root
 ```
 
+### Docker Pilot
+
+For a small team pilot with durable queue state, run the service in Docker with SQLite enabled:
+
+```bash
+export AI_SYSTEM_SERVER_TOKEN=replace-me
+export ORCHESTRA_STORE=sqlite
+docker compose up -d orchestra-ai-platform
+```
+
+The compose setup persists `.ai-system-server/` and `.ai-system-artifacts/` in named volumes, so queued jobs and run artifacts survive container restarts. Use `pnpm docker:pilot` if you want the same command wrapped in `package.json`.
+
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -412,7 +424,7 @@ ai worker start \
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for server auth | None |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated workspace roots the server may operate in | Current working directory |
 | `ORCHESTRA_EXECUTION_BACKEND` | Queue execution owner: `in-process`, `worker`, `hybrid` | `in-process` |
-| `ORCHESTRA_STORE` | Runtime store mode: `file`, `sqlite`, `postgres` | `file` |
+| `ORCHESTRA_STORE` | Runtime store mode: `file` (default), `sqlite` (durable), `postgres` (reserved) | `file` |
 | `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
 | `ORCHESTRA_WORKER_PROVIDER` | Local worker provider adapter. v1 supports `codex`; `dummy` is for tests/smoke only | `codex` |
 | `ORCHESTRA_CODEX_COMMAND` | Command used by CodexProvider v1 | `codex` |
@@ -424,9 +436,11 @@ ai worker start \
 | `ORCHESTRA_WORKSPACE_ROOTS` | Default comma-separated worker roots for `ai worker start` | Current working directory |
 | `AI_SYSTEM_DISABLE_TUI` | Disable interactive dashboard | `false` |
 
-### Runtime JS Mirrors
+### Compiled Runtime Build
 
-This alpha branch intentionally keeps generated `.js` files next to `.ts` sources for runtime compatibility. Treat TypeScript as the source of truth, run `tsc` after editing TypeScript, and use `pnpm check:js-mirrors` to verify running `tsc` does not create additional `.js` or `tsconfig.tsbuildinfo` drift.
+Runtime execution now goes through the compiled `dist/` output. Treat TypeScript as the source of truth, run `pnpm build` before production-style execution, and keep the generated files out of the source tree.
+
+For durability-sensitive runs, set `ORCHESTRA_STORE=sqlite`. The SQLite job store lives under `.ai-system-server/jobs/jobs.sqlite` inside the selected workspace and survives server or worker restarts in that workspace.
 
 ---
 

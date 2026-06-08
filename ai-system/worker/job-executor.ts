@@ -7,6 +7,15 @@ import type { WorkerApiClient } from "./worker-client.js";
 import { ensurePathWithinRoot, redactWorkerLogLine } from "./worker-safety.js";
 import { prepareWorkerWorktree } from "./worker-worktree.js";
 import { buildProviderEnv } from "./provider-env.js";
+import {
+  createFallbackWorkerContextPack,
+  loadWorkerContextPack,
+  saveWorkerContextPack,
+  type WorkerContextPack
+} from "./context-pack.js";
+import { extractContextPackFromProviderResult } from "./context-pack-parser.js";
+import { buildImplementationPromptWithContext } from "./contextual-phase-prompt.js";
+import { runDiffBoundaryCheck, writeDiffBoundaryCheckArtifact } from "./diff-boundary-checker.js";
 import { resolveWorkerProvider } from "./providers/index.js";
 import { runWorkerVerification } from "./verification-runner.js";
 import {
@@ -201,15 +210,26 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   }
 
   let latestResult: Awaited<ReturnType<typeof provider.execute>> | null = null;
+  let contextPack: WorkerContextPack | null = await loadWorkerContextPack(prepared.artifactDir);
   for (let index = resumeIndex; index < plan.phases.length; index += 1) {
     const phase = plan.phases[index];
     emit(`phase ${index + 1}/${plan.phases.length}: ${phase.title}`);
     phaseState = updateWorkerTaskPhaseStateForStart(phaseState, phase.id);
     await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
 
+    const phaseTask = phase.kind === "implementation"
+      ? buildImplementationPromptWithContext({
+          phasePrompt: phase.prompt,
+          contextPack
+        })
+      : phase.prompt;
+    if (phase.kind === "implementation" && !contextPack) {
+      emit("context pack unavailable for implementation phase; continuing with narrow-change guidance");
+    }
+
     const phaseResult = await provider.execute({
       ...providerInputBase,
-      task: phase.prompt
+      task: phaseTask
     });
     latestResult = phaseResult;
     await persistWorkerPhaseArtifact(prepared.artifactDir, phase, phaseResult);
@@ -232,6 +252,24 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
       };
     }
 
+    if (phase.kind === "setup") {
+      contextPack = extractContextPackFromProviderResult(
+        [
+          phaseResult.stdout,
+          phaseResult.stderr,
+          phaseResult.summary,
+          ...(phaseResult.workerLogs ?? [])
+        ].join("\n"),
+        { jobId: ctx.job.jobId, task: ctx.job.task }
+      ) ?? createFallbackWorkerContextPack({
+        jobId: ctx.job.jobId,
+        task: ctx.job.task,
+        warning: "Setup phase completed without an ORCHESTRA_CONTEXT_PACK block."
+      });
+      await saveWorkerContextPack(prepared.artifactDir, contextPack);
+      emit(`context pack saved with ${contextPack.confidence} confidence`);
+    }
+
     phaseState = updateWorkerTaskPhaseStateForCompletion(phaseState, phase.id, {
       summary: phaseResult.summary,
       changedFiles: phaseResult.changedFiles,
@@ -244,6 +282,37 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
 
   const finalResult = latestResult ?? buildResumedResultFromState(phaseState, prepared.artifactDir);
   if (!ctx.job.dryRun && finalResult.ok) {
+    contextPack = contextPack ?? await loadWorkerContextPack(prepared.artifactDir);
+    const boundaryCheck = await runDiffBoundaryCheck({
+      changedFiles: finalResult.changedFiles,
+      contextPack,
+      repoRoot: ctx.job.cwd,
+      worktreePath: prepared.worktreePath
+    });
+    await writeDiffBoundaryCheckArtifact(prepared.artifactDir, boundaryCheck);
+    for (const finding of boundaryCheck.findings) {
+      const fileSuffix = finding.filePath ? ` (${finding.filePath})` : "";
+      emit(`diff boundary ${finding.severity}: ${finding.code}${fileSuffix}`);
+    }
+    if (!boundaryCheck.ok) {
+      return {
+        ok: false,
+        summary: "Diff boundary check failed.",
+        logs,
+        filesystemMutated: true,
+        artifactPath: finalResult.artifactPath ?? prepared.artifactDir,
+        diffSummaries: finalResult.diffSummaries,
+        latestToolResults: finalResult.latestToolResults,
+        failure: {
+          class: "tool-check-failed",
+          message: "Diff boundary check failed.",
+          step: "worker-diff-boundary",
+          retryable: false,
+          suggestion: "Review diff-boundary-check.json and keep changes inside the context pack boundary."
+        }
+      };
+    }
+
     const verification = await runWorkerVerification({
       repoRoot: ctx.job.cwd,
       worktreePath: prepared.worktreePath,

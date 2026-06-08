@@ -27,6 +27,18 @@ export function resolveOrchestraStoreDescriptor(): OrchestraStoreDescriptor {
     };
   }
 
+  if (mode === "sqlite") {
+    return {
+      mode,
+      implemented: true,
+      capabilities: {
+        durable: true,
+        migrations: false,
+        multiProcess: true
+      }
+    };
+  }
+
   return {
     mode,
     implemented: false,
@@ -35,8 +47,6 @@ export function resolveOrchestraStoreDescriptor(): OrchestraStoreDescriptor {
       migrations: false,
       multiProcess: false
     },
-    warning: mode === "sqlite"
-      ? "SQLite store is reserved but not implemented yet."
-      : "Postgres store is reserved but not implemented yet."
+    warning: "Postgres store is reserved but not implemented yet."
   };
 }

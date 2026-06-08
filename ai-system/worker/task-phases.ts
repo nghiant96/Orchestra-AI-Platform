@@ -174,7 +174,7 @@ export function buildPhasePrompt(input: {
   const phaseCount = input.totalPhases;
   const phaseGoal = input.phase.goal.trim();
 
-  return [
+  const lines = [
     `You are executing phase ${input.phase.index + 1}/${phaseCount} of an Orchestra worker job.`,
     `Phase title: ${input.phase.title}`,
     `Phase kind: ${input.phase.kind}`,
@@ -191,7 +191,45 @@ export function buildPhasePrompt(input: {
     "- Do not drift into later phases unless they are required to complete this slice.",
     "- Keep the repository in a coherent state when you finish.",
     "- Prefer targeted edits and deterministic verification."
-  ].join("\n");
+  ];
+
+  if (input.phase.kind === "setup") {
+    lines.push(
+      "",
+      "Setup phase required output:",
+      "At the end of this phase, produce a JSON block named ORCHESTRA_CONTEXT_PACK.",
+      "The block must be valid JSON and include these fields:",
+      "- summary",
+      "- relevantFiles: array of { path, reason, status, role }",
+      "- allowedDiffBoundary: array of file paths or glob-like patterns",
+      "- doNotTouch: array of file paths or glob-like patterns",
+      "- conventions",
+      "- implementationPlan",
+      "- verificationCommands",
+      "- assumptions",
+      "- missingContextWarnings",
+      "- confidence: low, medium, or high",
+      "",
+      "Use this exact shape:",
+      "ORCHESTRA_CONTEXT_PACK:",
+      "{",
+      "  \"summary\": \"...\",",
+      "  \"relevantFiles\": [",
+      "    { \"path\": \"src/example.ts\", \"reason\": \"Why this file matters\", \"status\": \"existing\", \"role\": \"unknown\" }",
+      "  ],",
+      "  \"allowedDiffBoundary\": [\"src/**\", \"tests/**\"],",
+      "  \"doNotTouch\": [],",
+      "  \"conventions\": { \"notes\": [] },",
+      "  \"implementationPlan\": [],",
+      "  \"verificationCommands\": [],",
+      "  \"assumptions\": [],",
+      "  \"missingContextWarnings\": [],",
+      "  \"confidence\": \"medium\"",
+      "}"
+    );
+  }
+
+  return lines.join("\n");
 }
 
 export function updateWorkerTaskPhaseStateForStart(state: WorkerTaskPhaseState, phaseId: string): WorkerTaskPhaseState {

@@ -9,6 +9,7 @@ services:
       AI_SYSTEM_WORKDIR: /workspace
       AI_SYSTEM_SERVER_MODE: ${AI_SYSTEM_SERVER_MODE:-false}
       AI_SYSTEM_SERVER_TOKEN: ${AI_SYSTEM_SERVER_TOKEN:-}
+      ORCHESTRA_STORE: ${ORCHESTRA_STORE:-sqlite}
       PORT: ${PORT:-3927}
       AI_SYSTEM_MEMORY_ENABLED: ${AI_SYSTEM_MEMORY_ENABLED:-true}
       AI_SYSTEM_MEMORY_BACKEND: ${AI_SYSTEM_MEMORY_BACKEND:-local-file}
@@ -22,8 +23,14 @@ services:
       - "${PORT:-3927}:${PORT:-3927}"
     volumes:
       - .:/workspace
+      - orchestra-ai-state:/workspace/.ai-system-server
+      - orchestra-ai-artifacts:/workspace/.ai-system-artifacts
       - ${HOME}/.gemini:/root/.gemini
       - ${HOME}/.codex:/root/.codex
       - ${HOME}/.claude:/root/.claude
     stdin_open: true
     tty: true
+
+volumes:
+  orchestra-ai-state:
+  orchestra-ai-artifacts:

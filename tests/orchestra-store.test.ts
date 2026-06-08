@@ -23,16 +23,17 @@ test("resolveOrchestraStoreDescriptor reports file mode truthfully", async () =>
   }
 });
 
-test("resolveOrchestraStoreDescriptor warns for reserved sqlite and postgres modes", async () => {
+test("resolveOrchestraStoreDescriptor marks sqlite implemented and postgres reserved", async () => {
   const previous = process.env.ORCHESTRA_STORE;
 
   try {
     process.env.ORCHESTRA_STORE = "sqlite";
     const sqliteDescriptor = resolveOrchestraStoreDescriptor();
     assert.equal(sqliteDescriptor.mode, "sqlite");
-    assert.equal(sqliteDescriptor.implemented, false);
-    assert.equal(sqliteDescriptor.capabilities.durable, false);
-    assert.match(sqliteDescriptor.warning ?? "", /SQLite store is reserved/);
+    assert.equal(sqliteDescriptor.implemented, true);
+    assert.equal(sqliteDescriptor.capabilities.durable, true);
+    assert.equal(sqliteDescriptor.capabilities.multiProcess, true);
+    assert.equal(sqliteDescriptor.warning, undefined);
 
     process.env.ORCHESTRA_STORE = "postgres";
     const postgresDescriptor = resolveOrchestraStoreDescriptor();

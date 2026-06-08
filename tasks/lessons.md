@@ -1,5 +1,11 @@
 # Lessons Learned
 
+## 2026-06-04: Experimental Node modules can exist at runtime before TypeScript knows them
+
+**Mistake**: Added `node:sqlite` support and spent time fighting ambient typings even though the runtime already exposed `DatabaseSync`.
+
+**Rule**: If the runtime has an experimental Node module that the pinned TypeScript libs do not declare yet, keep the compatibility surface local and minimal. Prefer a narrow import suppression at the call site over inventing a broad ambient type shim that may not match the current toolchain.
+
 ## 2026-06-04: pnpm v11 moves workspace policy out of package.json
 
 **Mistake**: Left `pnpm.overrides` in `package.json`, which pnpm 11 ignores. That let the lockfile drift to a different transitive version and kept a noisy warning in every install.

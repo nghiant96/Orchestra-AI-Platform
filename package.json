@@ -20,6 +20,7 @@
     "ai:chat": "node --import tsx ai-system/cli.ts --chat",
     "ai:help": "node --import tsx ai-system/cli.ts --help",
     "docker:up": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=${AI_SYSTEM_SERVER_TOKEN} docker compose up -d orchestra-ai-platform",
+    "docker:pilot": "ORCHESTRA_STORE=sqlite AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=${AI_SYSTEM_SERVER_TOKEN} docker compose up -d orchestra-ai-platform",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f orchestra-ai-platform",
     "lint": "eslint .",

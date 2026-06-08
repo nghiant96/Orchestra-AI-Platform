@@ -1,6 +1,10 @@
 import fs, { type FileHandle } from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
+// @ts-ignore Node 24 exposes node:sqlite at runtime, but the pinned TS libs here do not declare it yet.
+import { DatabaseSync } from "node:sqlite";
 import { normalizeQueueJob } from "./normalizers.js";
+import { resolveStoreMode, type OrchestraStoreMode } from "./store-mode.js";
 import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 import type { WorkerCapabilities } from "../workers/worker-types.js";
@@ -110,6 +114,9 @@ export class FileBackedJobQueue {
   private activeRunPromises = new Set<Promise<void>>();
   private isPaused = false;
   private isStopped = false;
+  private readonly storeMode: OrchestraStoreMode;
+  private readonly sqlitePath: string;
+  private sqliteDb: DatabaseSync | null = null;
 
   constructor(
     readonly jobsDir: string,
@@ -119,7 +126,15 @@ export class FileBackedJobQueue {
       logger?: Logger;
       retentionDays?: number;
     } = {}
-  ) { }
+  ) {
+    this.storeMode = resolveStoreMode();
+    this.sqlitePath = path.join(jobsDir, "jobs.sqlite");
+    if (this.storeMode === "sqlite") {
+      fsSync.mkdirSync(this.jobsDir, { recursive: true });
+      this.sqliteDb = new DatabaseSync(this.sqlitePath);
+      this.ensureSqliteSchema();
+    }
+  }
 
   setPaused(paused: boolean): void {
     this.isPaused = paused;
@@ -207,6 +222,9 @@ export class FileBackedJobQueue {
     if (!isSafeJobId(jobId)) {
       return null;
     }
+    if (this.isSqliteStore()) {
+      return this.getSqliteJob(jobId);
+    }
     try {
       const raw = await fs.readFile(this.jobPath(jobId), "utf8");
       return normalizeQueueJob(JSON.parse(raw));
@@ -216,6 +234,9 @@ export class FileBackedJobQueue {
   }
 
   async list(limit = 50): Promise<QueueJob[]> {
+    if (this.isSqliteStore()) {
+      return this.listSqliteJobs(limit);
+    }
     await fs.mkdir(this.jobsDir, { recursive: true });
     let entries: string[];
     try {
@@ -267,6 +288,12 @@ export class FileBackedJobQueue {
   async delete(jobId: string): Promise<boolean> {
     if (!isSafeJobId(jobId)) {
       return false;
+    }
+    if (this.isSqliteStore()) {
+      const removed = this.deleteSqliteJob(jobId);
+      await fs.unlink(this.jobPath(jobId)).catch(() => {});
+      await fs.unlink(this.lockPath(jobId)).catch(() => {});
+      return removed;
     }
     try {
       await fs.unlink(this.jobPath(jobId));
@@ -570,6 +597,8 @@ export class FileBackedJobQueue {
       this.drainTimer = null;
     }
     await Promise.allSettled([...this.activeRunPromises]);
+    this.sqliteDb?.close();
+    this.sqliteDb = null;
   }
 
   private async cleanupHungJobs(): Promise<void> {
@@ -726,6 +755,9 @@ export class FileBackedJobQueue {
 
   private async writeJob(job: QueueJob): Promise<void> {
     await fs.mkdir(this.jobsDir, { recursive: true });
+    if (this.isSqliteStore()) {
+      this.upsertSqliteJob(job);
+    }
     const targetPath = this.jobPath(job.jobId);
     const tempPath = `${targetPath}.tmp.${Date.now()}`;
     await fs.writeFile(tempPath, `${JSON.stringify(job, null, 2)}\n`, "utf8");
@@ -788,7 +820,11 @@ export class FileBackedJobQueue {
 
         for (const job of toDelete) {
           try {
-            await fs.unlink(this.jobPath(job.jobId));
+            if (this.isSqliteStore()) {
+              await this.delete(job.jobId);
+            } else {
+              await fs.unlink(this.jobPath(job.jobId));
+            }
           } catch {
             /* ignore */
           }
@@ -804,7 +840,11 @@ export class FileBackedJobQueue {
       const toDelete = all.slice(100);
       for (const job of toDelete) {
         try {
-          await fs.unlink(this.jobPath(job.jobId));
+          if (this.isSqliteStore()) {
+            await this.delete(job.jobId);
+          } else {
+            await fs.unlink(this.jobPath(job.jobId));
+          }
         } catch {
           /* ignore */
         }
@@ -813,6 +853,98 @@ export class FileBackedJobQueue {
     } catch (err) {
       this.options.logger?.warn(`Failed to cleanup old jobs: ${(err as Error).message}`);
     }
+  }
+
+  private isSqliteStore(): boolean {
+    return this.storeMode === "sqlite" && this.sqliteDb !== null;
+  }
+
+  private ensureSqliteSchema(): void {
+    if (!this.sqliteDb) {
+      return;
+    }
+    this.sqliteDb.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE IF NOT EXISTS jobs (
+        job_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        cwd TEXT NOT NULL,
+        record TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at DESC);
+    `);
+  }
+
+  private getSqliteJob(jobId: string): QueueJob | null {
+    if (!this.sqliteDb) {
+      return null;
+    }
+    const row = this.sqliteDb
+      .prepare("SELECT record FROM jobs WHERE job_id = ?")
+      .get(jobId) as { record?: string } | undefined;
+    if (!row?.record) {
+      return null;
+    }
+    try {
+      return normalizeQueueJob(JSON.parse(row.record));
+    } catch {
+      return null;
+    }
+  }
+
+  private listSqliteJobs(limit: number): QueueJob[] {
+    if (!this.sqliteDb) {
+      return [];
+    }
+    const rows = this.sqliteDb
+      .prepare("SELECT record FROM jobs ORDER BY created_at DESC LIMIT ?")
+      .all(limit) as Array<{ record?: string }>;
+    return rows
+      .map((row) => {
+        if (!row.record) {
+          return null;
+        }
+        try {
+          return normalizeQueueJob(JSON.parse(row.record));
+        } catch {
+          return null;
+        }
+      })
+      .filter((job): job is QueueJob => job !== null);
+  }
+
+  private upsertSqliteJob(job: QueueJob): void {
+    if (!this.sqliteDb) {
+      return;
+    }
+    const record = JSON.stringify(job, null, 2);
+    this.sqliteDb
+      .prepare(
+        `
+          INSERT INTO jobs (job_id, created_at, updated_at, status, cwd, record)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON CONFLICT(job_id) DO UPDATE SET
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at,
+            status = excluded.status,
+            cwd = excluded.cwd,
+            record = excluded.record
+        `
+      )
+      .run(job.jobId, job.createdAt, job.updatedAt, job.status, job.cwd, record);
+  }
+
+  private deleteSqliteJob(jobId: string): boolean {
+    if (!this.sqliteDb) {
+      return false;
+    }
+    const result = this.sqliteDb.prepare("DELETE FROM jobs WHERE job_id = ?").run(jobId);
+    return result.changes > 0;
   }
 }
 
