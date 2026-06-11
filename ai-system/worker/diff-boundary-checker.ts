@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import { runCommand } from "../utils/api.js";
 import type { WorkerContextPack } from "./context-pack.js";
 
@@ -102,9 +103,9 @@ export async function writeDiffBoundaryCheckArtifact(
   artifactDir: string,
   result: DiffBoundaryCheckResult
 ): Promise<void> {
-  await fs.mkdir(artifactDir, { recursive: true });
+  await fs.mkdir(path.dirname(path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck)), { recursive: true });
   await fs.writeFile(
-    path.join(artifactDir, "diff-boundary-check.json"),
+    path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck),
     `${JSON.stringify({
       version: 1,
       generatedAt: new Date().toISOString(),

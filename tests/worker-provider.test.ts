@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { createAiSystemServer } from "../ai-system/server-app.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import { loadWorkerRuntimeConfig } from "../ai-system/worker/worker-config.js";
@@ -58,9 +59,9 @@ describe("Worker provider execution", () => {
       assert.ok(Array.isArray(job.diffSummaries));
       assert.ok(Array.isArray(job.latestToolResults));
       await assert.rejects(() => fs.stat(path.join(repoRoot, "provider-output.txt")), /ENOENT/);
-      const changedFiles = JSON.parse(await fs.readFile(path.join(job.artifactPath, "changed-files.json"), "utf8"));
+      const changedFiles = JSON.parse(await fs.readFile(path.join(job.artifactPath, ARTIFACT_PATHS.changedFiles), "utf8"));
       assert.deepEqual(changedFiles, ["provider-output.txt"]);
-      const diff = await fs.readFile(path.join(job.artifactPath, "diff.patch"), "utf8");
+      const diff = await fs.readFile(path.join(job.artifactPath, ARTIFACT_PATHS.diffPatch), "utf8");
       assert.match(diff, /provider-output.txt/);
     } finally {
       restoreEnv(previousBackend, previousWorkerToken);
@@ -113,7 +114,7 @@ describe("Worker provider execution", () => {
       assert.equal(job.status, "failed");
       assert.equal(job.failure?.class, "provider-error");
       assert.ok(job.artifactPath);
-      assert.match(await fs.readFile(path.join(job.artifactPath, "provider-stderr.log"), "utf8"), /fake codex failed/);
+      assert.match(await fs.readFile(path.join(job.artifactPath, ARTIFACT_PATHS.providerStderr), "utf8"), /fake codex failed/);
     } finally {
       restoreEnv(previousBackend, previousWorkerToken);
       await closeServer(server);

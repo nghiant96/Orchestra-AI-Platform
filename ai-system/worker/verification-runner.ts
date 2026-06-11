@@ -1,5 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {
+  ARTIFACT_PATHS,
+  checkJsonPath,
+  checkLogPath,
+  sanitizeArtifactSegment
+} from "../artifacts/artifact-paths.js";
 import { loadRules } from "../core/orchestrator-runtime.js";
 import { runToolChecks } from "../core/tool-executor.js";
 import type { GeneratedFile, ToolExecutionResult, ToolExecutionSummary } from "../types.js";
@@ -71,7 +77,7 @@ async function readChangedFiles(worktreePath: string, changedFiles: string[]): P
 }
 
 async function writeVerificationArtifacts(artifactDir: string, summary: ToolExecutionSummary): Promise<void> {
-  const checksDir = path.join(artifactDir, "checks");
+  const checksDir = path.join(artifactDir, ARTIFACT_PATHS.checksDir);
   await fs.mkdir(checksDir, { recursive: true });
   const passed = summary.results.filter((result) => result.ok && !result.skipped);
   const failed = summary.results.filter((result) => !result.ok && !result.skipped);
@@ -108,9 +114,9 @@ async function writeVerificationArtifacts(artifactDir: string, summary: ToolExec
   };
 
   await Promise.all([
-    fs.writeFile(path.join(artifactDir, "verification.json"), `${JSON.stringify(verificationJson, null, 2)}\n`, "utf8"),
+    fs.writeFile(path.join(artifactDir, ARTIFACT_PATHS.verification), `${JSON.stringify(verificationJson, null, 2)}\n`, "utf8"),
     ...summary.results.map(async (result, index) => {
-      const safeName = sanitizeFileName(result.name || `check-${index + 1}`);
+      const safeName = sanitizeArtifactSegment(result.name || `check-${index + 1}`);
       const body = [
         `name: ${result.name}`,
         `status: ${result.ok ? "passed" : result.skipped ? "skipped" : "failed"}`,
@@ -148,13 +154,9 @@ async function writeVerificationArtifacts(artifactDir: string, summary: ToolExec
         workingDirectory: result.workingDirectory ?? null
       };
       await Promise.all([
-        fs.writeFile(path.join(checksDir, `${safeName}.log`), `${body}\n`, "utf8"),
-        fs.writeFile(path.join(checksDir, `${safeName}.json`), `${JSON.stringify(checkJson, null, 2)}\n`, "utf8")
+        fs.writeFile(path.join(artifactDir, checkLogPath(safeName)), `${body}\n`, "utf8"),
+        fs.writeFile(path.join(artifactDir, checkJsonPath(safeName)), `${JSON.stringify(checkJson, null, 2)}\n`, "utf8")
       ]);
     })
   ]);
-}
-
-function sanitizeFileName(value: string): string {
-  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "check";
 }

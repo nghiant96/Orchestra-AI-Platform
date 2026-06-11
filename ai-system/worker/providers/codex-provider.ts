@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../../artifacts/artifact-paths.js";
 import { checkCommand } from "../../security/command-policy.js";
 import type { DiffSummary, ToolExecutionResult } from "../../types.js";
 import { runCommand } from "../../utils/api.js";
@@ -162,11 +163,15 @@ async function captureArtifacts(input: WorkerProviderExecutionInput, stdout: str
   const shouldUploadRaw = process.env.ORCHESTRA_UPLOAD_RAW_TRANSCRIPTS === "true";
 
   await Promise.all([
-    fs.writeFile(path.join(input.artifactDir, "diff.patch"), diffText, "utf8"),
-    fs.writeFile(path.join(input.artifactDir, "diff-stat.txt"), diffStat, "utf8"),
-    fs.writeFile(path.join(input.artifactDir, "changed-files.json"), `${JSON.stringify(changedFiles, null, 2)}\n`, "utf8"),
-    fs.writeFile(path.join(input.artifactDir, "provider-stdout.log"), shouldUploadRaw ? stdout : scrub(stdout), "utf8"),
-    fs.writeFile(path.join(input.artifactDir, "provider-stderr.log"), shouldUploadRaw ? stderr : scrub(stderr), "utf8")
+    fs.mkdir(path.join(input.artifactDir, "diff"), { recursive: true }),
+    fs.mkdir(path.join(input.artifactDir, "provider"), { recursive: true })
+  ]);
+  await Promise.all([
+    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.diffPatch), diffText, "utf8"),
+    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.diffStat), diffStat, "utf8"),
+    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.changedFiles), `${JSON.stringify(changedFiles, null, 2)}\n`, "utf8"),
+    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.providerStdout), shouldUploadRaw ? stdout : scrub(stdout), "utf8"),
+    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.providerStderr), shouldUploadRaw ? stderr : scrub(stderr), "utf8")
   ]);
 
   return { changedFiles, diffText, diffSummaries };

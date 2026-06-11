@@ -1,7 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS, phaseArtifactPath } from "../artifacts/artifact-paths.js";
+import type {
+  ArtifactExecutionMode,
+  ArtifactGuardStatus,
+  ArtifactVerificationStatus,
+  JobArtifactRefs
+} from "../artifacts/artifact-schema.js";
+import {
+  updateManifestArtifactRefs,
+  updateManifestStatus,
+  updateManifestSummary,
+  writeInitialManifest
+} from "../artifacts/manifest-writer.js";
 import type { QueueJob } from "../core/job-queue.js";
 import type { DiffSummary, FailureMetadata, ToolExecutionResult } from "../types.js";
+import { runCommand } from "../utils/api.js";
 import type { Worker } from "../workers/worker-types.js";
 import type { WorkerApiClient } from "./worker-client.js";
 import { ensurePathWithinRoot, redactWorkerLogLine } from "./worker-safety.js";
@@ -161,6 +175,8 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     await ctx.markFilesystemMutation("provider_execute", prepared.worktreePath);
   }
 
+  await initializeWorkerManifest(ctx, prepared, providerId);
+
   const provider = resolveWorkerProvider(providerId, { codexCommand: ctx.providerCommand });
   const providerInputBase = {
     jobId: ctx.job.jobId,
@@ -179,7 +195,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   if (!(await provider.isAvailable({ ...providerInputBase, task: ctx.job.task }))) {
     const message = `Worker provider is not available: ${provider.id}`;
     emit(message);
-    return {
+    return finishWorkerJob(prepared.artifactDir, "failed", {
       ok: false,
       summary: message,
       logs,
@@ -192,7 +208,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         retryable: true,
         suggestion: "Install/authenticate the provider CLI or configure ORCHESTRA_WORKER_PROVIDER."
       }
-    };
+    });
   }
 
   const loadedState = await loadWorkerTaskPhaseState(prepared.artifactDir);
@@ -203,6 +219,10 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   if (!loadedState) {
     await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
   }
+  await updateManifestArtifactRefs(prepared.artifactDir, {
+    phaseState: ARTIFACT_PATHS.phaseState,
+    repoConventions: ARTIFACT_PATHS.repoConventions
+  });
 
   const resumeIndex = getWorkerTaskPhaseResumeIndex(phaseState);
   if (resumeIndex > 0) {
@@ -239,6 +259,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     });
     latestResult = phaseResult;
     await persistWorkerPhaseArtifact(prepared.artifactDir, phase, phaseResult);
+    await updateManifestArtifactRefs(prepared.artifactDir, providerArtifactRefs());
     for (const line of phaseResult.workerLogs ?? []) {
       emit(line);
     }
@@ -246,7 +267,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     if (!phaseResult.ok) {
       phaseState = updateWorkerTaskPhaseStateForFailure(phaseState, phase.id, phaseResult.summary);
       await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
-      return {
+      return finishWorkerJob(prepared.artifactDir, "failed", {
         ok: false,
         summary: phaseResult.summary,
         logs,
@@ -255,7 +276,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         diffSummaries: phaseResult.diffSummaries,
         latestToolResults: phaseResult.latestToolResults,
         failure: phaseResult.failure
-      };
+      });
     }
 
     if (phase.kind === "setup") {
@@ -273,6 +294,10 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         warning: "Setup phase completed without an ORCHESTRA_CONTEXT_PACK block."
       });
       await saveWorkerContextPack(prepared.artifactDir, contextPack);
+      await updateManifestArtifactRefs(prepared.artifactDir, {
+        contextPack: ARTIFACT_PATHS.contextPack,
+        contextPackMarkdown: ARTIFACT_PATHS.contextPackMarkdown
+      });
       emit(`context pack saved with ${contextPack.confidence} confidence`);
     }
 
@@ -287,6 +312,8 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   }
 
   const finalResult = latestResult ?? buildResumedResultFromState(phaseState, prepared.artifactDir);
+  let finalGuardStatus: ArtifactGuardStatus = "skipped";
+  let finalVerificationStatus: ArtifactVerificationStatus = "skipped";
   if (!ctx.job.dryRun && finalResult.ok) {
     contextPack = contextPack ?? await loadWorkerContextPack(prepared.artifactDir);
     const boundaryCheck = await runDiffBoundaryCheck({
@@ -296,12 +323,15 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
       worktreePath: prepared.worktreePath
     });
     await writeDiffBoundaryCheckArtifact(prepared.artifactDir, boundaryCheck);
+    await updateManifestArtifactRefs(prepared.artifactDir, {
+      diffBoundaryCheck: ARTIFACT_PATHS.diffBoundaryCheck
+    });
     for (const finding of boundaryCheck.findings) {
       const fileSuffix = finding.filePath ? ` (${finding.filePath})` : "";
       emit(`diff boundary ${finding.severity}: ${finding.code}${fileSuffix}`);
     }
     if (!boundaryCheck.ok) {
-      return {
+      return finishWorkerJob(prepared.artifactDir, "failed", {
         ok: false,
         summary: "Diff boundary check failed.",
         logs,
@@ -314,21 +344,25 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           message: "Diff boundary check failed.",
           step: "worker-diff-boundary",
           retryable: false,
-          suggestion: "Review diff-boundary-check.json and keep changes inside the context pack boundary."
+          suggestion: `Review ${ARTIFACT_PATHS.diffBoundaryCheck} and keep changes inside the context pack boundary.`
         }
-      };
+      }, "failed", "skipped");
     }
+    finalGuardStatus = boundaryCheck.findings.length > 0 ? "warning" : "passed";
 
     const namingCheck = runNamingGuard({
       changedFiles: finalResult.changedFiles,
       conventions: repoConventions
     });
     await writeNamingGuardArtifact(prepared.artifactDir, namingCheck);
+    await updateManifestArtifactRefs(prepared.artifactDir, {
+      namingCheck: ARTIFACT_PATHS.namingCheck
+    });
     for (const finding of namingCheck.findings) {
       emit(`naming ${finding.severity}: ${finding.code} (${finding.filePath})`);
     }
     if (!namingCheck.ok) {
-      return {
+      return finishWorkerJob(prepared.artifactDir, "failed", {
         ok: false,
         summary: "Naming guard failed.",
         logs,
@@ -341,9 +375,12 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           message: "Naming guard failed.",
           step: "worker-naming-guard",
           retryable: false,
-          suggestion: "Review naming-check.json and rename generated files to durable domain names."
+          suggestion: `Review ${ARTIFACT_PATHS.namingCheck} and rename generated files to durable domain names.`
         }
-      };
+      }, "failed", "skipped");
+    }
+    if (namingCheck.findings.length > 0) {
+      finalGuardStatus = "warning";
     }
 
     const verification = await runWorkerVerification({
@@ -360,9 +397,12 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         success: (message) => emit(`verification success: ${message}`)
       }
     });
+    await updateManifestArtifactRefs(prepared.artifactDir, {
+      verification: ARTIFACT_PATHS.verification
+    });
 
     if (!verification.ok) {
-      return {
+      return finishWorkerJob(prepared.artifactDir, "failed", {
         ok: false,
         summary: verification.summary,
         logs,
@@ -377,11 +417,12 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           retryable: true,
           suggestion: "Fix the failing verification commands and rerun the worker job."
         }
-      };
+      }, boundaryCheck.findings.length > 0 || namingCheck.findings.length > 0 ? "warning" : "passed", "failed");
     }
+    finalVerificationStatus = "passed";
   }
 
-  return {
+  return finishWorkerJob(prepared.artifactDir, finalResult.ok ? "completed" : "failed", {
     ok: finalResult.ok,
     summary: finalResult.summary,
     logs,
@@ -390,7 +431,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     diffSummaries: finalResult.diffSummaries,
     latestToolResults: finalResult.latestToolResults,
     failure: finalResult.failure
-  };
+  }, finalGuardStatus, finalVerificationStatus);
 }
 
 async function persistWorkerPhaseArtifact(
@@ -398,8 +439,8 @@ async function persistWorkerPhaseArtifact(
   phase: WorkerTaskPhase,
   result: WorkerProviderExecutionResultLike
 ): Promise<void> {
-  await fs.mkdir(path.join(artifactDir, "phases"), { recursive: true });
-  const phasePath = path.join(artifactDir, "phases", `${phase.id}.json`);
+  await fs.mkdir(path.join(artifactDir, ARTIFACT_PATHS.phasesDir), { recursive: true });
+  const phasePath = path.join(artifactDir, phaseArtifactPath(phase.id));
   const body = {
     phase: {
       id: phase.id,
@@ -451,6 +492,112 @@ type WorkerProviderExecutionResultLike = {
   diffSummaries?: DiffSummary[];
   failure?: FailureMetadata;
 };
+
+async function initializeWorkerManifest(
+  ctx: WorkerJobExecutionContext,
+  prepared: Awaited<ReturnType<typeof prepareWorkerWorktree>>,
+  providerId: string
+): Promise<void> {
+  const manifestPath = path.join(prepared.artifactDir, ARTIFACT_PATHS.manifest);
+  try {
+    await fs.access(manifestPath);
+    await updateManifestStatus(prepared.artifactDir, "running");
+    return;
+  } catch {
+    // Create the first manifest for this worker job.
+  }
+
+  const [gitCommitBefore, branch] = await Promise.all([
+    readGitValue(prepared.sourceRepoPath, ["rev-parse", "HEAD"]),
+    readGitValue(prepared.sourceRepoPath, ["branch", "--show-current"])
+  ]);
+  await writeInitialManifest(prepared.artifactDir, {
+    jobId: ctx.job.jobId,
+    mode: "team",
+    executionMode: resolveArtifactExecutionMode(ctx.job),
+    task: {
+      prompt: ctx.job.task,
+      createdAt: ctx.job.createdAt || new Date().toISOString()
+    },
+    repo: {
+      root: ctx.job.cwd,
+      gitCommitBefore,
+      branch: branch || undefined,
+      worktreePath: prepared.worktreePath
+    },
+    provider: {
+      id: providerId,
+      command: ctx.providerCommand
+    }
+  });
+  await fs.writeFile(
+    path.join(prepared.artifactDir, ARTIFACT_PATHS.task),
+    `${ctx.job.task.trim()}\n`,
+    "utf8"
+  );
+  await updateManifestArtifactRefs(prepared.artifactDir, {
+    task: ARTIFACT_PATHS.task
+  });
+  await updateManifestStatus(prepared.artifactDir, "running");
+}
+
+async function finishWorkerJob(
+  artifactDir: string,
+  status: "completed" | "failed",
+  result: WorkerJobExecutionResult,
+  guardStatus: ArtifactGuardStatus = "skipped",
+  verificationStatus: ArtifactVerificationStatus = "skipped"
+): Promise<WorkerJobExecutionResult> {
+  await updateManifestStatus(artifactDir, status);
+  await updateManifestSummary(artifactDir, {
+    changedFileCount: await readChangedFileCount(artifactDir),
+    guardStatus,
+    verificationStatus
+  });
+  return result;
+}
+
+function providerArtifactRefs(): Partial<JobArtifactRefs> {
+  return {
+    providerStdout: ARTIFACT_PATHS.providerStdout,
+    providerStderr: ARTIFACT_PATHS.providerStderr,
+    diffPatch: ARTIFACT_PATHS.diffPatch,
+    diffStat: ARTIFACT_PATHS.diffStat,
+    changedFiles: ARTIFACT_PATHS.changedFiles
+  };
+}
+
+function resolveArtifactExecutionMode(job: QueueJob): ArtifactExecutionMode {
+  const profile = job.workflowProfile?.toLowerCase();
+  if (profile === "safe" || profile === "strict" || profile === "superpowers") {
+    return "safe";
+  }
+  return "normal";
+}
+
+async function readChangedFileCount(artifactDir: string): Promise<number> {
+  try {
+    const raw = await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.changedFiles), "utf8");
+    const files = JSON.parse(raw);
+    return Array.isArray(files) ? files.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function readGitValue(cwd: string, args: string[]): Promise<string> {
+  try {
+    const result = await runCommand({
+      command: "git",
+      args,
+      cwd,
+      timeoutMs: 30000
+    });
+    return result.stdout.trim();
+  } catch {
+    return "";
+  }
+}
 
 function parseMutationInstruction(task: string): MutationInstruction | null {
   const trimmed = task.trim();

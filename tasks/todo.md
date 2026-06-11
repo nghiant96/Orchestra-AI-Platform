@@ -1,6 +1,23 @@
 # Current Project Tasks
 
-Last updated: 2026-06-06
+Last updated: 2026-06-12
+
+## Task: Implement Unified Artifact Foundation Roadmap
+
+- [x] Review `ORCHESTRA_IMPLEMENTATION_ROADMAP_AGENT.md` against the current worker/context/guard implementation.
+- [x] Update the roadmap so execution starts with gap analysis and unified artifacts instead of duplicate test/module creation.
+- [x] Add missing stabilization coverage to existing worker tests where possible.
+- [x] Add unified artifact schema, path constants, store interface, local store, and manifest writer foundation.
+- [x] Migrate Team worker artifacts, job-service allowlists, and dashboard readers to the unified layout.
+- [x] Add Team worker manifest lifecycle updates for running, completed, and failed jobs.
+- [x] Run targeted tests, full tests, build checks, and `check:all`.
+
+Review result:
+
+- v0.9.1 stabilization coverage now extends the existing worker tests instead of duplicating them.
+- v0.9.2 is implemented: Team worker and LocalArtifactStore share one versioned manifest and artifact layout.
+- Worker jobs now write nested context, diff, guard, provider, verification, and phase artifacts plus `manifest.json`.
+- Verification passed with 386/386 full tests, backend build, dashboard production build, targeted ESLint, and `pnpm run check:all`.
 
 ## Task: Evaluate Worker Context Pack And Guard Pipeline
 

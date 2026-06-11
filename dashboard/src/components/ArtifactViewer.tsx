@@ -16,11 +16,11 @@ interface LoadedArtifact {
 }
 
 const WORKER_ARTIFACTS = [
-  "context-pack.md",
-  "diff-boundary-check.json",
-  "naming-check.json",
-  "repo-conventions.json",
-  "verification.json"
+  "context/context-pack.md",
+  "guards/diff-boundary-check.json",
+  "guards/naming-check.json",
+  "context/repo-conventions.json",
+  "verification/verification.json"
 ];
 
 export function ArtifactViewer({ job }: { job: Job }) {
@@ -57,10 +57,10 @@ export function ArtifactViewer({ job }: { job: Job }) {
     [artifactState, job.jobId]
   );
   const artifactMap = useMemo(() => new Map(artifacts.map((artifact) => [artifact.name, artifact.content])), [artifacts]);
-  const contextPack = artifactMap.get("context-pack.md");
-  const boundaryCheck = parseArtifactJson(artifactMap.get("diff-boundary-check.json"));
-  const namingCheck = parseArtifactJson(artifactMap.get("naming-check.json"));
-  const verification = parseArtifactJson(artifactMap.get("verification.json"));
+  const contextPack = artifactMap.get("context/context-pack.md");
+  const boundaryCheck = parseArtifactJson(artifactMap.get("guards/diff-boundary-check.json"));
+  const namingCheck = parseArtifactJson(artifactMap.get("guards/naming-check.json"));
+  const verification = parseArtifactJson(artifactMap.get("verification/verification.json"));
 
   if (!job.artifactPath && !job.approvalArtifact) {
     return null;

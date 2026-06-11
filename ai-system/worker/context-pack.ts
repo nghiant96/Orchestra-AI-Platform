@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 
 export interface WorkerContextPack {
   version: 1;
@@ -46,7 +47,7 @@ export interface WorkerRepoConventions {
 
 export async function loadWorkerContextPack(artifactDir: string): Promise<WorkerContextPack | null> {
   try {
-    const raw = await fs.readFile(path.join(artifactDir, "context-pack.json"), "utf8");
+    const raw = await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.contextPack), "utf8");
     return normalizeWorkerContextPack(JSON.parse(raw), { jobId: "", task: "" });
   } catch {
     return null;
@@ -54,10 +55,10 @@ export async function loadWorkerContextPack(artifactDir: string): Promise<Worker
 }
 
 export async function saveWorkerContextPack(artifactDir: string, pack: WorkerContextPack): Promise<void> {
-  await fs.mkdir(artifactDir, { recursive: true });
+  await fs.mkdir(path.join(artifactDir, "context"), { recursive: true });
   await Promise.all([
-    fs.writeFile(path.join(artifactDir, "context-pack.json"), `${JSON.stringify(pack, null, 2)}\n`, "utf8"),
-    fs.writeFile(path.join(artifactDir, "context-pack.md"), renderWorkerContextPackMarkdown(pack), "utf8")
+    fs.writeFile(path.join(artifactDir, ARTIFACT_PATHS.contextPack), `${JSON.stringify(pack, null, 2)}\n`, "utf8"),
+    fs.writeFile(path.join(artifactDir, ARTIFACT_PATHS.contextPackMarkdown), renderWorkerContextPackMarkdown(pack), "utf8")
   ]);
 }
 

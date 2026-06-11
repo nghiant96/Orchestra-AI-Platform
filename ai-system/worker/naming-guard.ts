@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import type { RepoConventionScanResult } from "./repo-convention-scanner.js";
 
 export interface NamingGuardInput {
@@ -55,9 +56,9 @@ export async function writeNamingGuardArtifact(
   artifactDir: string,
   result: NamingGuardResult
 ): Promise<void> {
-  await fs.mkdir(artifactDir, { recursive: true });
+  await fs.mkdir(path.dirname(path.join(artifactDir, ARTIFACT_PATHS.namingCheck)), { recursive: true });
   await fs.writeFile(
-    path.join(artifactDir, "naming-check.json"),
+    path.join(artifactDir, ARTIFACT_PATHS.namingCheck),
     `${JSON.stringify({ version: 1, generatedAt: new Date().toISOString(), ...result }, null, 2)}\n`,
     "utf8"
   );

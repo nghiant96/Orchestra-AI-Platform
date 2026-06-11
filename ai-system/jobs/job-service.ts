@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import type { FileBackedJobQueue, JobQueueRunInput, QueueJob, QueueJobStatus } from "../core/job-queue.js";
 import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
 import { resolveApprovalPolicy } from "../core/risk-policy.js";
@@ -234,15 +235,16 @@ export async function getJobFileContent(
   }
 }
 
-const READABLE_JOB_ARTIFACTS = new Set([
-  "context-pack.md",
-  "context-pack.json",
-  "diff-boundary-check.json",
-  "naming-check.json",
-  "repo-conventions.json",
-  "verification.json",
-  "diff-stat.txt",
-  "changed-files.json"
+const READABLE_JOB_ARTIFACTS = new Set<string>([
+  ARTIFACT_PATHS.manifest,
+  ARTIFACT_PATHS.contextPackMarkdown,
+  ARTIFACT_PATHS.contextPack,
+  ARTIFACT_PATHS.diffBoundaryCheck,
+  ARTIFACT_PATHS.namingCheck,
+  ARTIFACT_PATHS.repoConventions,
+  ARTIFACT_PATHS.verification,
+  ARTIFACT_PATHS.diffStat,
+  ARTIFACT_PATHS.changedFiles
 ]);
 
 export async function getJobArtifactContent(

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import { runCommand } from "../utils/api.js";
 
 export interface RepoConventionScanResult {
@@ -57,9 +58,9 @@ export async function writeRepoConventionScanArtifact(
   artifactDir: string,
   result: RepoConventionScanResult
 ): Promise<void> {
-  await fs.mkdir(artifactDir, { recursive: true });
+  await fs.mkdir(path.dirname(path.join(artifactDir, ARTIFACT_PATHS.repoConventions)), { recursive: true });
   await fs.writeFile(
-    path.join(artifactDir, "repo-conventions.json"),
+    path.join(artifactDir, ARTIFACT_PATHS.repoConventions),
     `${JSON.stringify({ version: 1, generatedAt: new Date().toISOString(), ...result }, null, 2)}\n`,
     "utf8"
   );

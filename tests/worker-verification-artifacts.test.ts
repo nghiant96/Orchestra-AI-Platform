@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { ARTIFACT_PATHS, checkJsonPath, checkLogPath } from "../ai-system/artifacts/artifact-paths.js";
 import { runWorkerVerification } from "../ai-system/worker/verification-runner.js";
 
 test("worker verification artifacts include failed command detail", async () => {
@@ -53,7 +54,7 @@ test("worker verification artifacts include failed command detail", async () => 
 
     assert.equal(result.ok, false);
 
-    const verificationJson = JSON.parse(await fs.readFile(path.join(artifactDir, "verification.json"), "utf8"));
+    const verificationJson = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.verification), "utf8"));
     assert.equal(verificationJson.status, "failed");
     assert.ok(Array.isArray(verificationJson.failedChecks));
     assert.ok(verificationJson.failedChecks.length > 0);
@@ -61,13 +62,13 @@ test("worker verification artifacts include failed command detail", async () => 
     assert.ok(Array.isArray(verificationJson.passedChecks));
     assert.ok(Array.isArray(verificationJson.skippedChecks));
 
-    const checkJsonPath = path.join(artifactDir, "checks", "lint.json");
-    const checkJson = JSON.parse(await fs.readFile(checkJsonPath, "utf8"));
+    const lintCheckJsonPath = path.join(artifactDir, checkJsonPath("lint"));
+    const checkJson = JSON.parse(await fs.readFile(lintCheckJsonPath, "utf8"));
     assert.equal(checkJson.ok, false);
     assert.equal(checkJson.exitCode, 2);
     assert.equal(checkJson.status, undefined);
 
-    const checkLog = await fs.readFile(path.join(artifactDir, "checks", "lint.log"), "utf8");
+    const checkLog = await fs.readFile(path.join(artifactDir, checkLogPath("lint")), "utf8");
     assert.match(checkLog, /status: failed/);
     assert.match(checkLog, /exitCode: 2/);
   } finally {

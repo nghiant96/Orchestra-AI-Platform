@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import type { DiffSummary, ToolExecutionResult } from "../types.js";
 
 export type WorkerTaskPhaseKind = "setup" | "implementation" | "verification";
@@ -139,7 +140,7 @@ export function shouldCreateSetupPhase(input: {
 
 export async function loadWorkerTaskPhaseState(artifactDir: string): Promise<WorkerTaskPhaseState | null> {
   try {
-    const raw = await fs.readFile(path.join(artifactDir, "phase-state.json"), "utf8");
+    const raw = await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.phaseState), "utf8");
     const parsed = JSON.parse(raw) as WorkerTaskPhaseState;
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.phases)) {
       return null;
@@ -152,7 +153,7 @@ export async function loadWorkerTaskPhaseState(artifactDir: string): Promise<Wor
 
 export async function saveWorkerTaskPhaseState(artifactDir: string, state: WorkerTaskPhaseState): Promise<void> {
   await fs.mkdir(artifactDir, { recursive: true });
-  await fs.writeFile(path.join(artifactDir, "phase-state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  await fs.writeFile(path.join(artifactDir, ARTIFACT_PATHS.phaseState), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
 export function createWorkerTaskPhaseState(jobId: string, plan: WorkerTaskPhasePlan): WorkerTaskPhaseState {

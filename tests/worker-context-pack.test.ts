@@ -3,9 +3,16 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { buildImplementationPromptWithContext } from "../ai-system/worker/contextual-phase-prompt.js";
 import { extractContextPackFromProviderResult } from "../ai-system/worker/context-pack-parser.js";
-import { renderWorkerContextPackMarkdown, saveWorkerContextPack, loadWorkerContextPack } from "../ai-system/worker/context-pack.js";
+import {
+  createFallbackWorkerContextPack,
+  loadWorkerContextPack,
+  normalizeWorkerContextPack,
+  renderWorkerContextPackMarkdown,
+  saveWorkerContextPack
+} from "../ai-system/worker/context-pack.js";
 import {
   buildWorkerTaskPhasePlan,
   resolveWorkerContextPackMode,
@@ -85,6 +92,78 @@ ORCHESTRA_CONTEXT_PACK:
   assert.equal(pack.relevantFiles[0]?.role, "api-client");
 });
 
+test("context pack parser accepts fenced JSON and balanced braces inside strings", () => {
+  const pack = extractContextPackFromProviderResult(`
+ORCHESTRA_CONTEXT_PACK:
+\`\`\`json
+{
+  "summary": "Keep object text like { value: \\"ok\\" } intact",
+  "relevantFiles": [],
+  "allowedDiffBoundary": ["src/**"],
+  "doNotTouch": [],
+  "implementationPlan": [],
+  "verificationCommands": [],
+  "assumptions": [],
+  "missingContextWarnings": [],
+  "confidence": "medium"
+}
+\`\`\`
+`, { jobId: "job-fenced", task: "task" });
+
+  assert.ok(pack);
+  assert.match(pack.summary, /\{ value:/);
+  assert.equal(pack.confidence, "medium");
+});
+
+test("context pack parser returns null without marker and fallback on invalid JSON", () => {
+  assert.equal(
+    extractContextPackFromProviderResult("{\"summary\":\"missing marker\"}", { jobId: "job", task: "task" }),
+    null
+  );
+
+  const fallback = extractContextPackFromProviderResult(
+    "ORCHESTRA_CONTEXT_PACK: { invalid json }",
+    { jobId: "job-invalid", task: "task" }
+  );
+  assert.ok(fallback);
+  assert.equal(fallback.confidence, "low");
+  assert.match(fallback.missingContextWarnings[0] ?? "", /Failed to parse/);
+});
+
+test("context pack normalization fills fallbacks and removes invalid relevant files", () => {
+  const normalized = normalizeWorkerContextPack({
+    relevantFiles: [
+      null,
+      { path: "", reason: "missing path" },
+      { path: "src/index.ts", reason: 42, status: "unexpected", role: "unexpected" }
+    ],
+    allowedDiffBoundary: [" src/** ", null],
+    confidence: "unexpected"
+  }, { jobId: "job-normalized", task: "normalized task" });
+
+  assert.equal(normalized.jobId, "job-normalized");
+  assert.equal(normalized.task, "normalized task");
+  assert.equal(normalized.confidence, "low");
+  assert.deepEqual(normalized.allowedDiffBoundary, ["src/**"]);
+  assert.deepEqual(normalized.relevantFiles, [{
+    path: "src/index.ts",
+    reason: "",
+    status: "existing",
+    role: "unknown"
+  }]);
+});
+
+test("fallback context pack records a low confidence warning", () => {
+  const fallback = createFallbackWorkerContextPack({
+    jobId: "job-fallback",
+    task: "task",
+    warning: "setup output missing"
+  });
+
+  assert.equal(fallback.confidence, "low");
+  assert.deepEqual(fallback.missingContextWarnings, ["setup output missing"]);
+});
+
 test("implementation prompt includes rendered context pack guidance", () => {
   const prompt = buildImplementationPromptWithContext({
     phasePrompt: "Implement this slice.",
@@ -133,7 +212,7 @@ test("context pack persistence writes JSON and markdown artifacts", async () => 
 
     await saveWorkerContextPack(tmpDir, pack);
     const loaded = await loadWorkerContextPack(tmpDir);
-    const markdown = await fs.readFile(path.join(tmpDir, "context-pack.md"), "utf8");
+    const markdown = await fs.readFile(path.join(tmpDir, ARTIFACT_PATHS.contextPackMarkdown), "utf8");
 
     assert.equal(loaded?.jobId, "job-3");
     assert.equal(renderWorkerContextPackMarkdown(pack), markdown);

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { FileBackedJobQueue } from "../ai-system/core/job-queue.js";
 import { FileAuditLog } from "../ai-system/core/audit-log.js";
 import { resolveJobQueueDirectory } from "../ai-system/core/job-queue.js";
@@ -221,9 +222,10 @@ describe("JobService", () => {
 
   test("getJobArtifactContent reads whitelisted worker artifacts only", async () => {
     const artifactPath = path.join(tmpDir, ".ai-system-server", "worker-artifacts", "job-readable-artifact");
-    await fs.mkdir(artifactPath, { recursive: true });
-    await fs.writeFile(path.join(artifactPath, "context-pack.md"), "# Context\n", "utf8");
-    await fs.writeFile(path.join(artifactPath, "provider-stdout.log"), "secret transcript\n", "utf8");
+    await fs.mkdir(path.join(artifactPath, "context"), { recursive: true });
+    await fs.mkdir(path.join(artifactPath, "provider"), { recursive: true });
+    await fs.writeFile(path.join(artifactPath, ARTIFACT_PATHS.contextPackMarkdown), "# Context\n", "utf8");
+    await fs.writeFile(path.join(artifactPath, ARTIFACT_PATHS.providerStdout), "secret transcript\n", "utf8");
 
     const jobId = "job-readable-artifact";
     const originalGet = queue.get.bind(queue);
@@ -234,11 +236,11 @@ describe("JobService", () => {
     } as any) : originalGet(id);
 
     try {
-      const readable = await getJobArtifactContent(ctx(), jobId, "context-pack.md");
+      const readable = await getJobArtifactContent(ctx(), jobId, ARTIFACT_PATHS.contextPackMarkdown);
       assert.equal(readable.ok, true);
       assert.equal(readable.content, "# Context\n");
 
-      const blocked = await getJobArtifactContent(ctx(), jobId, "provider-stdout.log");
+      const blocked = await getJobArtifactContent(ctx(), jobId, ARTIFACT_PATHS.providerStdout);
       assert.equal(blocked.ok, false);
       assert.equal(blocked.statusCode, 400);
     } finally {

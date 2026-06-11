@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, test } from "node:test";
+import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import { buildWorkerTaskPhasePlan, loadWorkerTaskPhaseState } from "../ai-system/worker/task-phases.js";
 import { executeWorkerJob } from "../ai-system/worker/job-executor.js";
@@ -68,20 +69,26 @@ describe("Worker phase execution", () => {
       });
 
       assert.equal(result.ok, true);
-      assert.ok(await exists(path.join(artifactDir, "context-pack.json")));
-      assert.ok(await exists(path.join(artifactDir, "context-pack.md")));
-      assert.ok(await exists(path.join(artifactDir, "diff-boundary-check.json")));
-      assert.ok(await exists(path.join(artifactDir, "naming-check.json")));
-      assert.ok(await exists(path.join(artifactDir, "repo-conventions.json")));
-      assert.ok(await exists(path.join(artifactDir, "verification.json")));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.contextPack)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.contextPackMarkdown)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.namingCheck)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.repoConventions)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.verification)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.manifest)));
       assert.ok(emitted.some((line) => /context pack saved/i.test(line)));
 
-      const contextPack = JSON.parse(await fs.readFile(path.join(artifactDir, "context-pack.json"), "utf8"));
-      const boundaryCheck = JSON.parse(await fs.readFile(path.join(artifactDir, "diff-boundary-check.json"), "utf8"));
-      const namingCheck = JSON.parse(await fs.readFile(path.join(artifactDir, "naming-check.json"), "utf8"));
+      const contextPack = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.contextPack), "utf8"));
+      const boundaryCheck = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck), "utf8"));
+      const namingCheck = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.namingCheck), "utf8"));
+      const manifest = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.manifest), "utf8"));
       assert.equal(contextPack.confidence, "high");
       assert.equal(boundaryCheck.ok, true);
       assert.equal(namingCheck.ok, true);
+      assert.equal(manifest.status, "completed");
+      assert.equal(manifest.mode, "team");
+      assert.equal(manifest.artifacts.contextPack, ARTIFACT_PATHS.contextPack);
+      assert.equal(manifest.artifacts.verification, ARTIFACT_PATHS.verification);
     } finally {
       await fs.rm(repoRoot, { recursive: true, force: true });
       await fs.rm(fakeCodex, { force: true });

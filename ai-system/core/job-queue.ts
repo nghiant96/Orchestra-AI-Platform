@@ -1,7 +1,7 @@
 import fs, { type FileHandle } from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
-// @ts-ignore Node 24 exposes node:sqlite at runtime, but the pinned TS libs here do not declare it yet.
+// @ts-expect-error Node 24 exposes node:sqlite at runtime, but the pinned TS libs here do not declare it yet.
 import { DatabaseSync } from "node:sqlite";
 import { normalizeQueueJob } from "./normalizers.js";
 import { resolveStoreMode, type OrchestraStoreMode } from "./store-mode.js";

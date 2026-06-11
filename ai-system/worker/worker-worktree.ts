@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import { runCommand } from "../utils/api.js";
 import { ensurePathWithinRoot } from "./worker-safety.js";
 
@@ -40,7 +41,7 @@ export async function prepareWorkerWorktree(input: {
   await fs.mkdir(path.dirname(worktreePath), { recursive: true });
   await fs.mkdir(artifactDir, { recursive: true });
 
-  const resumeStatePath = path.join(artifactDir, "phase-state.json");
+  const resumeStatePath = path.join(artifactDir, ARTIFACT_PATHS.phaseState);
   const shouldReuseExisting = await pathExists(resumeStatePath);
 
   if (!shouldReuseExisting || !(await pathExists(worktreePath))) {

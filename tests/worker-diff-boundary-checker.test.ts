@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import {
   runDiffBoundaryCheck,
   writeDiffBoundaryCheckArtifact
@@ -30,6 +31,33 @@ test("diff boundary checker warns for outside boundary changes by default", asyn
     assert.equal(result.mode, "warn");
     assert.equal(result.findings[0]?.code, "BOUNDARY_OUTSIDE_ALLOWED");
     assert.equal(result.findings[0]?.severity, "warning");
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("diff boundary checker warns for low confidence and fails outside boundary in strict mode", async () => {
+  const repoRoot = await createGitRepo("diff-boundary-strict-");
+  try {
+    const pack = contextPack({
+      allowedDiffBoundary: ["src/payment/**"],
+      doNotTouch: []
+    });
+    pack.confidence = "low";
+
+    const result = await withEnv({ ORCHESTRA_DIFF_BOUNDARY_MODE: "strict" }, () => runDiffBoundaryCheck({
+      changedFiles: ["src/auth/session.ts"],
+      contextPack: pack,
+      repoRoot,
+      worktreePath: repoRoot
+    }));
+
+    assert.equal(result.ok, false);
+    assert.equal(result.findings.some((finding) => finding.code === "LOW_CONFIDENCE_CONTEXT"), true);
+    assert.equal(
+      result.findings.some((finding) => finding.code === "BOUNDARY_OUTSIDE_ALLOWED" && finding.severity === "error"),
+      true
+    );
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
@@ -77,9 +105,60 @@ test("diff boundary checker detects undeclared new files and writes artifact", a
     assert.equal(result.ok, false);
     assert.equal(result.findings.some((finding) => finding.code === "NEW_FILE_NOT_DECLARED"), true);
 
-    const artifact = JSON.parse(await fs.readFile(path.join(artifactDir, "diff-boundary-check.json"), "utf8"));
+    const artifact = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck), "utf8"));
     assert.equal(artifact.version, 1);
     assert.equal(artifact.ok, false);
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("diff boundary checker warns for undeclared new files by default", async () => {
+  const repoRoot = await createGitRepo("diff-boundary-new-warn-");
+  try {
+    await fs.mkdir(path.join(repoRoot, "src/payment"), { recursive: true });
+    await fs.writeFile(path.join(repoRoot, "src/payment/new-helper.ts"), "export const helper = 1;\n", "utf8");
+
+    const result = await withEnv({}, () => runDiffBoundaryCheck({
+      changedFiles: ["src/payment/new-helper.ts"],
+      contextPack: contextPack({
+        allowedDiffBoundary: ["src/payment/**"],
+        doNotTouch: []
+      }),
+      repoRoot,
+      worktreePath: repoRoot
+    }));
+
+    assert.equal(result.ok, true);
+    assert.equal(
+      result.findings.some((finding) => finding.code === "NEW_FILE_NOT_DECLARED" && finding.severity === "warning"),
+      true
+    );
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
+test("diff boundary checker supports exact, recursive, single-level, and simple star patterns", async () => {
+  const repoRoot = await createGitRepo("diff-boundary-patterns-");
+  try {
+    const result = await withEnv({ ORCHESTRA_NEW_FILE_POLICY: "allow" }, () => runDiffBoundaryCheck({
+      changedFiles: [
+        "README.md",
+        "src/deep/nested/file.ts",
+        "config/app.json",
+        "components/UserCard.tsx"
+      ],
+      contextPack: contextPack({
+        allowedDiffBoundary: ["README.md", "src/**", "config/*", "components/*Card.tsx"],
+        doNotTouch: []
+      }),
+      repoRoot,
+      worktreePath: repoRoot
+    }));
+
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.findings, []);
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
