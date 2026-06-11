@@ -39,7 +39,7 @@ interface JobDetailModalProps {
 }
 
 export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onCancel }: JobDetailModalProps) => {
-  const [activeTab, setActiveTab] = useState<JobDetailTab>('timeline');
+  const [activeTab, setActiveTab] = useState<JobDetailTab>('overview');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
 
@@ -132,9 +132,9 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
 
         <div className="flex-1 overflow-y-auto p-6">
           <AnimatePresence mode="wait">
-            {activeTab === 'timeline' && (
+            {activeTab === 'overview' && (
               <motion.div
-                key="timeline"
+                key="overview"
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 10 }}
@@ -149,9 +149,99 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
                 {job.status === 'waiting_for_approval' && job.execution?.pendingPlan && (
                   <JobPlanSection job={job} />
                 )}
-                <ArtifactViewer job={job} />
+                <ArtifactViewer job={job} activeTab={activeTab} />
                 <JobPromptSection task={job.task} />
+              </motion.div>
+            )}
+
+            {activeTab === 'phases' && (
+              <motion.div
+                key="phases"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <ArtifactViewer job={job} activeTab={activeTab} />
                 <JobTimelineSection transitions={transitions} />
+              </motion.div>
+            )}
+
+            {activeTab === 'context-pack' && (
+              <motion.div
+                key="context-pack"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <ArtifactViewer job={job} activeTab={activeTab} />
+              </motion.div>
+            )}
+
+            {activeTab === 'diff' && (
+              <motion.div
+                key="diff"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <ArtifactViewer job={job} activeTab={activeTab} />
+                {diffSummaries.length > 0 && (
+                  <section className="rounded-3xl border border-slate-100 bg-white p-6 shadow-sm">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                      <Files size={14} />
+                      Diff Summaries
+                    </h3>
+                    <div className="space-y-3">
+                      {diffSummaries.map((diff) => (
+                        <div key={diff.path} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                          <p className="text-xs font-bold text-slate-900">{diff.path}</p>
+                          <p className="text-[10px] text-slate-500">
+                            +{diff.addedLines} / -{diff.removedLines} · estimate {diff.changedLineEstimate}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+              </motion.div>
+            )}
+
+            {activeTab === 'guards' && (
+              <motion.div
+                key="guards"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <ArtifactViewer job={job} activeTab={activeTab} />
+              </motion.div>
+            )}
+
+            {activeTab === 'verification' && (
+              <motion.div
+                key="verification"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <ArtifactViewer job={job} activeTab={activeTab} />
+              </motion.div>
+            )}
+
+            {activeTab === 'artifacts' && (
+              <motion.div
+                key="artifacts"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <ArtifactViewer job={job} activeTab={activeTab} />
               </motion.div>
             )}
 
@@ -319,7 +409,7 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
                   />
                 ) : (
                   <div className="space-y-6">
-                    <ArtifactViewer job={job} />
+                    <ArtifactViewer job={job} activeTab="artifacts" />
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                       <Files size={14} />
                       Changed Files

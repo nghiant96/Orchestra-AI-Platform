@@ -1,6 +1,6 @@
 import { validatePath } from "../security/path-policy.js";
 import type { FileBackedJobQueue } from "../core/job-queue.js";
-import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
+import type { AuditLogRepository, AuditActor } from "../core/audit-log.js";
 import type { RulesConfig } from "../types.js";
 import {
   cancelOrRetryWorkItem,
@@ -18,7 +18,7 @@ export interface McpToolContext {
   defaultCwd: string;
   allowedRoots: string[];
   queue: FileBackedJobQueue;
-  auditLog: FileAuditLog;
+  auditLog: AuditLogRepository;
   rules: RulesConfig;
   pendingApprovals?: Map<string, { resolve(value: boolean): void; type: "plan" | "checkpoint"; data?: unknown; binding?: ApprovalArtifactBinding }>;
   actor?: AuditActor;

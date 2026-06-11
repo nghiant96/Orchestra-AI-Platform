@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import type { Worker, WorkerStatus } from "./worker-types.js";
 import { WorkerStore } from "./worker-store.js";
-import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
+import type { AuditLogRepository, AuditActor } from "../core/audit-log.js";
 import type { FileBackedJobQueue, QueueJob, JobLease, LeaseRenewResult, QueueMutationResult } from "../core/job-queue.js";
 import { resolveExecutionBackend } from "../core/execution-backend.js";
 import { redactSecrets } from "../security/secret-redaction.js";
@@ -10,7 +10,7 @@ import { validatePath } from "../security/path-policy.js";
 
 export interface WorkerServiceContext {
   store: WorkerStore;
-  auditLog: FileAuditLog;
+  auditLog: AuditLogRepository;
   actor: AuditActor;
   allowedRoots: string[];
 }

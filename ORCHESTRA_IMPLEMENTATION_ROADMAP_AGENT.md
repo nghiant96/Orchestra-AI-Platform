@@ -1248,11 +1248,11 @@ Make artifacts visible and understandable for demos/team use.
 ## Tasks
 
 ```txt
-[ ] Add Job Detail artifact tabs
-[ ] Add Context Pack viewer
-[ ] Add Diff Boundary / Naming Guard viewer
-[ ] Add Verification viewer
-[ ] Dashboard reads manifest.json
+[x] Add Job Detail artifact tabs
+[x] Add Context Pack viewer
+[x] Add Diff Boundary / Naming Guard viewer
+[x] Add Verification viewer
+[x] Dashboard reads manifest.json
 ```
 
 Tabs:
@@ -1278,22 +1278,22 @@ Move Team Mode from file-backed state toward durable SQLite-backed state.
 ## Tasks
 
 ```txt
-[ ] JobRepository interface
-[ ] FileJobRepository adapter
-[ ] SqliteJobRepository
-[ ] WorkerRepository
-[ ] AuditRepository
-[ ] Migration runner
+[x] JobRepository interface
+[x] FileJobRepository adapter
+[x] SqliteJobRepository
+[x] WorkerRepository
+[x] AuditRepository
+[x] Migration runner
 ```
 
 Acceptance criteria:
 
 ```txt
-[ ] ORCHESTRA_STORE=file still works
-[ ] ORCHESTRA_STORE=sqlite works
-[ ] server restart preserves jobs
-[ ] worker restart does not duplicate jobs
-[ ] audit entries persisted
+[x] ORCHESTRA_STORE=file still works
+[x] ORCHESTRA_STORE=sqlite works
+[x] server restart preserves jobs
+[x] worker restart does not duplicate jobs
+[x] audit entries persisted
 ```
 
 ---
@@ -1307,11 +1307,11 @@ Add lightweight FE/BE endpoint mismatch detection without building full CodeGrap
 ## Tasks
 
 ```txt
-[ ] FE API call detector
-[ ] BE route detector
-[ ] Endpoint mismatch report
-[ ] Write integration/integration-check.json
-[ ] Warning only by default
+[x] FE API call detector
+[x] BE route detector
+[x] Endpoint mismatch report
+[x] Write integration/integration-check.json
+[x] Warning only by default
 ```
 
 Detect common patterns:

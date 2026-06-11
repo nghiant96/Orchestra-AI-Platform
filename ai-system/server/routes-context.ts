@@ -1,5 +1,5 @@
 import type http from "node:http";
-import type { FileAuditLog, AuditActor, AuditRole } from "../core/audit-log.js";
+import type { AuditLogRepository, AuditActor, AuditRole } from "../core/audit-log.js";
 import type { FileBackedJobQueue } from "../core/job-queue.js";
 import type { JobQueueRunInput } from "../core/job-queue.js";
 import type { RulesConfig } from "../types.js";
@@ -18,7 +18,7 @@ export interface ServerRouteContext {
   };
   queue: FileBackedJobQueue;
   runNow(input: JobQueueRunInput): Promise<OrchestratorResult>;
-  auditLog: FileAuditLog;
+  auditLog: AuditLogRepository;
   pendingApprovals: Map<string, { resolve(value: boolean): void; type: "plan" | "checkpoint"; data?: unknown; binding?: ApprovalArtifactBinding }>;
   currentGlobalRules: RulesConfig | null;
   globalRulesPromise: Promise<{ rules: RulesConfig }>;

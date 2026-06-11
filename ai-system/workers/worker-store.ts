@@ -1,10 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Worker } from "./worker-types.js";
+import type { WorkerRepository } from "../core/repository-contracts.js";
 
 const WORKER_ID_PATTERN = /^worker-[a-z0-9][a-z0-9-]{0,160}$/i;
 
-export class WorkerStore {
+export class WorkerStore implements WorkerRepository {
   constructor(private readonly storeDir: string) {}
 
   static generateId(_name: string): string {

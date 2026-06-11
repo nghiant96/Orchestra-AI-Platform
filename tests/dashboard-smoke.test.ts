@@ -83,6 +83,15 @@ test("Dashboard smoke tests: verify core API endpoints and CORS", async () => {
       assert.match(err.message, /Job not found/);
     }
 
+    // Test 6: Manifest endpoint exists for job evidence rendering
+    try {
+      await requestJson(baseUrl, "GET", "/jobs/invalid-job-id/manifest");
+      assert.fail("Should throw 404");
+    } catch (err: any) {
+      assert.match(err.message, /HTTP 404/);
+      assert.match(err.message, /Job not found/);
+    }
+
   } finally {
     await closeServer(server);
     await cleanupDir(repoRoot);

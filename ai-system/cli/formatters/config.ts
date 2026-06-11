@@ -1,4 +1,5 @@
 import type { ConfigInspection, SetupCheckResult } from "../../core/config-workflow.js";
+import type { IntegrationCheckReport } from "../../core/integration-intelligence.js";
 import { formatDisplayJson } from "./shared.js";
 
 export function printConfigShow(inspection: ConfigInspection): void {
@@ -60,7 +61,8 @@ export function printConfigUseResult(
 
 export function printDoctor(
   inspection: ConfigInspection,
-  presets: Array<{ name: string; summary: string }>
+  presets: Array<{ name: string; summary: string }>,
+  integration?: IntegrationCheckReport
 ): void {
   console.log("");
   console.log("Doctor");
@@ -130,6 +132,21 @@ export function printDoctor(
     console.log("- recommendations:");
     for (const recommendation of inspection.recommendations) {
       console.log(`  - ${recommendation}`);
+    }
+  }
+
+  if (integration) {
+    console.log("- integration intelligence:");
+    console.log(`  - frontend endpoints: ${integration.frontend.endpointCount}`);
+    console.log(`  - backend routes: ${integration.backend.routeCount}`);
+    console.log(`  - mismatches: ${integration.mismatches.length}`);
+    if (integration.warnings.length > 0) {
+      console.log("  - warnings:");
+      for (const warning of integration.warnings) {
+        console.log(`    - ${warning}`);
+      }
+    } else {
+      console.log("  - warnings: none");
     }
   }
 }

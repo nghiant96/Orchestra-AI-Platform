@@ -6,6 +6,7 @@ import { resolveApprovalPolicy } from "./core/risk-policy.js";
 import { createApprovalArtifactBinding, type ApprovalArtifactBinding } from "./approvals/approval-proof.js";
 import { applyWorkflowProfileToTask, tightenApprovalPolicyForProfile } from "./workflows/workflow-registry.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
+import { SqliteAuditLog, resolveSqliteAuditLogPath } from "./core/audit-log-sqlite.js";
 import { runArtifactRetentionCleanup } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
@@ -22,6 +23,7 @@ import { reposRoute } from "./server/routes/repos.js";
 import { workerRoutes } from "./workers/worker-routes.js";
 import type { RouteHandler, ServerRouteContext } from "./server/routes-context.js";
 import { resolveExecutionBackend } from "./core/execution-backend.js";
+import { resolveStoreMode } from "./core/store-mode.js";
 import type { Logger, RulesConfig } from "./types.js";
 export { mapRunSummaryToQueueJob } from "./jobs/job-service.js";
 
@@ -70,7 +72,11 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       binding?: ApprovalArtifactBinding;
     }
   >();
-  const auditLog = new FileAuditLog(resolveAuditLogPath(defaultCwd));
+  const storeMode = resolveStoreMode();
+  const auditLog =
+    storeMode === "sqlite"
+      ? new SqliteAuditLog(resolveSqliteAuditLogPath(defaultCwd))
+      : new FileAuditLog(resolveAuditLogPath(defaultCwd));
 
   const runner: JobRunner =
     options.runner ??
@@ -155,6 +161,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     concurrency: options.queueConcurrency,
     logger: options.logger
   });
+  void queue.migrateLegacyJobsFromDisk();
   const executionBackend = resolveExecutionBackend();
   if (executionBackend === "worker" || executionBackend === "hybrid") {
     queue.setPaused(true);
@@ -178,6 +185,10 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
     if (isClosed) {
       return;
+    }
+
+    if (auditLog instanceof SqliteAuditLog) {
+      void auditLog.importLegacyJsonl(resolveAuditLogPath(defaultCwd));
     }
 
     const runMaintenance = async () => {

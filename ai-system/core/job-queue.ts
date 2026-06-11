@@ -10,6 +10,7 @@ import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResul
 import type { WorkerCapabilities } from "../workers/worker-types.js";
 import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
 import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
+import type { JobRepository } from "./repository-contracts.js";
 import { scheduleWorkItems } from "../work/scheduler.js";
 import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
 import type { WorkItem } from "../work/work-item.js";
@@ -106,7 +107,7 @@ export interface JobQueueRunInput {
 
 export type JobRunner = (input: JobQueueRunInput) => Promise<OrchestratorResult>;
 
-export class FileBackedJobQueue {
+export class FileBackedJobQueue implements JobRepository {
   private activeJobs = 0;
   private drainTimer: NodeJS.Timeout | null = null;
   private controllers = new Map<string, AbortController>();
@@ -305,6 +306,39 @@ export class FileBackedJobQueue {
 
   async runRetentionCleanup(): Promise<void> {
     await this.cleanupOldJobs();
+  }
+
+  async migrateLegacyJobsFromDisk(): Promise<number> {
+    if (!this.isSqliteStore()) {
+      return 0;
+    }
+    let imported = 0;
+    let entries: string[];
+    try {
+      entries = await fs.readdir(this.jobsDir);
+    } catch {
+      return 0;
+    }
+
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const jobId = entry.replace(/\.json$/, "");
+      if (!isSafeJobId(jobId)) continue;
+      const existing = this.getSqliteJob(jobId);
+      if (existing) continue;
+      try {
+        const raw = await fs.readFile(this.jobPath(jobId), "utf8");
+        const job = normalizeQueueJob(JSON.parse(raw));
+        this.upsertSqliteJob(job);
+        imported += 1;
+      } catch {
+        continue;
+      }
+    }
+    if (imported > 0) {
+      this.scheduleDrain();
+    }
+    return imported;
   }
 
   async claimJob(jobId: string, lease: JobLease): Promise<QueueJob | null> {

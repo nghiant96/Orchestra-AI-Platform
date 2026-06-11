@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## 2026-06-12: Widen repository contracts before swapping durable backends
+
+**Mistake**: Added sqlite-backed audit persistence and migration support while the server still typed audit logging as file-only, which caused a type mismatch at the integration seam.
+
+**Rule**: When introducing a new persistence backend, widen the repository contract first so every caller can depend on the shared interface. Then swap the implementation behind that interface and add migration code. Do not thread a second backend through file-only types.
+
+## 2026-06-12: Migration must also re-arm execution, not just import records
+
+**Mistake**: Migrated legacy jobs into sqlite storage without guaranteeing the queue would drain them afterward, which could leave imported jobs sitting idle until some unrelated event woke the scheduler.
+
+**Rule**: When importing queued work into a live scheduler, make the migration explicitly re-arm execution. Importing records is only half the job; the scheduler must be nudged so migrated items continue through the normal path.
+
 ## 2026-06-08: Do not drip-feed an already approved implementation scope
 
 **Mistake**: Split a clearly approved follow-up into tiny sequential slices and stopped after each slice even

@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import type { FileBackedJobQueue, JobQueueRunInput, QueueJob, QueueJobStatus } from "../core/job-queue.js";
-import type { FileAuditLog, AuditActor } from "../core/audit-log.js";
+import type { AuditLogRepository, AuditActor } from "../core/audit-log.js";
 import { resolveApprovalPolicy } from "../core/risk-policy.js";
 import { parseExternalTask, normalizeExternalTaskToPrompt } from "../core/external-task.js";
 import { listRecentRunSummaries } from "../core/artifacts.js";
@@ -25,7 +25,7 @@ import {
 
 export interface JobServiceContext {
   queue: FileBackedJobQueue;
-  auditLog: FileAuditLog;
+  auditLog: AuditLogRepository;
   actor: AuditActor;
   rules: RulesConfig;
 }

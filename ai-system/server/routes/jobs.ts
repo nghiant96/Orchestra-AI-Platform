@@ -225,6 +225,28 @@ export const jobsRoute: RouteHandler = {
       return true;
     }
 
+    const manifestMatch = /^\/jobs\/([^/]+)\/manifest$/.exec(url.pathname);
+    if (manifestMatch && req.method === "GET") {
+      const jobId = manifestMatch[1] ?? "";
+      const serviceCtx = {
+        queue: ctx.queue,
+        auditLog: ctx.auditLog,
+        actor: ctx.actor,
+        rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules
+      };
+      const result = await getJobArtifactContent(serviceCtx, jobId, "manifest.json");
+      if (!result.ok || !result.content) {
+        ctx.respondJson(res, result.statusCode ?? 404, result);
+        return true;
+      }
+      try {
+        ctx.respondJson(res, 200, { ok: true, manifest: JSON.parse(result.content) });
+      } catch {
+        ctx.respondJson(res, 500, { ok: false, error: "Manifest is not valid JSON" });
+      }
+      return true;
+    }
+
     return false;
   }
 };

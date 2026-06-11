@@ -1,4 +1,5 @@
 import * as workflow from "../../core/config-workflow.js";
+import { analyzeIntegration } from "../../core/integration-intelligence.js";
 import { runSetupWizard } from "../setup.js";
 import {
   printDoctor,
@@ -31,20 +32,23 @@ export async function handleConfigCommand(
 
   switch (command.kind) {
     case "doctor": {
-      const inspection = await workflow.inspectProjectConfiguration({
-        repoRoot: cwd,
-        explicitConfigPath: configPath,
-        explicitGlobalConfigPath,
-        ignoreProjectConfig,
-        task: "ping"
-      });
+      const [inspection, integration] = await Promise.all([
+        workflow.inspectProjectConfiguration({
+          repoRoot: cwd,
+          explicitConfigPath: configPath,
+          explicitGlobalConfigPath,
+          ignoreProjectConfig,
+          task: "ping"
+        }),
+        analyzeIntegration(cwd)
+      ]);
       const presets = workflow.getPresetCatalog();
 
       if (outputJson) {
-        await outputJsonResult({ inspection, presets }, savePath);
+        await outputJsonResult({ inspection, presets, integration }, savePath);
         return true;
       }
-      printDoctor(inspection, presets);
+      printDoctor(inspection, presets, integration);
       return true;
     }
     case "config-show": {

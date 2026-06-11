@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { FileBackedJobQueue, QueueJob } from "../core/job-queue.js";
-import type { FileAuditLog, AuditActor, AuditEvent } from "../core/audit-log.js";
+import type { AuditLogRepository, AuditActor, AuditEvent } from "../core/audit-log.js";
 import type { RulesConfig } from "../types.js";
 import type { WorkItem, WorkItemType, WorkItemSource, ExpectedOutput, LinkedJobSummary, WorkItemEvent } from "./work-item.js";
 import { WorkStore } from "./work-store.js";
@@ -18,7 +18,7 @@ import {
 
 export interface WorkItemServiceContext {
   actor: AuditActor;
-  auditLog: FileAuditLog;
+  auditLog: AuditLogRepository;
   rules: RulesConfig;
   queue: FileBackedJobQueue;
 }
@@ -410,7 +410,7 @@ function attachLinkedJobs(workItem: WorkItem, linkedJobs: LinkedJobSummary[]): W
 }
 
 async function buildWorkItemEvents(
-  auditLog: FileAuditLog,
+  auditLog: AuditLogRepository,
   workItem: WorkItem,
   linkedJobs: LinkedJobSummary[]
 ): Promise<WorkItemEvent[]> {

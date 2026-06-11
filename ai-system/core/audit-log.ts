@@ -9,6 +9,13 @@ export interface AuditActor {
   role: AuditRole;
 }
 
+export interface AuditLogRepository {
+  setOnEvent(callback: (event: AuditEvent) => void): void;
+  append(event: Omit<AuditEvent, "id" | "timestamp" | "version">): Promise<AuditEvent>;
+  list(limit?: number): Promise<AuditEvent[]>;
+  runRetentionCleanup(days: number): Promise<number>;
+}
+
 export interface AuditEvent {
   version: number;
   id: string;
@@ -20,7 +27,7 @@ export interface AuditEvent {
   details?: Record<string, unknown>;
 }
 
-export class FileAuditLog {
+export class FileAuditLog implements AuditLogRepository {
   private onEventCallback?: (event: AuditEvent) => void;
 
   constructor(private readonly filePath: string) {}
