@@ -865,15 +865,15 @@ export interface SoloRunResult {
 Behavior:
 
 ```txt
-[ ] create LocalArtifactStore job
-[ ] prepare artifact root
-[ ] run provider directly
-[ ] capture artifacts
-[ ] run diff boundary guard
-[ ] run naming guard
-[ ] run verification runner
-[ ] write manifest status
-[ ] print summary
+[x] create LocalArtifactStore job
+[x] prepare artifact root
+[x] run provider directly
+[x] capture artifacts
+[x] run diff boundary guard
+[x] run naming guard
+[x] run verification runner
+[x] write manifest status
+[x] print summary
 ```
 
 ---
@@ -896,9 +896,9 @@ provider adapters
 Acceptance criteria:
 
 ```txt
-[ ] Solo Mode and Team Mode use same Context Pack schema
-[ ] Solo Mode and Team Mode use same guard modules
-[ ] Solo Mode and Team Mode use same verification runner
+[x] Solo Mode and Team Mode use same Context Pack schema
+[x] Solo Mode and Team Mode use same guard modules
+[x] Solo Mode and Team Mode use same verification runner
 ```
 
 ---
@@ -916,10 +916,10 @@ ai safe "task"
 Acceptance criteria:
 
 ```txt
-[ ] ai run creates local job
-[ ] ai quick creates quick local job
-[ ] ai safe creates safe local job
-[ ] command output includes artifact path
+[x] ai run creates local job
+[x] ai quick creates quick local job
+[x] ai safe creates safe local job
+[x] command output includes artifact path
 ```
 
 ---
@@ -939,8 +939,8 @@ manifest.json with gitCommitBefore
 Acceptance criteria:
 
 ```txt
-[ ] diff.patch can be applied in reverse with git apply -R
-[ ] manifest includes gitCommitBefore
+[x] diff.patch can be applied in reverse with git apply -R
+[x] manifest includes gitCommitBefore
 ```
 
 ---
@@ -948,12 +948,12 @@ Acceptance criteria:
 ### v0.10 Definition of Done
 
 ```txt
-[ ] ai run works without server
-[ ] ai quick works without server
-[ ] ai safe works without server
-[ ] Artifacts use unified schema
-[ ] Undo-ready diff exists
-[ ] check:all passes
+[x] ai run works without server
+[x] ai quick works without server
+[x] ai safe works without server
+[x] Artifacts use unified schema
+[x] Undo-ready diff exists
+[x] check:all passes
 ```
 
 ---

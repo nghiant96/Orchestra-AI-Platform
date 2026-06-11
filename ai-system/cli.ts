@@ -12,6 +12,7 @@ import { handleFixCommand } from "./cli/handlers/fix-handler.js";
 import { handleReviewCommand, handleReviewWorkflow } from "./cli/handlers/review-handler.js";
 import { handleWorkCommand } from "./cli/handlers/work-handler.js";
 import { handleWorkerCommand } from "./cli/handlers/worker-handler.js";
+import { handleSoloCommand } from "./cli/handlers/solo-handler.js";
 import { loadEnvironment } from "./utils/api.js";
 import { runTask, runInteractiveSession } from "./cli/handlers/task-handler.js";
 
@@ -160,6 +161,7 @@ async function runCliCommand(
     savePath: string | null;
   }
 ): Promise<void> {
+  if (await handleSoloCommand(command, options)) return;
   if (await handleConfigCommand(command, options)) return;
   if (await handleRunsCommand(command, options)) return;
   if (await handleFixCommand(command, options)) return;

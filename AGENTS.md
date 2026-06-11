@@ -1,11 +1,3 @@
-<claude-mem-context>
-# Memory Context
-
-# [AI-CODING-SYSTEM] recent context, 2026-05-03 5:41pm GMT+7
-
-No previous sessions found.
-</claude-mem-context>
-
 # Agent Operating Notes
 
 These notes define the expected working style for agents operating in this repository.

@@ -18,6 +18,7 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
   let providerPreset: string | null = null;
   let resumeTarget: string | null = null;
   let command: CliCommand | null = null;
+  let soloCommandName: "run" | "quick" | "safe" | null = null;
   let workerCommandActive = false;
   let workflowMode: WorkflowMode = "standard";
   let retryStage: ExecutionStage | null = null;
@@ -49,6 +50,17 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
       }
       command = { kind: "apply-artifact", target };
       index += 2;
+      continue;
+    }
+    if (arg === "run" || arg === "quick" || arg === "safe") {
+      if (command) {
+        throw new Error(`Cannot combine \`ai ${arg}\` with another command.`);
+      }
+      soloCommandName = arg;
+      command = {
+        kind: "solo-run",
+        executionMode: arg === "run" ? "normal" : arg
+      };
       continue;
     }
     if (arg === "implement") {
@@ -495,6 +507,9 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
 
   const pipedTask = command ? "" : await readTaskFromStdin();
   const task = taskParts.join(" ").trim() || pipedTask;
+  if (soloCommandName && !task) {
+    throw new Error(`Missing task for \`ai ${soloCommandName}\`.`);
+  }
   if (savePath && !outputJson) {
     throw new Error("`--save` requires `--json`.");
   }

@@ -29,6 +29,7 @@ export interface CliOptions {
 export type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "globalConfig" | "savePath">;
 
 export type CliCommand =
+  | { kind: "solo-run"; executionMode: "quick" | "normal" | "safe" }
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
   | { kind: "doctor" }

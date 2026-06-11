@@ -54,6 +54,9 @@ export function printSessionStatus(state: InteractiveState): void {
 
 export function printHelp(): void {
   console.log(`Usage:
+  ai run "task description"
+  ai quick "small task"
+  ai safe "high-risk task"
   ai "task description"
   ai implement "task description"
   ai review "task description"

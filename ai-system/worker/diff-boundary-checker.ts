@@ -9,6 +9,8 @@ export interface DiffBoundaryCheckInput {
   contextPack: WorkerContextPack | null;
   repoRoot: string;
   worktreePath: string;
+  mode?: DiffBoundaryCheckResult["mode"];
+  newFilePolicy?: DiffBoundaryCheckResult["newFilePolicy"];
 }
 
 export interface DiffBoundaryFinding {
@@ -30,8 +32,8 @@ export interface DiffBoundaryCheckResult {
 }
 
 export async function runDiffBoundaryCheck(input: DiffBoundaryCheckInput): Promise<DiffBoundaryCheckResult> {
-  const mode = normalizeMode(process.env.ORCHESTRA_DIFF_BOUNDARY_MODE);
-  const newFilePolicy = normalizeNewFilePolicy(process.env.ORCHESTRA_NEW_FILE_POLICY);
+  const mode = input.mode ?? normalizeMode(process.env.ORCHESTRA_DIFF_BOUNDARY_MODE);
+  const newFilePolicy = input.newFilePolicy ?? normalizeNewFilePolicy(process.env.ORCHESTRA_NEW_FILE_POLICY);
   if (mode === "off") {
     return { ok: true, mode, newFilePolicy, findings: [] };
   }

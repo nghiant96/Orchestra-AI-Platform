@@ -6,6 +6,7 @@ import type { RepoConventionScanResult } from "./repo-convention-scanner.js";
 export interface NamingGuardInput {
   changedFiles: string[];
   conventions?: RepoConventionScanResult | null;
+  mode?: NamingGuardResult["mode"];
 }
 
 export interface NamingGuardFinding {
@@ -39,7 +40,7 @@ const ACCEPTED_TOKENS = [
 ];
 
 export function runNamingGuard(input: NamingGuardInput): NamingGuardResult {
-  const mode = normalizeMode(process.env.ORCHESTRA_NAMING_GUARD_MODE);
+  const mode = input.mode ?? normalizeMode(process.env.ORCHESTRA_NAMING_GUARD_MODE);
   if (mode === "off") {
     return { ok: true, mode, findings: [] };
   }

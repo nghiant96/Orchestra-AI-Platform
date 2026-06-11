@@ -56,6 +56,35 @@ describe("CLI Arg Parser", () => {
     }
   });
 
+  it("parses Solo Mode run commands", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    process.stdin.isTTY = true;
+    try {
+      const normal = await parseArgs(["run", "Fix login loading state"]);
+      const quick = await parseArgs(["quick", "Fix README typo"]);
+      const safe = await parseArgs(["safe", "Refactor payment session flow"]);
+
+      assert.deepEqual(normal.command, { kind: "solo-run", executionMode: "normal" });
+      assert.equal(normal.task, "Fix login loading state");
+      assert.deepEqual(quick.command, { kind: "solo-run", executionMode: "quick" });
+      assert.equal(quick.task, "Fix README typo");
+      assert.deepEqual(safe.command, { kind: "solo-run", executionMode: "safe" });
+      assert.equal(safe.task, "Refactor payment session flow");
+    } finally {
+      process.stdin.isTTY = origIsTTY;
+    }
+  });
+
+  it("rejects Solo Mode commands without a task", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    process.stdin.isTTY = true;
+    try {
+      await assert.rejects(() => parseArgs(["run"]), /Missing task for `ai run`/);
+    } finally {
+      process.stdin.isTTY = origIsTTY;
+    }
+  });
+
   it("parses worker start command options", async () => {
     const origIsTTY = process.stdin.isTTY;
     process.stdin.isTTY = true;

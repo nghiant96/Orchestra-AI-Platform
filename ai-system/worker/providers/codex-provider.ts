@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ARTIFACT_PATHS } from "../../artifacts/artifact-paths.js";
+import { captureGitArtifacts } from "../../artifacts/git-artifact-capture.js";
 import { checkCommand } from "../../security/command-policy.js";
 import type { DiffSummary, ToolExecutionResult } from "../../types.js";
-import { runCommand } from "../../utils/api.js";
 import { redactSecrets } from "../../security/secret-redaction.js";
 import { ensurePathWithinRoot } from "../worker-safety.js";
 import { WorkerProcessSupervisor } from "../worker-process-supervisor.js";
@@ -149,46 +149,19 @@ async function captureArtifacts(input: WorkerProviderExecutionInput, stdout: str
   diffSummaries: DiffSummary[];
 }> {
   await fs.mkdir(input.artifactDir, { recursive: true });
-
-  const status = await safeGit(input.worktreePath, ["status", "--porcelain"]);
-  const changedFiles = parseChangedFiles(status);
-  const untrackedFiles = parseUntrackedFiles(status);
-  if (untrackedFiles.length > 0) {
-    await safeGit(input.worktreePath, ["add", "-N", "--", ...untrackedFiles]);
-  }
-  const diffText = await safeGit(input.worktreePath, ["diff", "--binary"]);
-  const diffStat = await safeGit(input.worktreePath, ["diff", "--stat"]);
-  const numStat = await safeGit(input.worktreePath, ["diff", "--numstat"]);
-  const diffSummaries = parseNumStat(numStat);
+  const { changedFiles, diffText, diffSummaries } = await captureGitArtifacts({
+    repoRoot: input.worktreePath,
+    artifactRoot: input.artifactDir
+  });
   const shouldUploadRaw = process.env.ORCHESTRA_UPLOAD_RAW_TRANSCRIPTS === "true";
 
+  await fs.mkdir(path.join(input.artifactDir, "provider"), { recursive: true });
   await Promise.all([
-    fs.mkdir(path.join(input.artifactDir, "diff"), { recursive: true }),
-    fs.mkdir(path.join(input.artifactDir, "provider"), { recursive: true })
-  ]);
-  await Promise.all([
-    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.diffPatch), diffText, "utf8"),
-    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.diffStat), diffStat, "utf8"),
-    fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.changedFiles), `${JSON.stringify(changedFiles, null, 2)}\n`, "utf8"),
     fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.providerStdout), shouldUploadRaw ? stdout : scrub(stdout), "utf8"),
     fs.writeFile(path.join(input.artifactDir, ARTIFACT_PATHS.providerStderr), shouldUploadRaw ? stderr : scrub(stderr), "utf8")
   ]);
 
   return { changedFiles, diffText, diffSummaries };
-}
-
-async function safeGit(cwd: string, args: string[]): Promise<string> {
-  try {
-    const result = await runCommand({
-      command: "git",
-      args,
-      cwd,
-      timeoutMs: 30000
-    });
-    return result.stdout;
-  } catch {
-    return "";
-  }
 }
 
 function buildPrompt(input: WorkerProviderExecutionInput): string {
@@ -201,40 +174,6 @@ function buildPrompt(input: WorkerProviderExecutionInput): string {
     "",
     input.task
   ].filter(Boolean).join("\n");
-}
-
-function parseChangedFiles(status: string): string[] {
-  return status
-    .split(/\r?\n/)
-    .map((line) => line.slice(3).trim())
-    .filter(Boolean)
-    .map((line) => line.includes(" -> ") ? line.split(" -> ").pop() || line : line);
-}
-
-function parseUntrackedFiles(status: string): string[] {
-  return status
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith("?? "))
-    .map((line) => line.slice(3).trim())
-    .filter(Boolean);
-}
-
-function parseNumStat(numStat: string): DiffSummary[] {
-  return numStat.split(/\r?\n/).filter(Boolean).map((line) => {
-    const [addedRaw, removedRaw, filePath = ""] = line.split(/\t/);
-    const addedLines = Number(addedRaw);
-    const removedLines = Number(removedRaw);
-    const safeAdded = Number.isFinite(addedLines) ? addedLines : 0;
-    const safeRemoved = Number.isFinite(removedLines) ? removedLines : 0;
-    return {
-      path: filePath,
-      beforeLineCount: 0,
-      afterLineCount: 0,
-      addedLines: safeAdded,
-      removedLines: safeRemoved,
-      changedLineEstimate: safeAdded + safeRemoved
-    };
-  });
 }
 
 function scrub(value: string): string {
