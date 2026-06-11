@@ -4,3 +4,6 @@ allowBuilds:
   sharp: true
 overrides:
   protobufjs: ^7.5.5
+packages:
+  - "."
+  - "dashboard"
