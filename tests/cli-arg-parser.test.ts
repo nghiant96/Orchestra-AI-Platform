@@ -85,6 +85,55 @@ describe("CLI Arg Parser", () => {
     }
   });
 
+  it("parses Solo job productivity commands", async () => {
+    const origIsTTY = process.stdin.isTTY;
+    process.stdin.isTTY = true;
+    try {
+      assert.deepEqual((await parseArgs(["job", "list"])).command, { kind: "solo-job-list" });
+      assert.deepEqual((await parseArgs(["job", "show", "job-123"])).command, {
+        kind: "solo-job-show",
+        target: "job-123"
+      });
+      assert.deepEqual((await parseArgs(["job", "logs", "last"])).command, {
+        kind: "solo-job-logs",
+        target: "last"
+      });
+      assert.deepEqual((await parseArgs(["undo", "last"])).command, {
+        kind: "solo-undo",
+        target: "last"
+      });
+      assert.deepEqual((await parseArgs(["diff", "explain"])).command, {
+        kind: "solo-diff-explain",
+        target: "last"
+      });
+      assert.deepEqual((await parseArgs(["diff", "explain", "job-123"])).command, {
+        kind: "solo-diff-explain",
+        target: "job-123"
+      });
+      assert.deepEqual((await parseArgs(["continue"])).command, {
+        kind: "solo-continue",
+        target: "last",
+        fixVerification: false
+      });
+      assert.deepEqual((await parseArgs(["continue", "--job", "job-123"])).command, {
+        kind: "solo-continue",
+        target: "job-123",
+        fixVerification: false
+      });
+      assert.deepEqual((await parseArgs(["continue", "--fix-verification"])).command, {
+        kind: "solo-continue",
+        target: "last",
+        fixVerification: true
+      });
+      assert.deepEqual((await parseArgs(["commit", "job-123"])).command, {
+        kind: "solo-commit",
+        target: "job-123"
+      });
+    } finally {
+      process.stdin.isTTY = origIsTTY;
+    }
+  });
+
   it("parses worker start command options", async () => {
     const origIsTTY = process.stdin.isTTY;
     process.stdin.isTTY = true;

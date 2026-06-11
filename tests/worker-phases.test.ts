@@ -28,7 +28,9 @@ describe("Worker phase execution", () => {
     const workspaceRoot = repoRoot;
     const jobId = "job-context-artifacts";
     const artifactDir = path.join(repoRoot, ".ai-system-server", "worker-artifacts", jobId);
+    const worktreePath = path.join(repoRoot, ".orchestra", "worktrees", jobId);
     const emitted: string[] = [];
+    const previousContextPackMode = process.env.ORCHESTRA_CONTEXT_PACK_MODE;
 
     const job = {
       jobId,
@@ -55,6 +57,7 @@ describe("Worker phase execution", () => {
     } as any;
 
     try {
+      process.env.ORCHESTRA_CONTEXT_PACK_MODE = "required";
       const result = await executeWorkerJob({
         client: {} as any,
         worker,
@@ -71,6 +74,8 @@ describe("Worker phase execution", () => {
       assert.equal(result.ok, true);
       assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.contextPack)));
       assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.contextPackMarkdown)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.preContextPack)));
+      assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.preContextPackMarkdown)));
       assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck)));
       assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.namingCheck)));
       assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.repoConventions)));
@@ -79,9 +84,14 @@ describe("Worker phase execution", () => {
       assert.ok(emitted.some((line) => /context pack saved/i.test(line)));
 
       const contextPack = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.contextPack), "utf8"));
+      const preContextPack = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.preContextPack), "utf8"));
       const boundaryCheck = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.diffBoundaryCheck), "utf8"));
       const namingCheck = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.namingCheck), "utf8"));
       const manifest = JSON.parse(await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.manifest), "utf8"));
+      const setupPrompt = await fs.readFile(path.join(worktreePath, ".fake-codex-context-setup-prompt.txt"), "utf8");
+      assert.match(setupPrompt, /Use the pre-context below/i);
+      assert.match(preContextPack.summary, /No strong candidates/i);
+      assert.equal(preContextPack.confidence, "low");
       assert.equal(contextPack.confidence, "high");
       assert.equal(boundaryCheck.ok, true);
       assert.equal(namingCheck.ok, true);
@@ -90,6 +100,7 @@ describe("Worker phase execution", () => {
       assert.equal(manifest.artifacts.contextPack, ARTIFACT_PATHS.contextPack);
       assert.equal(manifest.artifacts.verification, ARTIFACT_PATHS.verification);
     } finally {
+      process.env.ORCHESTRA_CONTEXT_PACK_MODE = previousContextPackMode;
       await fs.rm(repoRoot, { recursive: true, force: true });
       await fs.rm(fakeCodex, { force: true });
     }
@@ -202,6 +213,7 @@ try {
 state.count += 1;
 fs.writeFileSync(statePath, JSON.stringify(state), "utf8");
 if (prompt.includes("Phase kind: setup")) {
+  fs.writeFileSync(path.join(cwd, ".fake-codex-context-setup-prompt.txt"), prompt, "utf8");
   console.log('ORCHESTRA_CONTEXT_PACK:');
   console.log(JSON.stringify({
     summary: "Payment API worker context",

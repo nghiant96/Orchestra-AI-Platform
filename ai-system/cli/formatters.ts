@@ -7,3 +7,4 @@ export * from "./formatters/interactive.js";
 export * from "./formatters/json.js";
 export * from "./formatters/work.js";
 export * from "./formatters/solo.js";
+export * from "./formatters/solo-jobs.js";

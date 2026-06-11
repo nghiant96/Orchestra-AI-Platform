@@ -30,6 +30,13 @@ export type TaskRunOptions = Omit<CliOptions, "chat" | "help" | "command" | "glo
 
 export type CliCommand =
   | { kind: "solo-run"; executionMode: "quick" | "normal" | "safe" }
+  | { kind: "solo-job-list" }
+  | { kind: "solo-job-show"; target: string }
+  | { kind: "solo-job-logs"; target: string }
+  | { kind: "solo-undo"; target: string }
+  | { kind: "solo-diff-explain"; target: string }
+  | { kind: "solo-continue"; target: string; fixVerification: boolean }
+  | { kind: "solo-commit"; target: string }
   | { kind: "config-show" }
   | { kind: "config-use"; preset: string }
   | { kind: "doctor" }

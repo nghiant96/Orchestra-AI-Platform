@@ -55,11 +55,11 @@ export async function loadWorkerContextPack(artifactDir: string): Promise<Worker
 }
 
 export async function saveWorkerContextPack(artifactDir: string, pack: WorkerContextPack): Promise<void> {
-  await fs.mkdir(path.join(artifactDir, "context"), { recursive: true });
-  await Promise.all([
-    fs.writeFile(path.join(artifactDir, ARTIFACT_PATHS.contextPack), `${JSON.stringify(pack, null, 2)}\n`, "utf8"),
-    fs.writeFile(path.join(artifactDir, ARTIFACT_PATHS.contextPackMarkdown), renderWorkerContextPackMarkdown(pack), "utf8")
-  ]);
+  await saveContextPackArtifacts(artifactDir, pack, ARTIFACT_PATHS.contextPack, ARTIFACT_PATHS.contextPackMarkdown);
+}
+
+export async function savePreContextPack(artifactDir: string, pack: WorkerContextPack): Promise<void> {
+  await saveContextPackArtifacts(artifactDir, pack, ARTIFACT_PATHS.preContextPack, ARTIFACT_PATHS.preContextPackMarkdown);
 }
 
 export function normalizeWorkerContextPack(
@@ -226,4 +226,17 @@ function renderConventions(conventions: WorkerRepoConventions): string {
     .filter(([, values]) => Array.isArray(values) && values.length > 0)
     .map(([key, values]) => `- ${key}: ${(values as string[]).join(", ")}`);
   return entries.length > 0 ? entries.join("\n") : "- (none)";
+}
+
+async function saveContextPackArtifacts(
+  artifactDir: string,
+  pack: WorkerContextPack,
+  jsonPath: string,
+  markdownPath: string
+): Promise<void> {
+  await fs.mkdir(path.dirname(path.join(artifactDir, jsonPath)), { recursive: true });
+  await Promise.all([
+    fs.writeFile(path.join(artifactDir, jsonPath), `${JSON.stringify(pack, null, 2)}\n`, "utf8"),
+    fs.writeFile(path.join(artifactDir, markdownPath), renderWorkerContextPackMarkdown(pack), "utf8")
+  ]);
 }

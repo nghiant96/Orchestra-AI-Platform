@@ -21,14 +21,16 @@ import type { WorkerApiClient } from "./worker-client.js";
 import { ensurePathWithinRoot, redactWorkerLogLine } from "./worker-safety.js";
 import { prepareWorkerWorktree } from "./worker-worktree.js";
 import { buildProviderEnv } from "./provider-env.js";
+import { buildContext } from "../context/context-builder.js";
 import {
   createFallbackWorkerContextPack,
   loadWorkerContextPack,
+  savePreContextPack,
   saveWorkerContextPack,
   type WorkerContextPack
 } from "./context-pack.js";
 import { extractContextPackFromProviderResult } from "./context-pack-parser.js";
-import { buildImplementationPromptWithContext } from "./contextual-phase-prompt.js";
+import { buildImplementationPromptWithContext, buildSetupPromptWithPreContext } from "./contextual-phase-prompt.js";
 import { runDiffBoundaryCheck, writeDiffBoundaryCheckArtifact } from "./diff-boundary-checker.js";
 import { runNamingGuard, writeNamingGuardArtifact } from "./naming-guard.js";
 import { scanRepoConventions, writeRepoConventionScanArtifact } from "./repo-convention-scanner.js";
@@ -211,6 +213,33 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     });
   }
 
+  const repoConventions = await scanRepoConventions(prepared.worktreePath);
+  await writeRepoConventionScanArtifact(prepared.artifactDir, repoConventions);
+  let preContextPack: WorkerContextPack | null;
+  try {
+    const builtContext = await buildContext({
+      jobId: ctx.job.jobId,
+      task: ctx.job.task,
+      repoRoot: ctx.job.cwd,
+      artifactDir: prepared.artifactDir
+    }, {
+      repoConventions
+    });
+    preContextPack = builtContext.preContextPack;
+  } catch (error) {
+    preContextPack = createFallbackWorkerContextPack({
+      jobId: ctx.job.jobId,
+      task: ctx.job.task,
+      warning: error instanceof Error ? error.message : "Failed to build pre-context."
+    });
+    await savePreContextPack(prepared.artifactDir, preContextPack);
+  }
+  await updateManifestArtifactRefs(prepared.artifactDir, {
+    preContextPack: ARTIFACT_PATHS.preContextPack,
+    preContextPackMarkdown: ARTIFACT_PATHS.preContextPackMarkdown,
+    repoConventions: ARTIFACT_PATHS.repoConventions
+  });
+
   const loadedState = await loadWorkerTaskPhaseState(prepared.artifactDir);
   const { plan, state: initialPhaseState } = ensureWorkerTaskPhaseState(ctx.job.jobId, ctx.job.task, loadedState, {
     workflowProfile: ctx.job.workflowProfile
@@ -235,15 +264,18 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
 
   let latestResult: Awaited<ReturnType<typeof provider.execute>> | null = null;
   let contextPack: WorkerContextPack | null = await loadWorkerContextPack(prepared.artifactDir);
-  const repoConventions = await scanRepoConventions(prepared.worktreePath);
-  await writeRepoConventionScanArtifact(prepared.artifactDir, repoConventions);
   for (let index = resumeIndex; index < plan.phases.length; index += 1) {
     const phase = plan.phases[index];
     emit(`phase ${index + 1}/${plan.phases.length}: ${phase.title}`);
     phaseState = updateWorkerTaskPhaseStateForStart(phaseState, phase.id);
     await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
 
-    const phaseTask = phase.kind === "implementation"
+    const phaseTask = phase.kind === "setup"
+      ? buildSetupPromptWithPreContext({
+          phasePrompt: phase.prompt,
+          preContextPack
+        })
+      : phase.kind === "implementation"
       ? buildImplementationPromptWithContext({
           phasePrompt: phase.prompt,
           contextPack

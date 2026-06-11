@@ -979,9 +979,9 @@ ai job logs <job-id>
 Behavior:
 
 ```txt
-[ ] reads LocalArtifactStore
-[ ] displays status, task, createdAt, changed file count
-[ ] show reads manifest and key artifacts
+[x] reads LocalArtifactStore
+[x] displays status, task, createdAt, changed file count
+[x] show reads manifest and key artifacts
 ```
 
 ---
@@ -999,12 +999,12 @@ ai continue --fix-verification
 Behavior:
 
 ```txt
-[ ] default continues latest failed/incomplete job
-[ ] reads manifest
-[ ] reads context pack
-[ ] reads verification result
-[ ] if --fix-verification, prompt provider only with verification failures + current diff context
-[ ] reruns guards and verification
+[x] default continues latest failed/incomplete job
+[x] reads manifest
+[x] reads context pack
+[x] reads verification result
+[x] if --fix-verification, prompt provider only with verification failures + current diff context
+[x] reruns guards and verification
 ```
 
 ---
@@ -1021,10 +1021,10 @@ ai undo <job-id>
 Behavior:
 
 ```txt
-[ ] read diff/diff.patch
-[ ] run git apply -R
-[ ] update manifest status to reverted
-[ ] if reverse patch fails, print fallback instructions
+[x] read diff/diff.patch
+[x] run git apply -R
+[x] update manifest status to reverted
+[x] if reverse patch fails, print fallback instructions
 ```
 
 ---
@@ -1041,10 +1041,27 @@ ai diff explain <job-id>
 Behavior:
 
 ```txt
-[ ] reads changed-files.json
-[ ] reads diff-stat.txt
-[ ] optionally uses provider/local summarizer
-[ ] prints readable per-file summary
+[x] reads changed-files.json
+[x] reads diff-stat.txt
+[x] prints readable per-file summary
+```
+
+Slice status:
+
+```txt
+[x] history/logs commands implemented
+[x] undo implemented
+[x] deterministic diff explain implemented
+[x] continue workflow
+[x] commit helper
+[x] provider/local diff summarizer
+```
+
+v0.11 status:
+
+```txt
+[x] implemented and verified
+[x] provider/local diff summarizer implemented
 ```
 
 ---
@@ -1060,9 +1077,9 @@ ai commit <job-id>
 Behavior:
 
 ```txt
-[ ] generate commit message from manifest + changed files + verification
-[ ] show message before commit
-[ ] optionally commit only changed files from job
+[x] generate commit message from manifest + changed files + verification
+[x] show message before commit
+[x] optionally commit only changed files from job
 ```
 
 ---
@@ -1106,6 +1123,12 @@ export interface BuiltContext {
 }
 ```
 
+Status:
+
+```txt
+[x] implemented
+```
+
 ---
 
 ### Task 2 — Add ripgrep candidate search
@@ -1115,10 +1138,16 @@ Use `rg` when available.
 Behavior:
 
 ```txt
-[ ] extract keywords from task
-[ ] run rg -l
-[ ] rank files by keyword hits
-[ ] exclude ignored folders
+[x] extract keywords from task
+[x] run rg -l
+[x] rank files by keyword hits
+[x] exclude ignored folders
+```
+
+Status:
+
+```txt
+[x] implemented
 ```
 
 Fallback:
@@ -1152,6 +1181,12 @@ export interface SemanticContextProvider {
 
 Initial implementation can be disabled/no-op.
 
+Status:
+
+```txt
+[x] implemented as no-op interface
+```
+
 ---
 
 ### Task 4 — Add memory namespace
@@ -1177,6 +1212,12 @@ Default scope:
 project
 ```
 
+Status:
+
+```txt
+[x] implemented
+```
+
 ---
 
 ### Task 5 — Write pre-context artifacts
@@ -1189,6 +1230,12 @@ context/pre-context-pack.md
 ```
 
 Setup phase should receive pre-context as input and refine it into final context pack.
+
+Status:
+
+```txt
+[x] implemented
+```
 
 ---
 

@@ -7,6 +7,7 @@ import type {
   ArtifactGuardStatus,
   ArtifactVerificationStatus
 } from "../artifacts/artifact-schema.js";
+import { buildContext } from "../context/context-builder.js";
 import { LocalArtifactStore } from "../artifacts/local-artifact-store.js";
 import {
   updateManifestArtifactRefs,
@@ -21,6 +22,7 @@ import {
 import { extractContextPackFromProviderResult } from "../worker/context-pack-parser.js";
 import { runDiffBoundaryCheck, writeDiffBoundaryCheckArtifact } from "../worker/diff-boundary-checker.js";
 import { runNamingGuard, writeNamingGuardArtifact } from "../worker/naming-guard.js";
+import { buildSetupPromptWithPreContext } from "../worker/contextual-phase-prompt.js";
 import { buildProviderEnv } from "../worker/provider-env.js";
 import { resolveWorkerProvider } from "../worker/providers/index.js";
 import type { WorkerProviderAdapter } from "../worker/providers/provider-adapter.js";
@@ -34,6 +36,7 @@ export interface SoloRunInput {
   providerId: string;
   providerCommand?: string;
   artifactRootDir?: string;
+  allowDirtyWorkingTree?: boolean;
 }
 
 export interface SoloRunResult {
@@ -57,7 +60,9 @@ export async function runSoloJob(
 ): Promise<SoloRunResult> {
   const repoRoot = await fs.realpath(input.repoRoot);
   await assertGitRepository(repoRoot);
-  await assertCleanWorkingTree(repoRoot);
+  if (!input.allowDirtyWorkingTree) {
+    await assertCleanWorkingTree(repoRoot);
+  }
 
   const jobId = dependencies.createJobId?.() ?? createSoloJobId();
   const store = new LocalArtifactStore(input.artifactRootDir ?? path.join(repoRoot, ".orchestra", "jobs"));
@@ -90,9 +95,32 @@ export async function runSoloJob(
   const provider = dependencies.provider ?? resolveWorkerProvider(input.providerId, {
     codexCommand: input.providerCommand
   });
+  let preContextPack: Awaited<ReturnType<typeof buildContext>>["preContextPack"] | null;
+  try {
+    const builtContext = await buildContext({
+      jobId,
+      task: input.task,
+      repoRoot,
+      artifactDir: artifactRoot
+    }, {
+      repoConventions: conventions
+    });
+    preContextPack = builtContext.preContextPack;
+  } catch (error) {
+    preContextPack = createFallbackWorkerContextPack({
+      jobId,
+      task: input.task,
+      warning: error instanceof Error ? error.message : "Failed to build pre-context."
+    });
+    await saveWorkerContextPack(artifactRoot, preContextPack);
+  }
+  await updateManifestArtifactRefs(artifactRoot, {
+    preContextPack: ARTIFACT_PATHS.preContextPack,
+    preContextPackMarkdown: ARTIFACT_PATHS.preContextPackMarkdown
+  });
   const providerInput = {
     jobId,
-    task: buildSoloProviderPrompt(input.task, input.executionMode),
+    task: buildSoloProviderPrompt(input.task, input.executionMode, preContextPack),
     cwd: repoRoot,
     worktreePath: repoRoot,
     workspaceRoot: repoRoot,
@@ -282,8 +310,12 @@ async function readGitValue(cwd: string, args: string[]): Promise<string> {
   }
 }
 
-function buildSoloProviderPrompt(task: string, executionMode: ArtifactExecutionMode): string {
-  return [
+function buildSoloProviderPrompt(
+  task: string,
+  executionMode: ArtifactExecutionMode,
+  preContextPack: Awaited<ReturnType<typeof buildContext>>["preContextPack"] | null
+): string {
+  const basePrompt = [
     "You are executing an Orchestra Solo Mode coding job directly in the current repository.",
     `Execution mode: ${executionMode}`,
     "Keep the change focused and do not commit it.",
@@ -291,6 +323,11 @@ function buildSoloProviderPrompt(task: string, executionMode: ArtifactExecutionM
     "",
     task
   ].join("\n");
+
+  return buildSetupPromptWithPreContext({
+    phasePrompt: basePrompt,
+    preContextPack
+  });
 }
 
 function createSoloJobId(): string {

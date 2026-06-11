@@ -57,6 +57,13 @@ export function printHelp(): void {
   ai run "task description"
   ai quick "small task"
   ai safe "high-risk task"
+  ai job list
+  ai job show last
+  ai job logs last
+  ai diff explain
+  ai undo last
+  ai continue --fix-verification
+  ai commit last
   ai "task description"
   ai implement "task description"
   ai review "task description"

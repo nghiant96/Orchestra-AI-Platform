@@ -29,3 +29,31 @@ export function buildImplementationPromptWithContext(input: {
     renderWorkerContextPackMarkdown(input.contextPack)
   ].join("\n");
 }
+
+export function buildSetupPromptWithPreContext(input: {
+  phasePrompt: string;
+  preContextPack: WorkerContextPack | null;
+}): string {
+  if (!input.preContextPack) {
+    return [
+      input.phasePrompt,
+      "",
+      "Pre-context status: unavailable.",
+      "Derive the setup output from the repository itself and keep the final ORCHESTRA_CONTEXT_PACK concise."
+    ].join("\n");
+  }
+
+  return [
+    input.phasePrompt,
+    "",
+    "Use the pre-context below as the draft starting point for the final ORCHESTRA_CONTEXT_PACK.",
+    "Refine it with repository evidence, tighten the candidate list, and keep the final context actionable.",
+    "",
+    "Pre-context rules:",
+    "- Treat it as a draft, not as a finished plan.",
+    "- Improve the relevance, boundary, and verification details where evidence supports it.",
+    "- Keep the final ORCHESTRA_CONTEXT_PACK valid JSON.",
+    "",
+    renderWorkerContextPackMarkdown(input.preContextPack)
+  ].join("\n");
+}

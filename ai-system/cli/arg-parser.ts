@@ -63,6 +63,80 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
       };
       continue;
     }
+    if (arg === "job") {
+      const subCommand = args[index + 1];
+      if (subCommand === "list") {
+        command = { kind: "solo-job-list" };
+        index += 1;
+        continue;
+      }
+      if (subCommand === "show" || subCommand === "logs") {
+        const target = args[index + 2];
+        if (!target) {
+          throw new Error(`Missing target for \`ai job ${subCommand} <job-id|last>\`.`);
+        }
+        command = subCommand === "show"
+          ? { kind: "solo-job-show", target }
+          : { kind: "solo-job-logs", target };
+        index += 2;
+        continue;
+      }
+      throw new Error("Unsupported job subcommand. Use `job list`, `job show <job-id|last>`, or `job logs <job-id|last>`.");
+    }
+    if (arg === "undo") {
+      const target = args[index + 1];
+      if (!target) {
+        throw new Error("Missing target for `ai undo <job-id|last>`.");
+      }
+      command = { kind: "solo-undo", target };
+      index += 1;
+      continue;
+    }
+    if (arg === "continue") {
+      let target = "last";
+      let fixVerification = false;
+      let consumed = 0;
+      while (index + consumed + 1 < args.length) {
+        const nextArg = args[index + consumed + 1];
+        if (nextArg === "--job") {
+          const jobId = args[index + consumed + 2];
+          if (!jobId || jobId.startsWith("-")) {
+            throw new Error("Missing job id for `ai continue --job <job-id>`.");
+          }
+          target = jobId;
+          consumed += 2;
+          continue;
+        }
+        if (nextArg === "--fix-verification") {
+          fixVerification = true;
+          consumed += 1;
+          continue;
+        }
+        break;
+      }
+      command = { kind: "solo-continue", target, fixVerification };
+      index += consumed;
+      continue;
+    }
+    if (arg === "commit") {
+      const target = args[index + 1];
+      if (!target || target.startsWith("-")) {
+        throw new Error("Missing target for `ai commit <job-id|last>`.");
+      }
+      command = { kind: "solo-commit", target };
+      index += 1;
+      continue;
+    }
+    if (arg === "diff") {
+      const subCommand = args[index + 1];
+      if (subCommand !== "explain") {
+        throw new Error("Unsupported diff command. Use `diff explain [job-id|last]`.");
+      }
+      const target = args[index + 2] && !args[index + 2]?.startsWith("-") ? args[index + 2] : "last";
+      command = { kind: "solo-diff-explain", target };
+      index += target === "last" ? 1 : 2;
+      continue;
+    }
     if (arg === "implement") {
       workflowMode = "implement";
       continue;

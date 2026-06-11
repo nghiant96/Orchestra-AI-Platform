@@ -10,7 +10,7 @@ import { runCommand } from "../ai-system/utils/api.js";
 const workspaceRoot = process.cwd();
 const tsxLoaderPath = path.join(workspaceRoot, "node_modules", "tsx", "dist", "esm", "index.mjs");
 
-test("CLI quick runs a Solo Mode job without server", async () => {
+test("CLI quick job history, diff explain, and undo run without server", async () => {
   const repoRoot = await createGitRepo("solo-cli-");
   const fakeCodex = await createFakeCodex();
 
@@ -37,6 +37,82 @@ test("CLI quick runs a Solo Mode job without server", async () => {
     assert.equal(manifest.executionMode, "quick");
     assert.equal(manifest.status, "completed");
     await fs.access(path.join(artifactRoot, ARTIFACT_PATHS.diffPatch));
+
+    const list = await runCli(["job", "list"], {
+      cwd: repoRoot,
+      env: process.env
+    });
+    assert.equal(list.code, 0, list.stderr);
+    assert.match(list.stdout, /Solo Jobs/);
+    assert.match(list.stdout, new RegExp(jobs[0] ?? "missing-job-id"));
+
+    const show = await runCli(["job", "show", "last"], {
+      cwd: repoRoot,
+      env: process.env
+    });
+    assert.equal(show.code, 0, show.stderr);
+    assert.match(show.stdout, /solo-cli-output\.ts/);
+
+    const logs = await runCli(["job", "logs", "last"], {
+      cwd: repoRoot,
+      env: process.env
+    });
+    assert.equal(logs.code, 0, logs.stderr);
+    assert.match(logs.stdout, /ORCHESTRA_CONTEXT_PACK/);
+
+    const explain = await runCli(["diff", "explain"], {
+      cwd: repoRoot,
+      env: process.env
+    });
+    assert.equal(explain.code, 0, explain.stderr);
+    assert.match(explain.stdout, /1 file changed/);
+    assert.match(explain.stdout, /solo-cli-output\.ts/);
+
+    const undo = await runCli(["undo", "last"], {
+      cwd: repoRoot,
+      env: process.env
+    });
+    assert.equal(undo.code, 0, undo.stderr);
+    assert.match(undo.stdout, /Solo Undo/);
+    await assert.rejects(() => fs.stat(path.join(repoRoot, "src", "solo-cli-output.ts")), /ENOENT/);
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+  }
+});
+
+test("CLI continue and commit run without server", async () => {
+  const repoRoot = await createGitRepo("solo-cli-continue-");
+  const fakeCodex = await createFakeCodex();
+  const env = {
+    ...process.env,
+    ORCHESTRA_CODEX_COMMAND: fakeCodex,
+    PATH: process.env.PATH ?? ""
+  };
+
+  try {
+    const first = await runCli(["quick", "Create solo CLI output"], { cwd: repoRoot, env });
+    assert.equal(first.code, 0, first.stderr);
+
+    const continued = await runCli(["continue", "--fix-verification"], { cwd: repoRoot, env });
+    assert.equal(continued.code, 0, continued.stderr);
+    assert.match(continued.stdout, /Solo Continue/);
+
+    const jobs = await fs.readdir(path.join(repoRoot, ".orchestra", "jobs"));
+    assert.equal(jobs.length, 2);
+
+    const committed = await runCli(["commit", "last"], { cwd: repoRoot, env });
+    assert.equal(committed.code, 0, committed.stderr);
+    assert.match(committed.stdout, /Solo Commit/);
+    assert.match(committed.stdout, /commit:/);
+    assert.match(committed.stdout, /Apply solo job/);
+
+    const sourceStatus = await runCommand({
+      command: "git",
+      args: ["status", "--porcelain", "--", "src/solo-cli-output.ts"],
+      cwd: repoRoot
+    });
+    assert.equal(sourceStatus.stdout.trim(), "");
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
     await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
