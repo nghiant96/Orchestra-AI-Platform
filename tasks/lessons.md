@@ -12,6 +12,12 @@
 
 **Rule**: When importing queued work into a live scheduler, make the migration explicitly re-arm execution. Importing records is only half the job; the scheduler must be nudged so migrated items continue through the normal path.
 
+## 2026-06-12: Keep queue orchestration separate from storage implementation
+
+**Mistake**: Let the queue own both scheduling behavior and persistence details for too long, which made durable-store cleanup harder and encouraged duplicated sqlite/file logic inside the same class.
+
+**Rule**: Treat the queue as orchestration only. Put file/sqlite persistence behind dedicated repository adapters and keep the queue talking to them through a narrow record-store interface.
+
 ## 2026-06-08: Do not drip-feed an already approved implementation scope
 
 **Mistake**: Split a clearly approved follow-up into tiny sequential slices and stopped after each slice even
