@@ -22,13 +22,15 @@ import { BranchTab } from './BranchTab';
 import { ChecksTab } from './ChecksTab';
 import { ActionsTab } from './ActionsTab';
 import { EventsTab } from './EventsTab';
+import { AuditTrailPanel } from '../AuditTrailPanel';
 import { riskColors, statusColors } from './constants';
 
-type DetailTab = 'assessment' | 'graph' | 'checklist' | 'runs' | 'events' | 'branch' | 'checks' | 'actions';
+type DetailTab = 'assessment' | 'graph' | 'checklist' | 'runs' | 'events' | 'audit' | 'branch' | 'checks' | 'actions';
 
 interface WorkItemDetailModalProps {
     workItem: WorkItem;
     cwd: string;
+    auditEvents?: import('../../types').AuditEvent[];
     onClose: () => void;
     onRefresh: () => void;
     onAssess?: (workItem: WorkItem) => Promise<void>;
@@ -43,6 +45,7 @@ const tabs: { key: DetailTab; label: string; icon: ComponentType<{ size?: number
     { key: 'checklist', label: 'Checklist', icon: ListChecks },
     { key: 'runs', label: 'Linked Runs', icon: History },
     { key: 'events', label: 'Timeline', icon: Activity },
+    { key: 'audit', label: 'Audit Trail', icon: History },
     { key: 'branch', label: 'Branch/PR', icon: GitPullRequest },
     { key: 'checks', label: 'CI/Checks', icon: ShieldCheck },
     { key: 'actions', label: 'Actions', icon: Play },
@@ -57,6 +60,7 @@ export const WorkItemDetailModal = ({
     onCancel,
     onRetry,
     cwd,
+    auditEvents = [],
 }: WorkItemDetailModalProps) => {
     const [activeTab, setActiveTab] = useState<DetailTab>('assessment');
     const [actioning, setActioning] = useState(false);
@@ -199,6 +203,15 @@ export const WorkItemDetailModal = ({
                     {activeTab === 'checklist' && <ChecklistTab checklist={checklist} />}
                     {activeTab === 'runs' && <RunsTab linkedRuns={detail.linkedRuns} linkedJobs={detail.linkedJobs} />}
                     {activeTab === 'events' && <EventsTab events={detail.events} />}
+                    {activeTab === 'audit' && (
+                        <AuditTrailPanel
+                            events={auditEvents}
+                            title="Work Item Audit Trail"
+                            description="Solo undo, continue, and commit events related to linked runs."
+                            jobIds={collectLinkedJobIds(detail)}
+                            maxItems={20}
+                        />
+                    )}
                     {activeTab === 'branch' && <BranchTab workItem={detail} />}
                     {activeTab === 'checks' && <ChecksTab checks={detail.checks} pullRequest={detail.pullRequest} />}
                     {activeTab === 'actions' && (
@@ -217,3 +230,14 @@ export const WorkItemDetailModal = ({
         </motion.div>
     );
 };
+
+function collectLinkedJobIds(workItem: WorkItem): string[] {
+    const ids = new Set<string>();
+    for (const runId of workItem.linkedRuns || []) {
+        if (runId) ids.add(runId);
+    }
+    for (const linkedJob of workItem.linkedJobs || []) {
+        if (linkedJob.jobId) ids.add(linkedJob.jobId);
+    }
+    return [...ids];
+}

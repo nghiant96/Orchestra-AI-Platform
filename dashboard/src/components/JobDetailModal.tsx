@@ -28,9 +28,12 @@ import { JobDetailTabs, type JobDetailTab } from './JobDetailTabs';
 import { JobPromptSection } from './JobPromptSection';
 import { JobTimelineSection } from './JobTimelineSection';
 import { ArtifactViewer } from './ArtifactViewer';
+import { AuditTrailPanel } from './AuditTrailPanel';
+import type { AuditEvent } from '../types';
 
 interface JobDetailModalProps {
   job: Job;
+  auditEvents?: AuditEvent[];
   onClose: () => void;
   onRefresh: () => void;
   onRetry?: (job: Job) => void;
@@ -38,7 +41,7 @@ interface JobDetailModalProps {
   onCancel?: (job: Job) => void;
 }
 
-export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onCancel }: JobDetailModalProps) => {
+export const JobDetailModal = ({ job, auditEvents = [], onClose, onRefresh, onRetry, onResume, onCancel }: JobDetailModalProps) => {
   const [activeTab, setActiveTab] = useState<JobDetailTab>('overview');
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [actioning, setActioning] = useState(false);
@@ -347,6 +350,24 @@ export const JobDetailModal = ({ job, onClose, onRefresh, onRetry, onResume, onC
                     )}
                   </div>
                 </section>
+              </motion.div>
+            )}
+
+            {activeTab === 'audit' && (
+              <motion.div
+                key="audit"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 10 }}
+                className="space-y-8"
+              >
+                <AuditTrailPanel
+                  events={auditEvents}
+                  title="Job Audit Trail"
+                  description="Solo undo, continue, and commit events related to this job."
+                  jobIds={[job.jobId]}
+                  maxItems={20}
+                />
               </motion.div>
             )}
 

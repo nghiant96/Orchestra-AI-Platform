@@ -64,6 +64,22 @@ export interface ApprovalPolicyDecision {
   reason: string;
 }
 
+export interface AuditActor {
+  id: string;
+  role: 'viewer' | 'operator' | 'admin';
+}
+
+export interface AuditEvent {
+  version: number;
+  id: string;
+  timestamp: string;
+  action: string;
+  actor: AuditActor;
+  cwd?: string;
+  jobId?: string;
+  details?: Record<string, unknown>;
+}
+
 export interface ApprovalArtifactBinding {
   artifactId: string;
   artifactHash: string;

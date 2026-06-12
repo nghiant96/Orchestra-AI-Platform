@@ -1,5 +1,11 @@
 # Lessons Learned
 
+## 2026-06-12: Deep-equal assertions must include optional `undefined` fields when they matter
+
+**Mistake**: A CLI delegation test expected an object without `artifactRootDir`, but the runtime now passes `artifactRootDir: undefined` explicitly before the job runner sees it.
+
+**Rule**: When a test uses `assert.deepEqual` against a plain object, include optional `undefined` fields if the runtime emits them, or switch to a partial assertion. Otherwise a harmless plumbing change can fail a stable test.
+
 ## 2026-06-12: Dirty-tree modes should prepare execution state before launching the job
 
 **Mistake**: Started wiring `--stash` / `--worktree` after the Solo job was already running, which meant the job still saw the dirty checkout and the new modes could not do their job.

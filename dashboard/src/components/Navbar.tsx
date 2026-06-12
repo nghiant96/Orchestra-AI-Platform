@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { NavLink } from 'react-router-dom';
-import { Terminal, Activity, Settings, Search, RefreshCw, FolderTree, ChevronDown, BarChart3, ListChecks, FolderPlus, X, Server } from 'lucide-react';
+import { Terminal, Activity, Settings, Search, RefreshCw, FolderTree, ChevronDown, BarChart3, ListChecks, FolderPlus, X, Server, History } from 'lucide-react';
 import { cn } from '../utils/cn';
 
 interface NavbarProps {
@@ -182,9 +182,19 @@ export const Navbar = ({
                 "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
                 isActive ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
               )}
-            >
+              >
               <ListChecks size={14} />
               Work
+            </NavLink>
+            <NavLink
+              to="/audit"
+              className={({ isActive }) => cn(
+                "px-4 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all flex items-center gap-2",
+                isActive ? "bg-white text-indigo-600 shadow-sm" : "text-slate-400 hover:text-slate-600"
+              )}
+            >
+              <History size={14} />
+              Audit
             </NavLink>
             <NavLink
               to="/workers"

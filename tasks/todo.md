@@ -25,6 +25,26 @@ Review result:
 - The package version and docs were bumped to `0.10.0-alpha` so the repo metadata matches the current state more closely.
 - Targeted CLI, runner, typecheck, lint, and repo-wide checks all passed after the change.
 
+## Task: Surface Solo Audit History in the Dashboard
+
+- [x] Add a dashboard hook for `/audit` and a reusable solo-audit panel.
+- [x] Add a `/audit` route plus a home-screen recent-activity panel for solo `undo` / `continue` / `commit` events.
+- [x] Add UI tests that prove the audit feed renders in both the home view and the audit page.
+- [x] Run dashboard typecheck, dashboard tests, root lint, and `git diff --check`.
+- [x] Connect solo audit history into job detail and work item detail views.
+
+Review goal:
+
+- Make the solo audit trail visible in the dashboard without changing the server contract.
+- Keep the UI focused on the solo workflow history the review asked for: undo, continue, and commit.
+
+Review result:
+
+- The dashboard now polls `/audit`, filters Solo Mode events, and shows them in a reusable audit panel.
+- The home screen gets a compact recent-history widget, while `/audit` exposes the fuller trail view.
+- Job detail and work item detail now expose scoped audit trail tabs so the per-job history is visible where operators inspect the run.
+- Smoke coverage now verifies both placements, and the dashboard typecheck, dashboard test suite, root lint, and `git diff --check` all passed.
+
 ## Task: Add Short Postgres Cutover Runbook
 
 - [x] Create a copy-pasteable 10-minute cutover guide for Postgres releases.

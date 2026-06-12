@@ -24,10 +24,12 @@ import { ProjectHealthPanel } from './components/ProjectHealthPanel';
 import { useJobs } from './hooks/useJobs';
 import { useConfig } from './hooks/useConfig';
 import { useHealth } from './hooks/useHealth';
+import { useAudit } from './hooks/useAudit';
 import { useWorkItems } from './hooks/useWorkItems';
 import { WorkBoardPanel } from './components/WorkBoardPanel';
 import { InboxPanel } from './components/InboxPanel';
 import { WorkersPage } from './components/WorkersPage';
+import { AuditTrailPanel } from './components/AuditTrailPanel';
 import { apiFetch } from './utils/api';
 import { resolveSafeWorkspacePath } from './utils/workspaceRoots';
 
@@ -86,6 +88,7 @@ function App() {
     config,
     fetchConfig,
   } = useConfig();
+  const { events: auditEvents, soloEvents, loading: auditLoading } = useAudit(100);
 
   const [task, setTask] = useState('');
   const [formCwd, setFormCwd] = useState('');
@@ -245,6 +248,15 @@ function App() {
 
                 <ProjectHealthPanel health={health} jobs={jobs} />
                 <div className="mb-8">
+                  <AuditTrailPanel
+                    events={soloEvents}
+                    loading={auditLoading}
+                    maxItems={5}
+                    showDetails={false}
+                    description="Recent solo undo, continue, and commit history for this workspace."
+                  />
+                </div>
+                <div className="mb-8">
                   <WorkBoardPanel workItems={workItems} loading={workLoading} onItemClick={handleWorkItemClick} />
                 </div>
 
@@ -372,6 +384,26 @@ function App() {
                 <WorkBoardPanel workItems={workItems} loading={workLoading} onItemClick={handleWorkItemClick} />
               </div>
             } />
+            <Route path="/audit" element={
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+              >
+                <div className="mb-6 flex flex-col gap-2">
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-slate-900">Solo Audit Trail</h2>
+                  <p className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                    Full history of undo, continue, and commit events captured from Solo Mode.
+                  </p>
+                </div>
+                <AuditTrailPanel
+                  events={soloEvents}
+                  loading={auditLoading}
+                  maxItems={50}
+                  description="Full Solo Mode history streamed from the server audit log."
+                />
+              </motion.div>
+            } />
             <Route path="/workers" element={<WorkersPage />} />
             <Route path="*" element={
               <div className="p-20 text-center">
@@ -389,6 +421,7 @@ function App() {
           <Suspense fallback={null}>
             <JobDetailModal
               job={selectedJob}
+              auditEvents={auditEvents}
               onClose={() => setSelectedJobId(null)}
               onRefresh={fetchJobs}
               onRetry={rerunJob}
@@ -402,6 +435,7 @@ function App() {
             <WorkItemDetailModal
               workItem={selectedWorkItem}
               cwd={currentProject}
+              auditEvents={auditEvents}
               onClose={() => setSelectedWorkItem(null)}
               onRefresh={fetchWorkItems}
               onAssess={handleWorkItemAssess}

@@ -8,6 +8,7 @@ export type JobDetailTab =
   | 'verification'
   | 'artifacts'
   | 'analytics'
+  | 'audit'
   | 'diagnostics'
   | 'files'
   | 'console'
@@ -22,6 +23,7 @@ const tabs: JobDetailTab[] = [
   'verification',
   'artifacts',
   'analytics',
+  'audit',
   'diagnostics',
   'files',
   'console',
@@ -62,6 +64,8 @@ export const JobDetailTabs = ({ activeTab, onChange }: JobDetailTabsProps) => (
                         ? 'File Changes'
                         : tab === 'analytics'
                           ? 'Analytics'
+                          : tab === 'audit'
+                            ? 'Audit Trail'
                           : tab === 'diagnostics'
                             ? 'Diagnostics'
                             : tab === 'console'
