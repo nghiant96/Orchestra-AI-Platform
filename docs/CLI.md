@@ -2,6 +2,10 @@
 
 This document is the complete reference for the Orchestra CLI. The CLI is the primary interface for local development with Orchestra.
 
+The repository binaries (`ai` and `ai-system`) automatically use compiled `dist/` output when available and fall back to source execution through `tsx` in a checkout. That keeps local test runs and fresh clones usable before a build step.
+
+When `AI_SYSTEM_SERVER_MODE=true`, the server defaults to the durable `sqlite` store unless `ORCHESTRA_STORE` explicitly overrides it. Local CLI usage still defaults to the lightweight file-backed mode.
+
 ---
 
 ## Basic Usage

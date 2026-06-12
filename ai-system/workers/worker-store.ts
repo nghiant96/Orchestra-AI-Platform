@@ -2,8 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Worker } from "./worker-types.js";
 import type { WorkerRepository } from "../core/repository-contracts.js";
+import { createPostgresPool } from "../core/postgres.js";
+import { resolveStoreMode } from "../core/store-mode.js";
+import { PostgresWorkerStore } from "./postgres-worker-store.js";
 
 const WORKER_ID_PATTERN = /^worker-[a-z0-9][a-z0-9-]{0,160}$/i;
+const workerStoreCache = new Map<string, WorkerRepository>();
 
 export class WorkerStore implements WorkerRepository {
   constructor(private readonly storeDir: string) {}
@@ -112,4 +116,17 @@ export class WorkerStore implements WorkerRepository {
 
 export function resolveWorkerStoreDir(defaultCwd: string): string {
   return path.join(defaultCwd, ".ai-system-server", "workers");
+}
+
+export function createWorkerStore(defaultCwd: string): WorkerRepository {
+  const mode = resolveStoreMode();
+  const cacheKey = `${defaultCwd}:${mode}`;
+  let store = workerStoreCache.get(cacheKey);
+  if (!store) {
+    store = mode === "postgres"
+      ? new PostgresWorkerStore(createPostgresPool())
+      : new WorkerStore(resolveWorkerStoreDir(defaultCwd));
+    workerStoreCache.set(cacheKey, store);
+  }
+  return store;
 }

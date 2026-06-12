@@ -246,6 +246,22 @@ If the server crashes, queued and running jobs remain in `.ai-system-server/jobs
 - **Restart:** The server will automatically detect existing jobs.
 - **Resume:** Failed jobs can be resumed from their last successful stage via `POST /jobs/:id/resume` or the dashboard "Resume" button.
 
+#### Postgres Migration
+Use Postgres when you need HA, multi-node control planes, or higher write concurrency than SQLite should carry.
+
+1. Start or point to a Postgres instance.
+2. Set `ORCHESTRA_STORE=postgres` and `ORCHESTRA_POSTGRES_URL`.
+3. Run `pnpm run postgres:migrate` once from the active workspace.
+4. Verify `/health` reports the `postgres` store mode.
+5. Keep the old workspace state mounted only until you confirm jobs, audit events, and workers are present in Postgres.
+6. Back up the Postgres volume or managed database before cutover and before schema changes.
+
+Migration notes:
+
+- `pnpm run postgres:migrate` imports queued jobs, audit log JSONL entries, and worker JSON records from the current workspace state.
+- The migration helper is idempotent on duplicate records, so it is safe to rerun during a controlled cutover.
+- Existing SQLite or file state should be treated as a rollback source until the new backend is validated.
+
 #### Artifact Cleanup
 Artifacts are stored in `.ai-system-artifacts/` within each project.
 - **Manual Cleanup:** Safe to delete old run directories if history is no longer needed.
@@ -270,6 +286,19 @@ Improve system behavior by capturing corrections.
 | `budget_exceeded` | Task too large or AI stuck in a loop. | Increase budget in config or break task into smaller steps. |
 | `check_failed` | Lint/Typecheck failed and auto-fix failed. | Review the diff and fix manually, or refine the task instructions. |
 | `unauthorized` | Missing or invalid `AI_SYSTEM_SERVER_TOKEN`. | Check `.env` and bearer token header. |
+
+## Production Checklist
+
+Before a Postgres-backed release, verify the following:
+
+- [ ] `ORCHESTRA_STORE=postgres` is set in the target deployment.
+- [ ] `ORCHESTRA_POSTGRES_URL` points at the correct database and is reachable from the server.
+- [ ] `pnpm run postgres:migrate` completed successfully and reported imported records.
+- [ ] `/health` reports the `postgres` store mode after cutover.
+- [ ] New jobs can be created, claimed, completed, and retained with the Postgres backend.
+- [ ] Audit events are persisted in Postgres and visible through `GET /audit`.
+- [ ] Worker registrations and heartbeats survive a server restart.
+- [ ] A rollback plan exists that keeps the old workspace state until the cutover is validated.
 
 ## Releases
 

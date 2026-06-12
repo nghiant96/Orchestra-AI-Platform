@@ -7,12 +7,14 @@ import { createApprovalArtifactBinding, type ApprovalArtifactBinding } from "./a
 import { applyWorkflowProfileToTask, tightenApprovalPolicyForProfile } from "./workflows/workflow-registry.js";
 import { FileAuditLog, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
 import { SqliteAuditLog, resolveSqliteAuditLogPath } from "./core/audit-log-sqlite.js";
+import { PostgresAuditLog } from "./core/postgres-audit-log.js";
+import { createPostgresPool } from "./core/postgres.js";
 import { runArtifactRetentionCleanup } from "./core/artifacts.js";
 import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
 import { loadAllowedWorkdirs } from "./core/workspace-registry.js";
 import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
-import { resolveTokenRole, canAccessRoute } from "./security/token-policy.js";
+import { resolveTokenRole, canAccessRoute, validateTokenConfiguration } from "./security/token-policy.js";
 import { validatePath } from "./security/path-policy.js";
 import { healthRoute } from "./server/routes/health.js";
 import { adminRoute } from "./server/routes/admin.js";
@@ -47,6 +49,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     workerToken,
     hermesToken
   };
+  validateTokenConfiguration(tokenConfig);
   const allowedRoots = loadAllowedWorkdirs(defaultCwd, options.allowedWorkdirs);
   const logClients = new Set<http.ServerResponse>();
   const originalOnLog = options.logger.onLog;
@@ -74,7 +77,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   >();
   const storeMode = resolveStoreMode();
   const auditLog =
-    storeMode === "sqlite"
+    storeMode === "postgres"
+      ? new PostgresAuditLog(createPostgresPool())
+      : storeMode === "sqlite"
       ? new SqliteAuditLog(resolveSqliteAuditLogPath(defaultCwd))
       : new FileAuditLog(resolveAuditLogPath(defaultCwd));
 
@@ -187,7 +192,7 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       return;
     }
 
-    if (auditLog instanceof SqliteAuditLog) {
+    if (auditLog instanceof SqliteAuditLog || auditLog instanceof PostgresAuditLog) {
       void auditLog.importLegacyJsonl(resolveAuditLogPath(defaultCwd));
     }
 

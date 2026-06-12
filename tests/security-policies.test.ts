@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { isForbiddenPath, validatePath } from "../ai-system/security/path-policy.js";
 import { checkCommand, isCommandAllowed } from "../ai-system/security/command-policy.js";
-import { resolveTokenRole, canAccessRoute } from "../ai-system/security/token-policy.js";
+import { resolveTokenRole, canAccessRoute, validateTokenConfiguration } from "../ai-system/security/token-policy.js";
 import type { TokenRole } from "../ai-system/security/token-policy.js";
 
 describe("Path Policy", () => {
@@ -163,5 +163,13 @@ describe("Token Policy", () => {
     assert.equal(canAccessRoute("hermes" as TokenRole, "/work-items"), true);
     assert.equal(canAccessRoute("hermes" as TokenRole, "/jobs"), true);
     assert.equal(canAccessRoute("hermes" as TokenRole, "/health"), true);
+  });
+
+  test("validateTokenConfiguration rejects placeholder and duplicate tokens", () => {
+    assert.throws(() => validateTokenConfiguration({ serverToken: "smoke-server-token" }), /placeholder value/);
+    assert.throws(
+      () => validateTokenConfiguration({ serverToken: "server-token", workerToken: "server-token" }),
+      /must be different/
+    );
   });
 });

@@ -344,7 +344,7 @@ pnpm orchestra:worker -- \
 pnpm orchestra:smoke
 ```
 
-The `start`, `server`, `ai`, `orchestra:server`, `orchestra:worker`, and `orchestra:smoke` entrypoints now run from compiled `dist/` output. Development and tests still use `tsx`, but production-style execution should start from `pnpm build`.
+The `start`, `server`, `orchestra:server`, `orchestra:worker`, and `orchestra:smoke` entrypoints run from compiled `dist/` output. The `ai` and `ai-system` binaries prefer compiled output when it exists, but fall back to `tsx`-driven source execution in a checkout so local development and tests do not require a prebuilt `dist/`. Production-style execution should still start from `pnpm build`, and server mode now defaults to the durable `sqlite` store unless `ORCHESTRA_STORE` overrides it. Set `ORCHESTRA_STORE=postgres` plus `ORCHESTRA_POSTGRES_URL` when you want the HA/scale-large backend.
 
 Worker registration validates `workspaceRoots` with canonical realpath checks. A symlink that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected. Provider jobs run in `.orchestra/worktrees/<jobId>` and write artifacts to `.ai-system-server/worker-artifacts/<jobId>`. Dummy dry-run jobs must not mutate files or write mutation checkpoints; CodexProvider dry-runs may create diffs inside the isolated worktree, but never mutate the main checkout.
 
@@ -413,6 +413,22 @@ docker compose up -d orchestra-ai-platform
 
 The compose setup persists `.ai-system-server/` and `.ai-system-artifacts/` in named volumes, so queued jobs and run artifacts survive container restarts. Use `pnpm docker:pilot` if you want the same command wrapped in `package.json`.
 
+### Postgres HA Deploy
+
+When you want the HA/scale-large backend, start Postgres with the compose profile, point the server at it, and run the migration helper once before switching traffic:
+
+```bash
+export AI_SYSTEM_SERVER_TOKEN=replace-me
+export ORCHESTRA_STORE=postgres
+export ORCHESTRA_POSTGRES_URL=postgresql://orchestra:orchestra@localhost:5432/orchestra
+docker compose --profile postgres up -d postgres orchestra-ai-platform
+pnpm run postgres:migrate
+```
+
+If you prefer the packaged command, `pnpm run docker:postgres` starts the same profile-based stack with the server already pointed at Postgres.
+
+If you are moving an existing single-node deployment, keep the old `.ai-system-server` volume or workspace directory mounted until the migration has completed and verified. After the migration, keep the Postgres volume backed up and treat `.ai-system-server` as a restart cache rather than the source of truth.
+
 ### Environment Variables
 
 | Variable | Description | Default |
@@ -424,7 +440,8 @@ The compose setup persists `.ai-system-server/` and `.ai-system-artifacts/` in n
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for server auth | None |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated workspace roots the server may operate in | Current working directory |
 | `ORCHESTRA_EXECUTION_BACKEND` | Queue execution owner: `in-process`, `worker`, `hybrid` | `in-process` |
-| `ORCHESTRA_STORE` | Runtime store mode: `file` (default), `sqlite` (durable), `postgres` (reserved) | `file` |
+| `ORCHESTRA_STORE` | Runtime store mode: `file` (default), `sqlite` (durable), `postgres` (HA/scale) | `file` |
+| `ORCHESTRA_POSTGRES_URL` | Postgres connection string used when `ORCHESTRA_STORE=postgres` | `postgresql://orchestra:orchestra@postgres:5432/orchestra` in Docker profile |
 | `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
 | `ORCHESTRA_WORKER_PROVIDER` | Local worker provider adapter. v1 supports `codex`; `dummy` is for tests/smoke only | `codex` |
 | `ORCHESTRA_CODEX_COMMAND` | Command used by CodexProvider v1 | `codex` |
@@ -440,7 +457,7 @@ The compose setup persists `.ai-system-server/` and `.ai-system-artifacts/` in n
 
 Runtime execution now goes through the compiled `dist/` output. Treat TypeScript as the source of truth, run `pnpm build` before production-style execution, and keep the generated files out of the source tree.
 
-For durability-sensitive runs, set `ORCHESTRA_STORE=sqlite`. The SQLite job store lives under `.ai-system-server/jobs/jobs.sqlite` inside the selected workspace and survives server or worker restarts in that workspace.
+For durability-sensitive runs, set `ORCHESTRA_STORE=sqlite`. The SQLite job store lives under `.ai-system-server/jobs/jobs.sqlite` inside the selected workspace and survives server or worker restarts in that workspace. For HA or higher write concurrency, set `ORCHESTRA_STORE=postgres` and point `ORCHESTRA_POSTGRES_URL` at a reachable Postgres instance, then run `pnpm run postgres:migrate` once to move the existing jobs, audit log, and worker state across.
 
 ---
 

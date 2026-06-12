@@ -34,6 +34,32 @@ export function resolveTokenRole(config: TokenPolicyConfig, headerValue: string)
   return { role: "server", valid: false, reason: "Invalid token" };
 }
 
+export function validateTokenConfiguration(config: TokenPolicyConfig): void {
+  const configuredTokens = [
+    ["server", config.serverToken],
+    ["worker", config.workerToken],
+    ["hermes", config.hermesToken]
+  ] as const;
+
+  const seen = new Map<string, string>();
+  for (const [role, rawToken] of configuredTokens) {
+    const token = String(rawToken ?? "").trim();
+    if (!token) {
+      continue;
+    }
+
+    if (isPlaceholderToken(token)) {
+      throw new Error(`Token for ${role} role must be set to a real secret, not a placeholder value.`);
+    }
+
+    const existingRole = seen.get(token);
+    if (existingRole) {
+      throw new Error(`Auth tokens for ${existingRole} and ${role} must be different.`);
+    }
+    seen.set(token, role);
+  }
+}
+
 export function canAccessRoute(
   role: TokenRole,
   route: string,
@@ -62,4 +88,13 @@ export function canAccessRoute(
   }
 
   return true;
+}
+
+function isPlaceholderToken(token: string): boolean {
+  return new Set([
+    "change-me",
+    "change-me-worker",
+    "smoke-server-token",
+    "smoke-worker-token"
+  ]).has(token);
 }

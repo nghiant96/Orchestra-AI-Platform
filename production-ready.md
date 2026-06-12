@@ -10,12 +10,11 @@ Legend:
 
 ## Verdict
 
-`Not production-ready yet.`
+`Ready for the initial production release envelope.`
 
-The platform has a strong control-plane and worker foundation, but a few blocking pieces are still missing before it can be called production-ready with confidence:
+The platform now has the main production hardening pieces in place. The remaining choice is about future scale/HA tuning, not the initial release envelope:
 
-- production token hardening
-- default runtime durable state
+- verify the Postgres-backed HA path under the target deployment topology
 
 ## What Is Already Real
 
@@ -28,19 +27,19 @@ These are in place and should be preserved:
 - Work item, approval, audit, lesson, and dashboard surfaces
 - A working `orchestra:smoke` script in [`package.json`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/package.json)
 
-This is enough to call the system a solid alpha/preview foundation. It is not enough to call it production-ready yet.
+This is enough to call the system ready for the initial release envelope, and Postgres is now the implemented HA/scale path for future multi-node or higher write-concurrency needs.
 
 ## Blocking Gaps
 
 | Area | State | Evidence | Gap |
 |---|---|---|---|
-| Store descriptor | `✅` implemented | [`ai-system/core/orchestra-store.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/orchestra-store.ts) | The descriptor now tells the truth: `file` is implemented, `sqlite` is implemented as a durable queue backend, and `postgres` remains reserved. |
+| Store descriptor | `✅` implemented | [`ai-system/core/orchestra-store.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/orchestra-store.ts) | The descriptor now tells the truth: `file` is implemented, `sqlite` is implemented as a durable queue backend, and `postgres` is implemented for HA/scale. |
 | Verification runner | `✅` implemented | [`ai-system/worker/verification-runner.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/worker/verification-runner.ts) | Provider success now runs configured verification commands and writes `verification.json` plus per-check JSON/log artifacts that include failure details. |
 | Worker supervisor | `✅` implemented | [`ai-system/worker/worker-process-supervisor.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/worker/worker-process-supervisor.ts) | Provider command execution now goes through a dedicated supervisor seam that owns timeout and abort handling. |
-| Production auth guard | `🟡` partial | [`ai-system/server-startup.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/server-startup.ts) and [`package.json`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/package.json) | Server startup now rejects missing and placeholder tokens, but the rest of the auth model still needs full production hardening. |
+| Production auth guard | `✅` implemented | [`ai-system/server-startup.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/server-startup.ts), [`ai-system/server-app.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/server-app.ts), and [`ai-system/security/token-policy.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/security/token-policy.ts) | Server startup now rejects missing tokens, placeholder tokens, and duplicate role secrets, and route auth keeps worker/Hermes/server scopes separated. |
 | Dashboard smoke | `✅` implemented | [`package.json`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/package.json) and [`tests/dashboard-smoke.test.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/tests/dashboard-smoke.test.ts) | A headless dashboard smoke command exists and is part of the project readiness checks. |
 | Unified check gate | `✅` implemented | [`package.json`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/package.json) | `check:all` now exists and chains the main readiness checks. |
-| Durable state | `🟡` partial | [`ai-system/core/store-mode.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/store-mode.ts), [`ai-system/core/orchestra-store.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/orchestra-store.ts), and [`ai-system/core/job-queue.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/job-queue.ts) | `ORCHESTRA_STORE=sqlite` now persists jobs in SQLite and survives restart in that mode, but the default path is still file-backed and `postgres` remains reserved. |
+| Durable state | `✅` implemented | [`ai-system/core/store-mode.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/store-mode.ts), [`ai-system/core/orchestra-store.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/orchestra-store.ts), and [`ai-system/core/job-queue.ts`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/ai-system/core/job-queue.ts) | Server mode now defaults to SQLite durability, while explicit `ORCHESTRA_STORE=postgres` switches the durable path to Postgres for HA/scale-large deployments. |
 
 ## Fastest Path To Production-Ready
 
@@ -48,16 +47,15 @@ If the goal is speed, do this in order:
 
 ### P0
 
-1. Tighten production token hardening so startup and auth defaults cannot be misconfigured in server mode.
-2. Decide whether SQLite should become the default durable runtime or whether Postgres is required for the next scale step.
+1. Verify the Postgres deployment target and connection settings for the next scale step.
 
 ### P1
 
-3. Keep the headless dashboard smoke path and `check:all` gate green as regressions are fixed.
+2. Keep the headless dashboard smoke path and `check:all` gate green as regressions are fixed.
 
 ### P2
 
-4. Extend the durable backend to cover Postgres if SQLite stops being the right scale point.
+3. Keep the durable backend healthy under the chosen production topology and write-concurrency target.
 
 ## Production-Ready Checklist
 
@@ -76,12 +74,20 @@ This is the minimum bar I would use before calling the project production-ready:
 
 ## Bottom Line
 
-The project is close in architecture, but not yet in operating readiness.
+The project is ready to ship for the current single-node control-plane envelope.
 
-The fastest credible path to production-ready is:
+SQLite is sufficient for the initial official release if the deployment stays on one durable server/control plane and worker topology. Postgres is already implemented for the HA/scale-large path, so the remaining release decision is deployment shape, not code availability.
 
-1. tighten production auth
-2. make the SQLite path the default durable runtime or add Postgres if scale demands it
-3. keep smoke and gate checks green
+Keep smoke and gate checks green, and treat Postgres as the next scale milestone rather than a blocker for the first production release.
 
-Once those are in place, the rest becomes operational hardening rather than a fundamental readiness gap.
+## HA / Scale Large
+
+`Implemented for the HA/scale-large path; verify the target deployment topology before release.`
+
+For the HA/scale-large envelope, Postgres is now the active storage path. The current SQLite-backed setup is acceptable for the initial release envelope, but it is not the final answer for multi-node HA or active-active control planes.
+
+Use this rule of thumb:
+
+- single control-plane node with workers: SQLite is enough
+- multi-node HA or active-active control plane: add Postgres before release
+- higher write concurrency than SQLite should carry: add Postgres before release

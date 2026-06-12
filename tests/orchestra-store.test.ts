@@ -4,7 +4,9 @@ import { resolveOrchestraStoreDescriptor } from "../ai-system/core/orchestra-sto
 
 test("resolveOrchestraStoreDescriptor reports file mode truthfully", async () => {
   const previous = process.env.ORCHESTRA_STORE;
+  const previousServerMode = process.env.AI_SYSTEM_SERVER_MODE;
   delete process.env.ORCHESTRA_STORE;
+  delete process.env.AI_SYSTEM_SERVER_MODE;
 
   try {
     const descriptor = resolveOrchestraStoreDescriptor();
@@ -20,11 +22,17 @@ test("resolveOrchestraStoreDescriptor reports file mode truthfully", async () =>
     } else {
       process.env.ORCHESTRA_STORE = previous;
     }
+    if (previousServerMode === undefined) {
+      delete process.env.AI_SYSTEM_SERVER_MODE;
+    } else {
+      process.env.AI_SYSTEM_SERVER_MODE = previousServerMode;
+    }
   }
 });
 
-test("resolveOrchestraStoreDescriptor marks sqlite implemented and postgres reserved", async () => {
+test("resolveOrchestraStoreDescriptor marks sqlite and postgres implemented", async () => {
   const previous = process.env.ORCHESTRA_STORE;
+  const previousServerMode = process.env.AI_SYSTEM_SERVER_MODE;
 
   try {
     process.env.ORCHESTRA_STORE = "sqlite";
@@ -38,14 +46,28 @@ test("resolveOrchestraStoreDescriptor marks sqlite implemented and postgres rese
     process.env.ORCHESTRA_STORE = "postgres";
     const postgresDescriptor = resolveOrchestraStoreDescriptor();
     assert.equal(postgresDescriptor.mode, "postgres");
-    assert.equal(postgresDescriptor.implemented, false);
-    assert.equal(postgresDescriptor.capabilities.durable, false);
-    assert.match(postgresDescriptor.warning ?? "", /Postgres store is reserved/);
+    assert.equal(postgresDescriptor.implemented, true);
+    assert.equal(postgresDescriptor.capabilities.durable, true);
+    assert.equal(postgresDescriptor.capabilities.migrations, true);
+    assert.equal(postgresDescriptor.capabilities.multiProcess, true);
+
+    delete process.env.ORCHESTRA_STORE;
+    process.env.AI_SYSTEM_SERVER_MODE = "true";
+    const serverDefaultDescriptor = resolveOrchestraStoreDescriptor();
+    assert.equal(serverDefaultDescriptor.mode, "sqlite");
+    assert.equal(serverDefaultDescriptor.implemented, true);
+    assert.equal(serverDefaultDescriptor.capabilities.durable, true);
+    assert.equal(serverDefaultDescriptor.capabilities.multiProcess, true);
   } finally {
     if (previous === undefined) {
       delete process.env.ORCHESTRA_STORE;
     } else {
       process.env.ORCHESTRA_STORE = previous;
+    }
+    if (previousServerMode === undefined) {
+      delete process.env.AI_SYSTEM_SERVER_MODE;
+    } else {
+      process.env.AI_SYSTEM_SERVER_MODE = previousServerMode;
     }
   }
 });

@@ -18,6 +18,24 @@
 
 **Rule**: Treat the queue as orchestration only. Put file/sqlite persistence behind dedicated repository adapters and keep the queue talking to them through a narrow record-store interface.
 
+## 2026-06-12: CLI wrappers should stay checkout-friendly
+
+**Mistake**: Let the `ai` wrapper assume compiled `dist/` output existed, which made fresh checkouts and test runs fail even though the source CLI could run through `tsx`.
+
+**Rule**: If a repository already supports source execution, keep the top-level CLI wrapper resilient: prefer compiled output when present, but fall back to source execution in the checkout so local development and tests do not require a prebuild.
+
+## 2026-06-12: Server mode should default to durable storage
+
+**Mistake**: Kept the server runtime on a file-backed default even though the server path was expected to behave as a production control plane.
+
+**Rule**: When a mode is intended to run as the production control plane, make the durable storage backend the default for that mode and leave lighter-weight storage only for explicit local or migration overrides.
+
+## 2026-06-12: Auth roles must never share the same secret
+
+**Mistake**: Left server, worker, and Hermes token values independently configurable without checking for collisions, which could silently change the effective authorization role and lock out the intended operator path.
+
+**Rule**: When multiple roles are authenticated by bearer tokens, validate that each configured token is unique before booting. Duplicate secrets are a misconfiguration, not a convenience.
+
 ## 2026-06-08: Do not drip-feed an already approved implementation scope
 
 **Mistake**: Split a clearly approved follow-up into tiny sequential slices and stopped after each slice even

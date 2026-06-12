@@ -16,17 +16,17 @@ import {
   recoverStalledJob,
   WorkerServiceError
 } from "./worker-service.js";
-import { WorkerStore, resolveWorkerStoreDir } from "./worker-store.js";
+import { createWorkerStore } from "./worker-store.js";
 import type { RouteHandler, ServerRouteContext } from "../server/routes-context.js";
 import type { Worker } from "./worker-types.js";
 import type { QueueJob } from "../core/job-queue.js";
 
-const workerStoreCache = new Map<string, WorkerStore>();
+const workerStoreCache = new Map<string, ReturnType<typeof createWorkerStore>>();
 
-function getOrCreateStore(defaultCwd: string): WorkerStore {
+function getOrCreateStore(defaultCwd: string): ReturnType<typeof createWorkerStore> {
   let store = workerStoreCache.get(defaultCwd);
   if (!store) {
-    store = new WorkerStore(resolveWorkerStoreDir(defaultCwd));
+    store = createWorkerStore(defaultCwd);
     workerStoreCache.set(defaultCwd, store);
   }
   return store;

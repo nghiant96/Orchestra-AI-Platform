@@ -10,6 +10,7 @@ services:
       AI_SYSTEM_SERVER_MODE: ${AI_SYSTEM_SERVER_MODE:-false}
       AI_SYSTEM_SERVER_TOKEN: ${AI_SYSTEM_SERVER_TOKEN:-}
       ORCHESTRA_STORE: ${ORCHESTRA_STORE:-sqlite}
+      ORCHESTRA_POSTGRES_URL: ${ORCHESTRA_POSTGRES_URL:-postgresql://orchestra:orchestra@postgres:5432/orchestra}
       PORT: ${PORT:-3927}
       AI_SYSTEM_MEMORY_ENABLED: ${AI_SYSTEM_MEMORY_ENABLED:-true}
       AI_SYSTEM_MEMORY_BACKEND: ${AI_SYSTEM_MEMORY_BACKEND:-local-file}
@@ -31,6 +32,25 @@ services:
     stdin_open: true
     tty: true
 
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-orchestra}
+      POSTGRES_USER: ${POSTGRES_USER:-orchestra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orchestra}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - orchestra-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-orchestra} -d ${POSTGRES_DB:-orchestra}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
 volumes:
   orchestra-ai-state:
   orchestra-ai-artifacts:
+  orchestra-postgres-data:

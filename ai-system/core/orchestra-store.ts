@@ -33,7 +33,7 @@ export function resolveOrchestraStoreDescriptor(): OrchestraStoreDescriptor {
       implemented: true,
       capabilities: {
         durable: true,
-        migrations: false,
+        migrations: true,
         multiProcess: true
       }
     };
@@ -41,12 +41,11 @@ export function resolveOrchestraStoreDescriptor(): OrchestraStoreDescriptor {
 
   return {
     mode,
-    implemented: false,
+    implemented: true,
     capabilities: {
-      durable: false,
-      migrations: false,
-      multiProcess: false
-    },
-    warning: "Postgres store is reserved but not implemented yet."
+      durable: true,
+      migrations: true,
+      multiProcess: true
+    }
   };
 }

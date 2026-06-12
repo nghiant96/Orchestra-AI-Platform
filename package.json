@@ -13,6 +13,7 @@
     "orchestra:server": "AI_SYSTEM_SERVER_MODE=true ORCHESTRA_EXECUTION_BACKEND=worker AI_SYSTEM_SERVER_TOKEN=${AI_SYSTEM_SERVER_TOKEN} ORCHESTRA_WORKER_TOKEN=${ORCHESTRA_WORKER_TOKEN} node dist/ai-system/server.js",
     "orchestra:worker": "node dist/ai-system/cli.js worker start",
     "orchestra:smoke": "node dist/scripts/orchestra-smoke.js",
+    "postgres:migrate": "node --import tsx scripts/postgres-migrate.ts",
     "dashboard:smoke": "node --import tsx --test tests/dashboard-smoke.test.ts",
     "check:all": "./node_modules/.bin/tsc -p tsconfig.build.json && node scripts/copy-build-assets.mjs && node --import tsx --test tests/orchestra-store.test.ts tests/server-startup.test.ts tests/dashboard-smoke.test.ts && ./node_modules/.bin/tsc --noEmit && ./node_modules/.bin/eslint . && node dist/scripts/orchestra-smoke.js && git diff --check",
     "ai:local": "AI_SYSTEM_PROVIDER=local-cli node --import tsx ai-system/cli.ts",
@@ -21,6 +22,7 @@
     "ai:help": "node --import tsx ai-system/cli.ts --help",
     "docker:up": "AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=${AI_SYSTEM_SERVER_TOKEN} docker compose up -d orchestra-ai-platform",
     "docker:pilot": "ORCHESTRA_STORE=sqlite AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=${AI_SYSTEM_SERVER_TOKEN} docker compose up -d orchestra-ai-platform",
+    "docker:postgres": "ORCHESTRA_STORE=postgres AI_SYSTEM_SERVER_MODE=true AI_SYSTEM_SERVER_TOKEN=${AI_SYSTEM_SERVER_TOKEN} docker compose --profile postgres up -d orchestra-ai-platform postgres",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f orchestra-ai-platform",
     "lint": "eslint .",
@@ -36,12 +38,14 @@
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
-    "blessed": "^0.1.81"
+    "blessed": "^0.1.81",
+    "pg": "^8.21.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/blessed": "^0.1.27",
     "@types/node": "^20.0.0",
+    "@types/pg": "^8.20.0",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",

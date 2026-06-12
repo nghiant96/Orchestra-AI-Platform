@@ -1,9 +1,4 @@
-import fs, { type FileHandle } from "node:fs/promises";
 import path from "node:path";
-// @ts-expect-error Node 24 exposes node:sqlite at runtime, but the pinned TS libs here do not declare it yet.
-import { DatabaseSync } from "node:sqlite";
-import { normalizeQueueJob } from "./normalizers.js";
-import { resolveStoreMode, type OrchestraStoreMode } from "./store-mode.js";
 import type { WorkflowMode } from "./workflow-modes.js";
 import type { ApprovalPolicyDecision, FailureMetadata, Logger, OrchestratorResult, PlanResult, RetryHint } from "../types.js";
 import type { WorkerCapabilities } from "../workers/worker-types.js";
@@ -11,7 +6,7 @@ import type { WorkflowProfileId } from "../workflows/workflow-profile.js";
 import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
 import type { JobRepository } from "./repository-contracts.js";
 import type { JobRecordRepository } from "./job-repository.js";
-import { FileJobRepository, SqliteJobRepository } from "./job-repositories.js";
+import { createJobRecordRepository } from "./job-repositories.js";
 import { scheduleWorkItems } from "../work/scheduler.js";
 import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
 import type { WorkItem } from "../work/work-item.js";
@@ -117,9 +112,6 @@ export class FileBackedJobQueue implements JobRepository {
   private isPaused = false;
   private isStopped = false;
   private readonly repository: JobRecordRepository;
-  private readonly storeMode: OrchestraStoreMode;
-  private readonly sqlitePath: string;
-  private sqliteDb: DatabaseSync | null = null;
 
   constructor(
     readonly jobsDir: string,
@@ -130,11 +122,7 @@ export class FileBackedJobQueue implements JobRepository {
       retentionDays?: number;
     } = {}
   ) {
-    this.storeMode = resolveStoreMode();
-    this.sqlitePath = path.join(jobsDir, "jobs.sqlite");
-    this.repository = resolveStoreMode() === "sqlite"
-      ? new SqliteJobRepository(jobsDir)
-      : new FileJobRepository(jobsDir);
+    this.repository = createJobRecordRepository(jobsDir);
   }
 
   setPaused(paused: boolean): void {
@@ -267,7 +255,6 @@ export class FileBackedJobQueue implements JobRepository {
       return false;
     }
     const removed = await this.repository.delete(jobId);
-    await fs.unlink(this.lockPath(jobId)).catch(() => {});
     return removed;
   }
 
@@ -732,48 +719,16 @@ export class FileBackedJobQueue implements JobRepository {
     await this.repository.write(job);
   }
 
-  private jobPath(jobId: string): string {
-    return path.join(this.jobsDir, `${jobId}.json`);
-  }
-
   private async withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T | null> {
-    const lock = await this.acquireJobLock(jobId);
+    const lock = await this.repository.acquireLock(jobId);
     if (!lock) {
       return null;
     }
     try {
       return await fn();
     } finally {
-      await lock.close().catch(() => {});
-      await fs.unlink(this.lockPath(jobId)).catch(() => {});
+      await lock.release().catch(() => {});
     }
-  }
-
-  private async acquireJobLock(jobId: string): Promise<FileHandle | null> {
-    await fs.mkdir(this.jobsDir, { recursive: true });
-    const lockPath = this.lockPath(jobId);
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const handle = await fs.open(lockPath, "wx");
-        await handle.writeFile(`${process.pid}:${Date.now()}\n`, "utf8");
-        return handle;
-      } catch (err: any) {
-        if (err.code !== "EEXIST") {
-          throw err;
-        }
-        const stat = await fs.stat(lockPath).catch(() => null);
-        if (stat && Date.now() - stat.mtimeMs > 30_000) {
-          await fs.unlink(lockPath).catch(() => {});
-          continue;
-        }
-        return null;
-      }
-    }
-    return null;
-  }
-
-  private lockPath(jobId: string): string {
-    return `${this.jobPath(jobId)}.lock`;
   }
 
   private async cleanupOldJobs(): Promise<void> {
@@ -788,11 +743,7 @@ export class FileBackedJobQueue implements JobRepository {
 
         for (const job of toDelete) {
           try {
-            if (this.isSqliteStore()) {
-              await this.delete(job.jobId);
-            } else {
-              await fs.unlink(this.jobPath(job.jobId));
-            }
+            await this.delete(job.jobId);
           } catch {
             /* ignore */
           }
@@ -808,11 +759,7 @@ export class FileBackedJobQueue implements JobRepository {
       const toDelete = all.slice(100);
       for (const job of toDelete) {
         try {
-          if (this.isSqliteStore()) {
-            await this.delete(job.jobId);
-          } else {
-            await fs.unlink(this.jobPath(job.jobId));
-          }
+          await this.delete(job.jobId);
         } catch {
           /* ignore */
         }
@@ -823,97 +770,6 @@ export class FileBackedJobQueue implements JobRepository {
     }
   }
 
-  private isSqliteStore(): boolean {
-    return this.storeMode === "sqlite" && this.sqliteDb !== null;
-  }
-
-  private ensureSqliteSchema(): void {
-    if (!this.sqliteDb) {
-      return;
-    }
-    this.sqliteDb.exec(`
-      PRAGMA journal_mode = WAL;
-      PRAGMA synchronous = NORMAL;
-      PRAGMA foreign_keys = ON;
-      CREATE TABLE IF NOT EXISTS jobs (
-        job_id TEXT PRIMARY KEY,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        status TEXT NOT NULL,
-        cwd TEXT NOT NULL,
-        record TEXT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_jobs_status_created_at ON jobs(status, created_at DESC);
-    `);
-  }
-
-  private getSqliteJob(jobId: string): QueueJob | null {
-    if (!this.sqliteDb) {
-      return null;
-    }
-    const row = this.sqliteDb
-      .prepare("SELECT record FROM jobs WHERE job_id = ?")
-      .get(jobId) as { record?: string } | undefined;
-    if (!row?.record) {
-      return null;
-    }
-    try {
-      return normalizeQueueJob(JSON.parse(row.record));
-    } catch {
-      return null;
-    }
-  }
-
-  private listSqliteJobs(limit: number): QueueJob[] {
-    if (!this.sqliteDb) {
-      return [];
-    }
-    const rows = this.sqliteDb
-      .prepare("SELECT record FROM jobs ORDER BY created_at DESC LIMIT ?")
-      .all(limit) as Array<{ record?: string }>;
-    return rows
-      .map((row) => {
-        if (!row.record) {
-          return null;
-        }
-        try {
-          return normalizeQueueJob(JSON.parse(row.record));
-        } catch {
-          return null;
-        }
-      })
-      .filter((job): job is QueueJob => job !== null);
-  }
-
-  private upsertSqliteJob(job: QueueJob): void {
-    if (!this.sqliteDb) {
-      return;
-    }
-    const record = JSON.stringify(job, null, 2);
-    this.sqliteDb
-      .prepare(
-        `
-          INSERT INTO jobs (job_id, created_at, updated_at, status, cwd, record)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT(job_id) DO UPDATE SET
-            created_at = excluded.created_at,
-            updated_at = excluded.updated_at,
-            status = excluded.status,
-            cwd = excluded.cwd,
-            record = excluded.record
-        `
-      )
-      .run(job.jobId, job.createdAt, job.updatedAt, job.status, job.cwd, record);
-  }
-
-  private deleteSqliteJob(jobId: string): boolean {
-    if (!this.sqliteDb) {
-      return false;
-    }
-    const result = this.sqliteDb.prepare("DELETE FROM jobs WHERE job_id = ?").run(jobId);
-    return result.changes > 0;
-  }
 }
 
 export function resolveJobQueueDirectory(defaultCwd: string): string {

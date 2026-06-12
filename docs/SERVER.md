@@ -43,6 +43,8 @@ docker run --rm -it \
 | `PORT` or `AI_SYSTEM_PORT` | HTTP port | `3927` |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated allowed directories | CWD only |
 | `ORCHESTRA_EXECUTION_BACKEND` | Execution owner mode: `in-process`, `worker`, or reserved `hybrid` | `in-process` |
+| `ORCHESTRA_STORE` | Storage mode: `file`, `sqlite`, or `postgres` | `file` |
+| `ORCHESTRA_POSTGRES_URL` | Postgres connection string used when `ORCHESTRA_STORE=postgres` | None |
 | `ORCHESTRA_WORKER_TOKEN` | Bearer token for worker register/heartbeat/claim/complete APIs | None |
 | `ORCHESTRA_HERMES_TOKEN` | Bearer token for Hermes/MCP access | None |
 
@@ -133,6 +135,16 @@ Worker contracts:
 - Claim is race-resistant and lease-backed; only one worker can move a queued job to assigned.
 - Complete/fail payloads are forwarded into the queue record where supported: `summary`/`resultSummary`, `artifactPath`, `workerLogs`, `diffSummaries`, `latestToolResults`, `failure`, and `execution`.
 - `ORCHESTRA_EXECUTION_BACKEND=hybrid` is currently worker-only until internal-worker leasing is implemented.
+
+### Postgres Deployment
+
+For HA or multi-node control planes:
+
+1. Set `ORCHESTRA_STORE=postgres`.
+2. Provide `ORCHESTRA_POSTGRES_URL` or `DATABASE_URL`.
+3. Run `pnpm run postgres:migrate` once before cutover.
+4. Verify `GET /health` reports the `postgres` store mode.
+5. Keep the old workspace state as a rollback source until you confirm queue, audit, and worker reads/writes are healthy.
 
 ### Administration
 

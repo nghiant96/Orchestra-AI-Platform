@@ -2,6 +2,70 @@
 
 Last updated: 2026-06-12
 
+## Task: Add Postgres Deploy/Runtime and Migration Path
+
+- [x] Add a Postgres compose profile and connection wiring for container deploys.
+- [x] Add a one-shot migration command for jobs, audit events, and worker state.
+- [x] Document the cutover and rollback checklist for HA/scale-large releases.
+- [x] Add coverage for the legacy worker migration helper.
+- [x] Re-run targeted tests, typecheck, `check:all`, and `git diff --check`.
+
+Review result:
+
+- The HA/scale-large path now has an explicit deploy story instead of only a code-level backend.
+- Operators can start Postgres with compose, migrate legacy workspace data once, and then switch traffic with a checklist.
+- Verification passed end to end, including the repo-wide gate.
+
+## Task: Implement Postgres HA / Scale-Large Backend
+
+- [x] Add Postgres-backed repositories for jobs, audit logs, and workers.
+- [x] Route server, health, and worker flows through the store factory so `ORCHESTRA_STORE=postgres` is honored.
+- [x] Expose `ORCHESTRA_POSTGRES_URL` in docs and sample env config.
+- [x] Add tests for store descriptor and backend selection.
+- [x] Run targeted tests, typecheck, `check:all`, and `git diff --check`.
+
+Review result:
+
+- Postgres is now wired in as the durable HA/scale path behind `ORCHESTRA_STORE=postgres`.
+- The single-node SQLite/file paths still work unchanged for the initial release envelope.
+- `pnpm run check:all` passes after the rollout, so the storage refactor is green end to end.
+
+## Task: Document HA / Scale-Large Position
+
+- [x] Clarify that the current release envelope is production-ready while HA/scale-large still needs Postgres.
+- [x] Keep the Postgres decision explicit in the production readiness note.
+
+Review result:
+
+- Initial production release envelope stays green.
+- HA/scale-large remains a follow-up milestone, with Postgres as the next step.
+
+## Task: Harden Auth Configuration and Reassess Scale Path
+
+- [x] Reject duplicate or placeholder auth tokens across server, worker, and Hermes roles at startup.
+- [x] Add tests for token configuration hardening and preserve existing route auth behavior.
+- [x] Reassess whether SQLite is sufficient for release or Postgres is needed for scale/HA.
+- [x] Update production-ready notes with the final auth and storage decision.
+
+Review result:
+
+- Server startup now rejects missing, placeholder, and duplicate auth tokens across roles, which closes the main misconfiguration hole.
+- SQLite is sufficient for the initial production release envelope as long as the deployment remains a single durable control-plane node; Postgres becomes necessary when we need multi-node HA or more concurrent write-heavy scaling.
+- Production-ready notes now reflect the hardened auth model and the storage decision.
+
+## Task: Close Production Readiness Gaps
+
+- [x] Make server mode default to the durable `sqlite` store while keeping local CLI/file mode intact.
+- [x] Update production-facing docs to explain the server-mode storage default.
+- [x] Re-run focused tests and project checks after the store-mode change.
+- [x] Refresh the production readiness note so it reflects the current runtime state and remaining scale decisions.
+
+Review result:
+
+- Server mode now boots into durable SQLite storage by default unless `ORCHESTRA_STORE` overrides it.
+- Local CLI usage still keeps the lightweight file-backed default, so checkout workflows remain unchanged.
+- Focused tests passed, `pnpm run check:all` passed, and the production-ready note now reflects the remaining auth/scale follow-up work.
+
 ## Task: Implement v0.13 Dashboard Evidence Viewer, v0.14 Durable Team Mode, and v0.15 Integration Intelligence
 
 - [x] Add manifest-backed job detail evidence viewing in the dashboard.
@@ -10,6 +74,7 @@ Last updated: 2026-06-12
 - [x] Add integration intelligence scanning and write `integration/integration-check.json`.
 - [x] Update roadmap completion state for v0.13-v0.15.
 - [x] Run focused tests, typecheck, lint, `git diff --check`, and `check:all`.
+- [x] Document the source-checkout fallback for `ai` / `ai-system` in README and CLI reference.
 
 Review result:
 
@@ -17,3 +82,4 @@ Review result:
 - v0.14 durable team mode now has explicit repository contracts, sqlite audit persistence, and legacy migration support.
 - v0.15 integration intelligence now scans frontend/backend endpoints, writes a report, and stays warning-only by default.
 - Verification passed with focused tests, root typecheck, dashboard typecheck, full `pnpm run check:all`, and `git diff --check`.
+- `ai` and `ai-system` now fall back to source execution when `dist/` is not present, so fresh checkouts and tests no longer require a prebuild.

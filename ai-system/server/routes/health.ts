@@ -6,7 +6,7 @@ import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 import { resolveApprovalPolicy } from "../../core/risk-policy.js";
 import { resolveExecutionBackend } from "../../core/execution-backend.js";
 import { resolveOrchestraStoreDescriptor } from "../../core/orchestra-store.js";
-import { WorkerStore, resolveWorkerStoreDir } from "../../workers/worker-store.js";
+import { createWorkerStore } from "../../workers/worker-store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkgVersion: string = (() => {
@@ -25,7 +25,7 @@ export const healthRoute: RouteHandler = {
     const activeJobs = jobs.filter((j) => j.status === "assigned" || j.status === "running" || j.status === "waiting_for_approval");
     const queuedJobs = jobs.filter((j) => j.status === "queued");
     const stalledJobs = jobs.filter((j) => j.status === "stalled");
-    const workerStore = new WorkerStore(resolveWorkerStoreDir(ctx.defaultCwd));
+    const workerStore = createWorkerStore(ctx.defaultCwd);
     const workers = await workerStore.list();
     const workerStatusCounts = workers.reduce<Record<string, number>>((acc, worker) => {
       acc[worker.status] = (acc[worker.status] ?? 0) + 1;

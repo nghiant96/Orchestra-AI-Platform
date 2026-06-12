@@ -4,8 +4,11 @@ import path from "node:path";
 // @ts-expect-error Node 24 exposes node:sqlite at runtime, but the pinned TS libs here do not declare it yet.
 import { DatabaseSync } from "node:sqlite";
 import { normalizeQueueJob } from "./normalizers.js";
+import { createPostgresPool } from "./postgres.js";
+import { resolveStoreMode } from "./store-mode.js";
+import { PostgresJobRepository } from "./postgres-job-repository.js";
 import type { QueueJob } from "./job-queue.js";
-import type { JobRecordRepository } from "./job-repository.js";
+import type { JobRecordLockHandle, JobRecordRepository } from "./job-repository.js";
 
 export class FileJobRepository implements JobRecordRepository {
   constructor(private readonly jobsDir: string) {}
@@ -57,10 +60,18 @@ export class FileJobRepository implements JobRecordRepository {
     return 0;
   }
 
+  async acquireLock(jobId: string): Promise<JobRecordLockHandle | null> {
+    return await acquireFileJobLock(this.lockPath(jobId));
+  }
+
   async close(): Promise<void> {}
 
   private jobPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.json`);
+  }
+
+  private lockPath(jobId: string): string {
+    return `${this.jobPath(jobId)}.lock`;
   }
 }
 
@@ -139,6 +150,10 @@ export class SqliteJobRepository implements JobRecordRepository {
     return imported;
   }
 
+  async acquireLock(jobId: string): Promise<JobRecordLockHandle | null> {
+    return await acquireFileJobLock(this.lockPath(jobId));
+  }
+
   async close(): Promise<void> {
     this.db?.close();
     this.db = null;
@@ -176,6 +191,10 @@ export class SqliteJobRepository implements JobRecordRepository {
 
   private jobPath(jobId: string): string {
     return path.join(this.jobsDir, `${jobId}.json`);
+  }
+
+  private lockPath(jobId: string): string {
+    return `${this.jobPath(jobId)}.lock`;
   }
 
   private ensureSchema(): void {
@@ -262,4 +281,47 @@ export class SqliteJobRepository implements JobRecordRepository {
     const result = this.db.prepare("DELETE FROM jobs WHERE job_id = ?").run(jobId);
     return result.changes > 0;
   }
+}
+
+export function createJobRecordRepository(jobsDir: string): JobRecordRepository {
+  const mode = resolveStoreMode();
+  if (mode === "postgres") {
+    return new PostgresJobRepository(createPostgresPool(), jobsDir);
+  }
+  if (mode === "sqlite") {
+    return new SqliteJobRepository(jobsDir);
+  }
+  return new FileJobRepository(jobsDir);
+}
+
+async function acquireFileJobLock(lockPath: string): Promise<JobRecordLockHandle | null> {
+  await fs.mkdir(path.dirname(lockPath), { recursive: true });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await fs.open(lockPath, "wx");
+      await handle.writeFile(`${process.pid}:${Date.now()}\n`, "utf8");
+      let released = false;
+      return {
+        async release(): Promise<void> {
+          if (released) {
+            return;
+          }
+          released = true;
+          await handle.close().catch(() => {});
+          await fs.unlink(lockPath).catch(() => {});
+        }
+      };
+    } catch (err: any) {
+      if (err.code !== "EEXIST") {
+        throw err;
+      }
+      const stat = await fs.stat(lockPath).catch(() => null);
+      if (stat && Date.now() - stat.mtimeMs > 30_000) {
+        await fs.unlink(lockPath).catch(() => {});
+        continue;
+      }
+      return null;
+    }
+  }
+  return null;
 }
