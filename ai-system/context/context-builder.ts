@@ -235,12 +235,29 @@ function buildPreContextSummary(task: string, candidates: ContextCandidate[]): s
 function buildAllowedDiffBoundary(candidates: ContextCandidate[]): string[] {
   const prefixes = new Set<string>();
   for (const candidate of candidates.slice(0, 8)) {
-    const firstSegment = candidate.path.split("/")[0];
-    if (firstSegment && firstSegment !== candidate.path) {
-      prefixes.add(`${firstSegment}/**`);
+    for (const prefix of buildDirectoryBoundaryPrefixes(candidate.path)) {
+      prefixes.add(prefix);
     }
   }
   return [...prefixes];
+}
+
+function buildDirectoryBoundaryPrefixes(filePath: string): string[] {
+  const segments = filePath.split("/").filter(Boolean);
+  const directorySegments = segments.slice(0, -1);
+  const patterns: string[] = [];
+
+  for (let depth = 2; depth <= 3; depth += 1) {
+    if (directorySegments.length >= depth) {
+      patterns.push(`${directorySegments.slice(0, depth).join("/")}/**`);
+    }
+  }
+
+  if (patterns.length === 0 && directorySegments.length > 0) {
+    patterns.push(`${directorySegments.join("/")}/**`);
+  }
+
+  return patterns;
 }
 
 function buildImplementationPlan(task: string, candidates: ContextCandidate[]): string[] {

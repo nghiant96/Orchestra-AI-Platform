@@ -344,7 +344,7 @@ pnpm orchestra:worker -- \
 pnpm orchestra:smoke
 ```
 
-The `start`, `server`, `orchestra:server`, `orchestra:worker`, and `orchestra:smoke` entrypoints run from compiled `dist/` output. The `ai` and `ai-system` binaries prefer compiled output when it exists, but fall back to `tsx`-driven source execution in a checkout so local development and tests do not require a prebuilt `dist/`. Production-style execution should still start from `pnpm build`, and server mode now defaults to the durable `sqlite` store unless `ORCHESTRA_STORE` overrides it. Set `ORCHESTRA_STORE=postgres` plus `ORCHESTRA_POSTGRES_URL` when you want the HA/scale-large backend.
+The `start`, `server`, `orchestra:server`, `orchestra:worker`, and `orchestra:smoke` entrypoints run from compiled `dist/` output. The `ai` and `ai-system` binaries prefer compiled output when it exists, but fall back to `tsx`-driven source execution in a checkout so local development and tests do not require a prebuilt `dist/`. Production-style execution should still start from `pnpm build`, and server mode now defaults to the durable `sqlite` store unless `ORCHESTRA_STORE` overrides it. Set `ORCHESTRA_STORE=postgres` plus `ORCHESTRA_POSTGRES_URL` when you want the HA/scale-large backend. Solo Mode keeps a clean working tree by default, but `ai quick --allow-dirty` or `ai run --allow-dirty` lets you opt in when you intentionally want to run against uncommitted local edits. Use `--stash` to save and restore local edits around a run, or `--worktree` to run in an isolated git worktree instead.
 
 Worker registration validates `workspaceRoots` with canonical realpath checks. A symlink that resolves outside `AI_SYSTEM_ALLOWED_WORKDIRS` is rejected. Provider jobs run in `.orchestra/worktrees/<jobId>` and write artifacts to `.ai-system-server/worker-artifacts/<jobId>`. Dummy dry-run jobs must not mutate files or write mutation checkpoints; CodexProvider dry-runs may create diffs inside the isolated worktree, but never mutate the main checkout.
 
@@ -357,6 +357,7 @@ Worker registration validates `workspaceRoots` with canonical realpath checks. A
 ```bash
 ai "task description"                 # Execute a coding task
 ai implement "task description"       # Full implementation loop
+ai quick --allow-dirty "task on local edits"
 ai review                             # Review current working tree changes
 ai review --staged                    # Review only staged changes
 ai review --files src/a.ts,src/b.ts   # Review specific files
@@ -742,7 +743,7 @@ orchestra-ai-platform/
 │   ├── lessons.md                    # Lessons learned
 │   └── ...
 │
-├── package.json                      # v0.9.0
+├── package.json                      # v0.10.0-alpha
 ├── tsconfig.json
 ├── Dockerfile
 └── docker-compose.yml

@@ -23,6 +23,8 @@ export interface CliOptions {
   reviewFailingChecks: boolean;
   reviewFiles: string[];
   force: boolean;
+  allowDirtyWorkingTree?: boolean;
+  dirtyTreeMode?: "allow" | "stash" | "worktree";
   task: string;
 }
 

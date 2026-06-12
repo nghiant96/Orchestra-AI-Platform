@@ -1,5 +1,17 @@
 # Lessons Learned
 
+## 2026-06-12: Dirty-tree modes should prepare execution state before launching the job
+
+**Mistake**: Started wiring `--stash` / `--worktree` after the Solo job was already running, which meant the job still saw the dirty checkout and the new modes could not do their job.
+
+**Rule**: For execution-mode flags that change repository state, prepare the execution root first, then launch the job against that prepared root, and only clean up afterward. Never try to retrofit the state change after the provider has started.
+
+## 2026-06-12: CLI escape hatches must be threaded through every dispatcher seam
+
+**Mistake**: Added a new `--allow-dirty` Solo Mode flag at the parser layer, but the top-level CLI dispatcher dropped the field before the solo handler saw it.
+
+**Rule**: When a CLI flag affects a specific command flow, thread it through the parser, top-level dispatcher, handler, and tests in the same pass. Treat missing plumbing as a compile-time regression, not a UX polish issue.
+
 ## 2026-06-12: Widen repository contracts before swapping durable backends
 
 **Mistake**: Added sqlite-backed audit persistence and migration support while the server still typed audit logging as file-only, which caused a type mismatch at the integration seam.

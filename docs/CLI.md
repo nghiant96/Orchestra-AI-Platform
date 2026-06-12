@@ -23,6 +23,9 @@ pnpm run ai:chat      # Same via npm script
 ```bash
 ai "Add retry handling to the API client"
 ai "Refactor auth module to use refresh tokens" --no-dry-run
+ai quick --allow-dirty "Fix a bug while keeping local edits"
+ai quick --stash "Fix a bug and restore local edits afterward"
+ai quick --worktree "Fix a bug in an isolated worktree"
 ```
 
 ### Dry Run (Default)
@@ -33,6 +36,9 @@ By default, Orchestra runs in **dry-run mode** — it generates code and runs al
 ai "Add a loading state component"             # dry-run (safe preview)
 ai "Add a loading state component" --no-dry-run  # actually write files
 ```
+
+If you intentionally want to run Solo Mode against a dirty working tree, add `--allow-dirty` to `ai run` or `ai quick`.
+Use `--stash` when you want to preserve local edits during the run, or `--worktree` when you want the job to execute in a separate git worktree.
 
 ---
 

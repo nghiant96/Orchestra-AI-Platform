@@ -1,6 +1,6 @@
 {
   "name": "orchestra-ai-platform",
-  "version": "0.9.0",
+  "version": "0.10.0-alpha",
   "private": true,
   "type": "module",
   "scripts": {
@@ -29,7 +29,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "dashboard:dev": "cd dashboard && pnpm dev",
-    "dashboard:build": "pnpm --dir dashboard install --no-frozen-lockfile && pnpm --dir dashboard build",
+    "dashboard:build": "pnpm --dir dashboard install --frozen-lockfile && pnpm --dir dashboard build",
     "local:dev": "AI_SYSTEM_SERVER_MODE=true node --import tsx ai-system/server.ts & pnpm run dashboard:dev"
   },
   "bin": {

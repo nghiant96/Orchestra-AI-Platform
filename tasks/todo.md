@@ -2,6 +2,29 @@
 
 Last updated: 2026-06-12
 
+## Task: Close the review-driven dogfood follow-up
+
+- [x] Switch CI installs back to `--frozen-lockfile` now that the lockfile is stable.
+- [x] Bump the package/release version to reflect the current alpha state.
+- [x] Expose an explicit Solo Mode dirty-tree escape hatch and document it.
+- [x] Add focused tests for the parser, handler, and dirty-tree Solo flow.
+- [x] Re-run targeted tests, typecheck, lint, and `git diff --check`.
+
+Review goal:
+
+- Keep the smallest safe surface area while landing the follow-up items called out in the repo review.
+- Improve dogfood reliability without turning the dirty-tree support into a separate feature branch.
+
+Review result:
+
+- CI now installs with `--frozen-lockfile` again, which keeps lockfile drift visible instead of papered over.
+- Solo Mode now accepts `--allow-dirty` end to end, and the error message tells operators how to opt in intentionally.
+- `--stash` and `--worktree` now give dirty-tree runs safer isolation modes instead of forcing every user into the same escape hatch.
+- Undo, continue, and commit now emit audit events, so solo operations are traceable alongside the artifact history.
+- The context builder now keeps `allowedDiffBoundary` focused on directory-level slices instead of widening to repo-level prefixes.
+- The package version and docs were bumped to `0.10.0-alpha` so the repo metadata matches the current state more closely.
+- Targeted CLI, runner, typecheck, lint, and repo-wide checks all passed after the change.
+
 ## Task: Add Short Postgres Cutover Runbook
 
 - [x] Create a copy-pasteable 10-minute cutover guide for Postgres releases.

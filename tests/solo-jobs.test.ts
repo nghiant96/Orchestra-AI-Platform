@@ -17,6 +17,7 @@ import {
 } from "../ai-system/solo/solo-jobs.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import type { WorkerProviderAdapter } from "../ai-system/worker/providers/provider-adapter.js";
+import type { AuditLogRepository } from "../ai-system/core/audit-log.js";
 
 test("Solo job operations list, show, read logs, explain diff, and undo", async () => {
   const repoRoot = await createGitRepo("solo-jobs-");
@@ -54,9 +55,11 @@ test("Solo job operations list, show, read logs, explain diff, and undo", async 
     assert.match(diff.summary, /1 file changed/);
     assert.match(diff.summary, /src\/history-output\.ts/);
 
-    const undo = await undoSoloJob({ repoRoot, artifactRootDir, target: "last" });
+    const undoAudit = createAuditLog();
+    const undo = await undoSoloJob({ repoRoot, artifactRootDir, target: "last" }, { auditLog: undoAudit });
     assert.equal(undo.ok, true);
     await assert.rejects(() => fs.stat(path.join(repoRoot, "src", "history-output.ts")), /ENOENT/);
+    assert.equal(undoAudit.events.some((event) => event.action === "solo.undo"), true);
 
     const manifestAfterUndo = JSON.parse(await fs.readFile(
       path.join(artifactRootDir, "job-history-test", ARTIFACT_PATHS.manifest),
@@ -84,6 +87,7 @@ test("Solo continue seeds a new job from previous artifacts and verification fai
       createJobId: () => "job-needs-fix"
     });
 
+    const continueAudit = createAuditLog();
     const continued = await continueSoloJob({
       repoRoot,
       artifactRootDir,
@@ -99,7 +103,8 @@ test("Solo continue seeds a new job from previous artifacts and verification fai
         changedFiles: [],
         guardStatus: "passed",
         verificationStatus: "passed"
-      })
+      }),
+      auditLog: continueAudit
     });
 
     assert.equal(continued.sourceJobId, "job-needs-fix");
@@ -107,6 +112,7 @@ test("Solo continue seeds a new job from previous artifacts and verification fai
     assert.match(continued.prompt, /Continue Orchestra Solo job job-needs-fix/);
     assert.match(continued.prompt, /Fix verification failures/);
     assert.match(continued.prompt, /src\/needs-fix\.ts/);
+    assert.equal(continueAudit.events.some((event) => event.action === "solo.continue"), true);
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
@@ -133,7 +139,8 @@ test("Solo commit helper generates a message and commits only job changed files"
     assert.match(message, /src\/commit-output\.ts/);
     assert.match(message, /Verification: passed/);
 
-    const commit = await commitSoloJob({ repoRoot, artifactRootDir, target: "job-commit-test" });
+    const audit = createAuditLog();
+    const commit = await commitSoloJob({ repoRoot, artifactRootDir, target: "job-commit-test" }, { auditLog: audit });
     assert.equal(commit.ok, true);
     assert.equal(commit.jobId, "job-commit-test");
     assert.equal(commit.changedFiles.includes("src/commit-output.ts"), true);
@@ -151,6 +158,7 @@ test("Solo commit helper generates a message and commits only job changed files"
       "utf8"
     ));
     assert.equal(manifestAfterCommit.repo.gitCommitAfter, commit.commitSha);
+    assert.equal(audit.events.some((event) => event.action === "solo.commit"), true);
   } finally {
     await fs.rm(repoRoot, { recursive: true, force: true });
   }
@@ -206,6 +214,29 @@ function fakeProvider(filePath: string): WorkerProviderAdapter {
         ].join("\n"),
         stderr: "",
         changedFiles: [filePath]
+      };
+    }
+  };
+}
+
+function createAuditLog(): AuditLogRepository & { events: Array<{ action: string; details?: Record<string, unknown> }> } {
+  return {
+    events: [] as Array<{ action: string; details?: Record<string, unknown> }>,
+    setOnEvent() {},
+    async list() {
+      return [];
+    },
+    async runRetentionCleanup() {
+      return 0;
+    },
+    async append(event: { action: string; details?: Record<string, unknown> }) {
+      this.events.push(event);
+      return {
+        version: 1,
+        id: `event-${this.events.length}`,
+        timestamp: "2026-06-12T00:00:00.000Z",
+        actor: { id: "test", role: "operator" },
+        ...event
       };
     }
   };

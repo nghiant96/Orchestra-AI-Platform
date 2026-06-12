@@ -3,6 +3,7 @@ import path from "node:path";
 import { ARTIFACT_PATHS } from "../artifacts/artifact-paths.js";
 import type { ArtifactExecutionMode, JobArtifactManifest, JobArtifactSummary } from "../artifacts/artifact-schema.js";
 import { LocalArtifactStore } from "../artifacts/local-artifact-store.js";
+import { FileAuditLog, resolveAuditLogPath, type AuditEvent, type AuditLogRepository } from "../core/audit-log.js";
 import { readManifestFromRoot, updateManifestStatus, writeManifest } from "../artifacts/manifest-writer.js";
 import { runCommand } from "../utils/api.js";
 import { runSoloJob, type SoloRunInput, type SoloRunResult } from "./solo-runner.js";
@@ -62,6 +63,7 @@ export interface SoloContinueResult {
 
 export interface SoloContinueDependencies {
   run?: (input: SoloRunInput) => Promise<SoloRunResult>;
+  auditLog?: AuditLogRepository;
 }
 
 export interface SoloCommitResult {
@@ -120,7 +122,10 @@ export async function explainSoloDiff(input: SoloJobTargetInput): Promise<SoloDi
   };
 }
 
-export async function undoSoloJob(input: SoloJobTargetInput): Promise<SoloUndoResult> {
+export async function undoSoloJob(
+  input: SoloJobTargetInput,
+  dependencies: { auditLog?: AuditLogRepository } = {}
+): Promise<SoloUndoResult> {
   const resolved = await resolveSoloJob(input);
   const diffPath = path.join(resolved.artifactRoot, ARTIFACT_PATHS.diffPatch);
   try {
@@ -141,6 +146,16 @@ export async function undoSoloJob(input: SoloJobTargetInput): Promise<SoloUndoRe
   }
 
   await updateManifestStatus(resolved.artifactRoot, "reverted");
+  await appendSoloAuditEvent({
+    auditLog: dependencies.auditLog,
+    repoRoot: resolved.manifest.repo.root || input.repoRoot,
+    action: "solo.undo",
+    jobId: resolved.manifest.jobId,
+    details: {
+      artifactRoot: resolved.artifactRoot,
+      summary: `Reverted ${resolved.manifest.jobId}.`
+    }
+  });
   return {
     ok: true,
     jobId: resolved.manifest.jobId,
@@ -163,6 +178,18 @@ export async function continueSoloJob(
     providerCommand: input.providerCommand,
     artifactRootDir: input.artifactRootDir,
     allowDirtyWorkingTree: true
+  });
+  await appendSoloAuditEvent({
+    auditLog: dependencies.auditLog,
+    repoRoot: input.repoRoot,
+    action: "solo.continue",
+    jobId: run.jobId,
+    details: {
+      sourceJobId: resolved.manifest.jobId,
+      artifactRoot: run.artifactRoot,
+      fixVerification: Boolean(input.fixVerification),
+      summary: run.summary
+    }
   });
   return {
     sourceJobId: resolved.manifest.jobId,
@@ -191,7 +218,10 @@ export async function buildSoloCommitMessage(input: SoloJobTargetInput): Promise
   ].join("\n");
 }
 
-export async function commitSoloJob(input: SoloJobTargetInput): Promise<SoloCommitResult> {
+export async function commitSoloJob(
+  input: SoloJobTargetInput,
+  dependencies: { auditLog?: AuditLogRepository } = {}
+): Promise<SoloCommitResult> {
   const shown = await showSoloJob(input);
   if (shown.changedFiles.length === 0) {
     return {
@@ -249,6 +279,18 @@ export async function commitSoloJob(input: SoloJobTargetInput): Promise<SoloComm
   const manifest = await readManifestFromRoot(shown.artifactRoot);
   manifest.repo.gitCommitAfter = commitSha;
   await writeManifest(shown.artifactRoot, manifest);
+  await appendSoloAuditEvent({
+    auditLog: dependencies.auditLog,
+    repoRoot,
+    action: "solo.commit",
+    jobId: shown.manifest.jobId,
+    details: {
+      artifactRoot: shown.artifactRoot,
+      commitSha,
+      changedFiles: shown.changedFiles,
+      summary: `Committed ${shown.changedFiles.length} file(s) for ${shown.manifest.jobId}.`
+    }
+  });
 
   return {
     ok: true,
@@ -259,6 +301,27 @@ export async function commitSoloJob(input: SoloJobTargetInput): Promise<SoloComm
     commitSha,
     summary: `Committed ${shown.changedFiles.length} file(s) for ${shown.manifest.jobId}.`
   };
+}
+
+async function appendSoloAuditEvent(input: {
+  repoRoot: string;
+  jobId: string;
+  action: string;
+  details: Record<string, unknown>;
+  auditLog?: AuditLogRepository;
+}): Promise<AuditEvent | null> {
+  const auditLog = input.auditLog ?? new FileAuditLog(resolveAuditLogPath(input.repoRoot));
+  try {
+    return await auditLog.append({
+      action: input.action,
+      actor: { id: "ai-system-cli", role: "operator" },
+      cwd: input.repoRoot,
+      jobId: input.jobId,
+      details: input.details
+    });
+  } catch {
+    return null;
+  }
 }
 
 async function resolveSoloJobForContinue(input: SoloJobTargetInput): Promise<{

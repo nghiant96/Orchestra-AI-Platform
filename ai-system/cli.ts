@@ -42,6 +42,8 @@ async function main(): Promise<void> {
     reviewFailingChecks,
     reviewFiles,
     force,
+    allowDirtyWorkingTree,
+    dirtyTreeMode,
     task
   } = options;
 
@@ -75,6 +77,8 @@ async function main(): Promise<void> {
       reviewFailingChecks,
       reviewFiles,
       force,
+      allowDirtyWorkingTree,
+      dirtyTreeMode,
       task,
       outputJson,
       explicitGlobalConfigPath,
@@ -101,6 +105,7 @@ async function main(): Promise<void> {
       reviewFailingChecks,
       reviewFiles,
       force,
+      allowDirtyWorkingTree,
       task,
       outputJson,
       savePath
@@ -126,6 +131,8 @@ async function main(): Promise<void> {
       reviewFailingChecks,
       reviewFiles,
       force,
+      allowDirtyWorkingTree,
+      dirtyTreeMode,
       task
     });
     if (outputJson) {

@@ -61,11 +61,20 @@ describe("CLI Arg Parser", () => {
     process.stdin.isTTY = true;
     try {
       const normal = await parseArgs(["run", "Fix login loading state"]);
+      const dirty = await parseArgs(["run", "--allow-dirty", "Fix login loading state"]);
+      const stashed = await parseArgs(["run", "--stash", "Fix login loading state"]);
+      const worktree = await parseArgs(["run", "--worktree", "Fix login loading state"]);
       const quick = await parseArgs(["quick", "Fix README typo"]);
       const safe = await parseArgs(["safe", "Refactor payment session flow"]);
 
       assert.deepEqual(normal.command, { kind: "solo-run", executionMode: "normal" });
       assert.equal(normal.task, "Fix login loading state");
+      assert.equal(normal.allowDirtyWorkingTree, false);
+      assert.equal(dirty.allowDirtyWorkingTree, true);
+      assert.equal(stashed.dirtyTreeMode, "stash");
+      assert.equal(worktree.dirtyTreeMode, "worktree");
+      assert.deepEqual(dirty.command, { kind: "solo-run", executionMode: "normal" });
+      assert.equal(dirty.task, "Fix login loading state");
       assert.deepEqual(quick.command, { kind: "solo-run", executionMode: "quick" });
       assert.equal(quick.task, "Fix README typo");
       assert.deepEqual(safe.command, { kind: "solo-run", executionMode: "safe" });

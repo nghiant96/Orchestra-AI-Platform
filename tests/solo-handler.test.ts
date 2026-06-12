@@ -10,7 +10,8 @@ test("solo handler delegates CLI input to SoloRunner", async () => {
       cwd: "/tmp/project",
       task: "Refactor payment session flow",
       outputJson: true,
-      savePath: null
+      savePath: null,
+      allowDirtyWorkingTree: true
     },
     {
       async run(input) {
@@ -31,18 +32,19 @@ test("solo handler delegates CLI input to SoloRunner", async () => {
 
   assert.equal(handled, true);
   assert.deepEqual(received, {
-    task: "Refactor payment session flow",
-    executionMode: "safe",
-    repoRoot: "/tmp/project",
-    providerId: "codex",
-    providerCommand: undefined
-  });
+      task: "Refactor payment session flow",
+      executionMode: "safe",
+      repoRoot: "/tmp/project",
+      allowDirtyWorkingTree: true,
+      providerId: "codex",
+      providerCommand: undefined
+    });
 });
 
 test("solo handler ignores unrelated commands", async () => {
   const handled = await handleSoloCommand(
     { kind: "doctor" },
-    { cwd: "/tmp/project", task: "", outputJson: false, savePath: null }
+    { cwd: "/tmp/project", task: "", outputJson: false, savePath: null, allowDirtyWorkingTree: false }
   );
   assert.equal(handled, false);
 });

@@ -43,6 +43,26 @@ test("context builder ranks ripgrep, convention, and semantic candidates and wri
   }
 });
 
+test("context builder keeps the allowed diff boundary tight around nested files", async () => {
+  const repoRoot = await createGitRepo("context-boundary-");
+
+  try {
+    const built = await buildContext({
+      jobId: "job-context-boundary",
+      task: "Update the payment button and supporting component structure.",
+      repoRoot,
+      artifactDir: path.join(repoRoot, ".orchestra", "jobs", "job-context-boundary")
+    }, {
+      candidateLimit: 4
+    });
+
+    assert.ok(built.preContextPack.allowedDiffBoundary.some((boundary) => boundary === "dashboard/src/**" || boundary === "src/payment/**" || boundary === "src/payment/components/**"));
+    assert.equal(built.preContextPack.allowedDiffBoundary.some((boundary) => boundary === "dashboard/**"), false);
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 function fakeSemanticProvider(): SemanticContextProvider {
   return {
     async search() {
@@ -66,9 +86,11 @@ async function createGitRepo(prefix: string): Promise<string> {
   await fs.mkdir(path.join(repoRoot, "src", "payment"), { recursive: true });
   await fs.mkdir(path.join(repoRoot, "src", "auth"), { recursive: true });
   await fs.mkdir(path.join(repoRoot, "tests"), { recursive: true });
+  await fs.mkdir(path.join(repoRoot, "dashboard", "src", "components"), { recursive: true });
   await fs.writeFile(path.join(repoRoot, "src", "payment", "api.ts"), "export const paymentApi = true;\n", "utf8");
   await fs.writeFile(path.join(repoRoot, "src", "auth", "session.ts"), "export const session = true;\n", "utf8");
   await fs.writeFile(path.join(repoRoot, "tests", "payment.test.ts"), "describe('payment', () => {});\n", "utf8");
+  await fs.writeFile(path.join(repoRoot, "dashboard", "src", "components", "PaymentButton.tsx"), "export const PaymentButton = () => null;\n", "utf8");
   await fs.writeFile(path.join(repoRoot, "package.json"), JSON.stringify({
     name: "context-builder-test",
     private: true,

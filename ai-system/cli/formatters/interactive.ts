@@ -57,6 +57,9 @@ export function printHelp(): void {
   ai run "task description"
   ai quick "small task"
   ai safe "high-risk task"
+  ai quick --allow-dirty "task on a dirty working tree"
+  ai quick --stash "task that should restore local edits afterward"
+  ai quick --worktree "task that should run in an isolated worktree"
   ai job list
   ai job show last
   ai job logs last
@@ -101,6 +104,9 @@ export function printHelp(): void {
   ai --interactive "task description"
   ai --pause-after-plan "task description"
   ai --pause-after-generate "task description"
+  ai --allow-dirty "task description"
+  ai --stash "task description"
+  ai --worktree "task description"
   ai --manual-review "task description"
   ai --resume /path/to/.ai-system-artifacts/run-.../
   ai --resume-last
@@ -145,6 +151,9 @@ Examples:
   ai --interactive "Review the plan before changing files"
   ai --pause-after-plan "Pause after planner checkpoint"
   ai --pause-after-generate "Pause before AI review"
+  ai --allow-dirty "Work against local edits intentionally"
+  ai --stash "Stash local edits before running the job"
+  ai --worktree "Run the job in a separate git worktree"
   ai --manual-review "Let me inspect every major checkpoint"
   ai --resume-last
   ai --provider 9router --dry-run "Refactor the auth flow"
@@ -165,6 +174,9 @@ Interactive mode:
 Workflow modes:
   Use \`ai implement "task"\` for the standard write-enabled flow.
   Use \`ai review\` to review current working tree changes when the repo is dirty.
+  Use \`ai quick --allow-dirty\` or \`ai run --allow-dirty\` when you intentionally want to run Solo Mode against uncommitted changes.
+  Use \`ai quick --stash\` to save and restore local edits around a Solo run.
+  Use \`ai quick --worktree\` to run the Solo job in a separate git worktree.
   Use \`ai review --staged\` to review only what is currently staged in git.
   Use \`ai review --base <git-ref>\` to review the current repo state against a base ref such as \`main\` or \`origin/main\`.
   Use \`ai review --failing-checks\` to review the code regions implicated by the currently failing repo checks.

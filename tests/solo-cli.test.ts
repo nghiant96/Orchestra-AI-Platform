@@ -81,6 +81,92 @@ test("CLI quick job history, diff explain, and undo run without server", async (
   }
 });
 
+test("CLI quick job can opt into a dirty working tree", async () => {
+  const repoRoot = await createGitRepo("solo-cli-dirty-");
+  const fakeCodex = await createFakeCodex();
+  const env = {
+    ...process.env,
+    ORCHESTRA_CODEX_COMMAND: fakeCodex,
+    PATH: process.env.PATH ?? ""
+  };
+
+  try {
+    await fs.writeFile(path.join(repoRoot, "README.md"), "# dirty solo cli test\n", "utf8");
+
+    const result = await runCli(["quick", "--allow-dirty", "Create solo CLI output"], {
+      cwd: repoRoot,
+      env
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Solo Job/);
+    assert.match(result.stdout, /success: true/);
+    await fs.access(path.join(repoRoot, "src", "solo-cli-output.ts"));
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+  }
+});
+
+test("CLI quick job can stash and restore dirty changes", async () => {
+  const repoRoot = await createGitRepo("solo-cli-stash-");
+  const fakeCodex = await createFakeCodex();
+  const env = {
+    ...process.env,
+    ORCHESTRA_CODEX_COMMAND: fakeCodex,
+    PATH: process.env.PATH ?? ""
+  };
+
+  try {
+    await fs.writeFile(path.join(repoRoot, "README.md"), "# stashed dirty solo cli test\n", "utf8");
+
+    const result = await runCli(["quick", "--stash", "Create solo CLI output"], {
+      cwd: repoRoot,
+      env
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    const readme = await fs.readFile(path.join(repoRoot, "README.md"), "utf8");
+    assert.match(readme, /stashed dirty solo cli test/);
+    assert.match(result.stdout, /Solo Job/);
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+  }
+});
+
+test("CLI quick job can run in a dedicated worktree", async () => {
+  const repoRoot = await createGitRepo("solo-cli-worktree-");
+  const fakeCodex = await createFakeCodex();
+  const env = {
+    ...process.env,
+    ORCHESTRA_CODEX_COMMAND: fakeCodex,
+    PATH: process.env.PATH ?? ""
+  };
+
+  try {
+    await fs.writeFile(path.join(repoRoot, "README.md"), "# worktree dirty solo cli test\n", "utf8");
+
+    const result = await runCli(["quick", "--worktree", "Create solo CLI output"], {
+      cwd: repoRoot,
+      env
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    const readme = await fs.readFile(path.join(repoRoot, "README.md"), "utf8");
+    assert.match(readme, /worktree dirty solo cli test/);
+
+    const worktreeRoot = path.join(repoRoot, ".orchestra", "worktrees");
+    const entries = await fs.readdir(worktreeRoot);
+    assert.equal(entries.length > 0, true);
+    const worktreePath = path.join(worktreeRoot, entries[0] ?? "");
+    await fs.access(path.join(worktreePath, "src", "solo-cli-output.ts"));
+  } finally {
+    await fs.rm(repoRoot, { recursive: true, force: true });
+    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+  }
+});
+
 test("CLI continue and commit run without server", async () => {
   const repoRoot = await createGitRepo("solo-cli-continue-");
   const fakeCodex = await createFakeCodex();

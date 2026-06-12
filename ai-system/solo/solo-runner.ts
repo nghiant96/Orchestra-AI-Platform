@@ -297,7 +297,9 @@ async function assertCleanWorkingTree(repoRoot: string): Promise<void> {
     ":(exclude).orchestra/**"
   ]);
   if (status.trim()) {
-    throw new Error("Solo Mode requires a clean working tree so job artifacts and undo remain isolated.");
+    throw new Error(
+      "Solo Mode requires a clean working tree so job artifacts and undo remain isolated. Use `--allow-dirty` if you intentionally want to run against local changes."
+    );
   }
 }
 

@@ -252,6 +252,7 @@ export function buildPhasePrompt(input: {
       "- assumptions",
       "- missingContextWarnings",
       "- confidence: low, medium, or high",
+      "- Keep allowedDiffBoundary narrow and prefer 2-3 directory levels instead of repo-wide prefixes.",
       "",
       "Use this exact shape:",
       "ORCHESTRA_CONTEXT_PACK:",

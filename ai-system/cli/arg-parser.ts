@@ -27,6 +27,8 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
   let reviewFailingChecks = false;
   const reviewFiles: string[] = [];
   let force = false;
+  let allowDirtyWorkingTree = false;
+  let dirtyTreeMode: "allow" | "stash" | "worktree" | undefined;
   let dryRunExplicit = false;
   let interactiveExplicit = false;
   let pauseAfterPlanExplicit = false;
@@ -571,6 +573,21 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
       force = true;
       continue;
     }
+    if (arg === "--allow-dirty") {
+      allowDirtyWorkingTree = true;
+      dirtyTreeMode = "allow";
+      continue;
+    }
+    if (arg === "--stash") {
+      dirtyTreeMode = "stash";
+      allowDirtyWorkingTree = true;
+      continue;
+    }
+    if (arg === "--worktree") {
+      dirtyTreeMode = "worktree";
+      allowDirtyWorkingTree = true;
+      continue;
+    }
 
     if (workerCommandActive) {
       throw new Error("Worker start does not accept positional arguments.");
@@ -623,6 +640,8 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
     reviewFailingChecks,
     reviewFiles,
     force,
+    allowDirtyWorkingTree,
+    dirtyTreeMode,
     task
   };
 }
