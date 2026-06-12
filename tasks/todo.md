@@ -2,6 +2,23 @@
 
 Last updated: 2026-06-12
 
+## Task: Align release-readiness wording with current runtime state
+
+- [x] Tone down the production-readiness note so it matches the current single-node pilot posture.
+- [x] Verify the repo docs and script references remain consistent after the wording update.
+- [x] Re-run a lightweight diff check and record the result.
+
+Review goal:
+
+- Keep the docs truthful and aligned with the implemented control-plane, worker, and storage behavior.
+- Avoid overclaiming production readiness when the repo still describes preview and alpha surfaces.
+
+Review result:
+
+- `production-ready.md` now consistently describes the repo as ready for an initial internal pilot instead of a general production release, which matches the surrounding preview/alpha language.
+- `README.md` now includes a compact recommended verification loop, and `.env.example` now shows explicit solo local, server + dashboard, and server + worker modes.
+- The workspace/package scripts already align, and `git diff --check` passed after the wording update.
+
 ## Task: Close the review-driven dogfood follow-up
 
 - [x] Switch CI installs back to `--frozen-lockfile` now that the lockfile is stable.

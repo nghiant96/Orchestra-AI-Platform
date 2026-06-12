@@ -301,6 +301,21 @@ pnpm ai "Add retry logic to HTTP calls" --no-dry-run
 pnpm ai:chat
 ```
 
+### Recommended Verification Loop
+
+If you want the shortest reliable loop for local changes, use this order:
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+pnpm run check:all
+pnpm orchestra:smoke
+pnpm run local:dev
+```
+
+This keeps install, build, tests, repo-wide checks, smoke verification, and the local dashboard/server path in one predictable sequence.
+
 ### 4. Start the server + dashboard
 
 ```bash

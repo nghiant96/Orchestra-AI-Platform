@@ -1,5 +1,11 @@
 # Lessons Learned
 
+## 2026-06-12: Readiness docs must match the product's strongest honest claim
+
+**Mistake**: `production-ready.md` used a general production-ready verdict even though the surrounding README still described preview and alpha surfaces for worker execution and workspace engine behavior.
+
+**Rule**: When release notes or readiness docs describe a system that is still partly preview, keep the strongest claim scoped to the actual deployment envelope. If the code is ready for an internal pilot but not a broad production release, say that explicitly and keep every related doc consistent.
+
 ## 2026-06-12: Deep-equal assertions must include optional `undefined` fields when they matter
 
 **Mistake**: A CLI delegation test expected an object without `artifactRootDir`, but the runtime now passes `artifactRootDir: undefined` explicitly before the job runner sees it.

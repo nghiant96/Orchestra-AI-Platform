@@ -10,9 +10,9 @@ Legend:
 
 ## Verdict
 
-`Ready for the initial production release envelope.`
+`Ready for the initial internal pilot release envelope.`
 
-The platform now has the main production hardening pieces in place. The remaining choice is about future scale/HA tuning, not the initial release envelope:
+The platform now has the main hardening pieces in place for a single-node internal pilot. The remaining choice is about future scale/HA tuning, not whether the current preview/control-plane shape is usable:
 
 - verify the Postgres-backed HA path under the target deployment topology
 
@@ -27,7 +27,7 @@ These are in place and should be preserved:
 - Work item, approval, audit, lesson, and dashboard surfaces
 - A working `orchestra:smoke` script in [`package.json`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/package.json)
 
-This is enough to call the system ready for the initial release envelope, and Postgres is now the implemented HA/scale path for future multi-node or higher write-concurrency needs.
+This is enough to call the system ready for an initial internal pilot, and Postgres is now the implemented HA/scale path for future multi-node or higher write-concurrency needs.
 
 ## Blocking Gaps
 
@@ -74,17 +74,17 @@ This is the minimum bar I would use before calling the project production-ready:
 
 ## Bottom Line
 
-The project is ready to ship for the current single-node control-plane envelope.
+The project is ready to ship for the current single-node internal pilot envelope.
 
-SQLite is sufficient for the initial official release if the deployment stays on one durable server/control plane and worker topology. Postgres is already implemented for the HA/scale-large path, so the remaining release decision is deployment shape, not code availability.
+SQLite is sufficient for the current single-node internal pilot if the deployment stays on one durable server/control-plane and worker topology. Postgres is already implemented for the HA/scale-large path, so the remaining release decision is deployment shape, not code availability.
 
-Keep smoke and gate checks green, and treat Postgres as the next scale milestone rather than a blocker for the first production release.
+Keep smoke and gate checks green, and treat Postgres as the next scale milestone rather than a blocker for broader rollout.
 
 ## HA / Scale Large
 
 `Implemented for the HA/scale-large path; verify the target deployment topology before release.`
 
-For the HA/scale-large envelope, Postgres is now the active storage path. The current SQLite-backed setup is acceptable for the initial release envelope, but it is not the final answer for multi-node HA or active-active control planes.
+For the HA/scale-large envelope, Postgres is now the active storage path. The current SQLite-backed setup is acceptable for the current single-node internal pilot, but it is not the final answer for multi-node HA or active-active control planes.
 
 Use this rule of thumb:
 
