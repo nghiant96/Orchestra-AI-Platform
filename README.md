@@ -429,6 +429,18 @@ If you prefer the packaged command, `pnpm run docker:postgres` starts the same p
 
 If you are moving an existing single-node deployment, keep the old `.ai-system-server` volume or workspace directory mounted until the migration has completed and verified. After the migration, keep the Postgres volume backed up and treat `.ai-system-server` as a restart cache rather than the source of truth.
 
+Quick cutover:
+
+```bash
+export AI_SYSTEM_SERVER_TOKEN=replace-me
+export ORCHESTRA_STORE=postgres
+export ORCHESTRA_POSTGRES_URL=postgresql://orchestra:orchestra@localhost:5432/orchestra
+docker compose --profile postgres up -d postgres orchestra-ai-platform
+pnpm run postgres:migrate
+```
+
+Then verify `GET /health` reports `postgres`, create one small job, and confirm the audit log plus worker heartbeat still work before switching traffic.
+
 ### Environment Variables
 
 | Variable | Description | Default |

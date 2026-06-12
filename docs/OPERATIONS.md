@@ -249,6 +249,8 @@ If the server crashes, queued and running jobs remain in `.ai-system-server/jobs
 #### Postgres Migration
 Use Postgres when you need HA, multi-node control planes, or higher write concurrency than SQLite should carry.
 
+For a shorter copy-paste cutover guide, see [`docs/POSTGRES_CUTOVER.md`](/Users/trungnghianguyen/Documents/AI-CODING-SYSTEM/docs/POSTGRES_CUTOVER.md).
+
 1. Start or point to a Postgres instance.
 2. Set `ORCHESTRA_STORE=postgres` and `ORCHESTRA_POSTGRES_URL`.
 3. Run `pnpm run postgres:migrate` once from the active workspace.

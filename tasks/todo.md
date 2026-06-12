@@ -2,6 +2,17 @@
 
 Last updated: 2026-06-12
 
+## Task: Add Short Postgres Cutover Runbook
+
+- [x] Create a copy-pasteable 10-minute cutover guide for Postgres releases.
+- [x] Link the cutover guide from the longer operations runbook.
+- [x] Keep the checklist short enough for release-day use.
+
+Review result:
+
+- Release operators now have a dedicated short runbook they can follow without reading the full ops guide.
+- The long-form ops doc still holds the deeper migration notes and rollback checklist.
+
 ## Task: Add Postgres Deploy/Runtime and Migration Path
 
 - [x] Add a Postgres compose profile and connection wiring for container deploys.
