@@ -28,11 +28,14 @@ vi.mock('../utils/api', () => ({
     return {
       ok: true,
       workItem: {
+        schemaVersion: 1,
         id: 'wi-1',
+        projectId: 'project-1',
         title: 'Audit scope test',
         description: 'Audit modal smoke test',
         status: 'created',
         risk: 'low',
+        expectedOutput: 'report',
         source: 'manual',
         type: 'feature',
         linkedRuns: ['job-linked'],
@@ -56,11 +59,14 @@ vi.mock('../components/work-item-detail/ActionsTab', () => ({ ActionsTab: () => 
 vi.mock('../components/work-item-detail/EventsTab', () => ({ EventsTab: () => <div>Events Mock</div> }));
 
 const baseWorkItem: WorkItem = {
+  schemaVersion: 1,
   id: 'wi-1',
+  projectId: 'project-1',
   title: 'Audit scope test',
   description: 'Audit modal smoke test',
   status: 'created',
   risk: 'low',
+  expectedOutput: 'report',
   source: 'manual',
   type: 'feature',
   linkedRuns: ['job-linked'],
