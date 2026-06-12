@@ -31,15 +31,15 @@ test("solo handler delegates CLI input to SoloRunner", async () => {
   );
 
   assert.equal(handled, true);
-    assert.deepEqual(received, {
-      task: "Refactor payment session flow",
-      executionMode: "safe",
-      repoRoot: "/tmp/project",
-      artifactRootDir: undefined,
-      allowDirtyWorkingTree: true,
-      providerId: "codex",
-      providerCommand: undefined
-    });
+  assert.deepEqual(received, {
+    task: "Refactor payment session flow",
+    executionMode: "safe",
+    repoRoot: "/tmp/project",
+    artifactRootDir: undefined,
+    allowDirtyWorkingTree: true,
+    providerId: "codex",
+    providerCommand: undefined
+  });
 });
 
 test("solo handler ignores unrelated commands", async () => {
