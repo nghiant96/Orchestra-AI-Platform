@@ -6,13 +6,13 @@ import { fileURLToPath } from "node:url";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const cliPath = path.resolve(currentDir, "../dist/ai-system/cli.js");
+const sourceCliPath = path.resolve(currentDir, "../ai-system/cli.ts");
 
-if (!fs.existsSync(cliPath)) {
-  console.error("[ai] Build output not found. Run `npm run build` first.");
-  process.exit(1);
-}
+const childArgs = fs.existsSync(cliPath)
+  ? [cliPath, ...process.argv.slice(2)]
+  : ["--import", "tsx", sourceCliPath, ...process.argv.slice(2)];
 
-const child = spawn(process.execPath, [cliPath, ...process.argv.slice(2)], {
+const child = spawn(process.execPath, childArgs, {
   stdio: "inherit",
   env: process.env
 });
