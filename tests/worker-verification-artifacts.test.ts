@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { ARTIFACT_PATHS, checkJsonPath, checkLogPath } from "../ai-system/artifacts/artifact-paths.js";
 import { runWorkerVerification } from "../ai-system/worker/verification-runner.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("worker verification artifacts include failed command detail", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "verification-artifacts-"));
@@ -72,7 +73,7 @@ test("worker verification artifacts include failed command detail", async () => 
     assert.match(checkLog, /status: failed/);
     assert.match(checkLog, /exitCode: 2/);
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });
 

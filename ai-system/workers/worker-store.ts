@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Worker } from "./worker-types.js";
 import type { WorkerRepository } from "../core/repository-contracts.js";
+import { writeFileAtomic } from "../utils/atomic-file.js";
 import { createPostgresPool } from "../core/postgres.js";
 import { resolveStoreMode } from "../core/store-mode.js";
 import { PostgresWorkerStore } from "./postgres-worker-store.js";
@@ -52,10 +53,7 @@ export class WorkerStore implements WorkerRepository {
   async save(worker: Worker): Promise<void> {
     this.validateId(worker.id);
     await fs.mkdir(this.storeDir, { recursive: true });
-    const filePath = this.workerPath(worker.id);
-    const tmpPath = `${filePath}.tmp.${Date.now()}`;
-    await fs.writeFile(tmpPath, JSON.stringify(worker, null, 2), "utf8");
-    await fs.rename(tmpPath, filePath);
+    await writeFileAtomic(this.workerPath(worker.id), JSON.stringify(worker, null, 2));
   }
 
   async load(id: string): Promise<Worker | null> {

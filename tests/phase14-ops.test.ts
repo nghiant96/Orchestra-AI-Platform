@@ -9,7 +9,7 @@ import { FileBackedJobQueue } from "../ai-system/core/job-queue.js";
 import { WebhookManager } from "../ai-system/core/webhooks.js";
 import type { AuditEvent } from "../ai-system/core/audit-log.js";
 import type { RulesConfig } from "../ai-system/types.js";
-import { listen, closeServer } from "./test-utils.js";
+import { listen, closeServer, removeTempDir } from "./test-utils.js";
 
 test("parseAuditActor applies configured identity role mapping before role headers", () => {
   const actor = parseAuditActor(
@@ -144,7 +144,7 @@ test("FileBackedJobQueue retention removes old job records and keeps recent reco
     assert.equal(await exists(path.join(jobsDir, "old.json")), false);
     assert.equal(await exists(path.join(jobsDir, "recent.json")), true);
   } finally {
-    await fs.rm(jobsDir, { recursive: true, force: true });
+    await removeTempDir(jobsDir);
   }
 });
 

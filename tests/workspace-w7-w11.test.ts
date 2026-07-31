@@ -9,6 +9,7 @@ import { commitWorkItemChanges, generateWorkItemCommitMessage, generateWorkItemP
 import { importExternalTaskToWorkItem } from "../ai-system/work/inbox.js";
 import { watchCiForWorkItem, proposeCiRepairTask } from "../ai-system/work/ci.js";
 import { scheduleWorkItems } from "../ai-system/work/scheduler.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("W7-W11 workspace helpers cover commit, PR, inbox, CI, and scheduling", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "workspace-w7-11-"));
@@ -92,6 +93,6 @@ test("W7-W11 workspace helpers cover commit, PR, inbox, CI, and scheduling", asy
     assert.equal(statusPlan.ready[0].id, "w-ok");
     assert.equal(statusPlan.blocked.length, 2);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

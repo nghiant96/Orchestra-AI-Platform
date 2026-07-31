@@ -9,6 +9,7 @@ import { VectorIndex } from "../ai-system/core/vector-index.js";
 import { detectSymbolRanges, getSymbolParserForPath } from "../ai-system/core/symbol-parsers.js";
 import { expandContextReadFiles } from "../ai-system/core/context-intelligence.js";
 import type { RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -82,7 +83,7 @@ test("VectorIndex indexes chunks and finds semantically relevant auth files", as
     assert.equal(matches[0]?.path, "src/auth/session.ts");
     assert.match(matches[0]?.preview ?? "", /validateAuthToken/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -134,7 +135,7 @@ test("VectorIndex uses symbol-aware chunks so matches stay near the relevant fun
     assert.ok((matches[0]?.endLine ?? 0) >= 10);
     assert.ok((matches[0]?.endLine ?? 0) <= 11);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -168,7 +169,7 @@ test("VectorIndex AST chunking ignores commented declarations and still finds ar
     assert.doesNotMatch(matches[0]?.preview ?? "", /fakeValidateAuthToken/);
     assert.equal(matches[0]?.startLine, 4);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -218,7 +219,7 @@ test("VectorIndex uses symbol-aware chunks for non-TypeScript code", async () =>
     assert.doesNotMatch(goMatches[0]?.preview ?? "", /RenderDashboard/);
     assert.equal(goMatches[0]?.startLine, 7);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -301,7 +302,7 @@ test("expandContextReadFiles adds vector-matched files even when planner misses 
     assert.equal(result.rankedCandidates[0]?.path, "src/main.ts");
     assert.equal(result.rankedCandidates.some((entry) => entry.path === "src/auth/session.ts" && entry.sources.includes("semantic")), true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -339,7 +340,7 @@ test("expandContextReadFiles pulls write targets into ranked context ahead of do
     assert.equal(result.rankedCandidates[1]?.path, "src/config/env.ts");
     assert.equal(result.rankedCandidates[1]?.sources.includes("write-target"), true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -366,7 +367,7 @@ test("VectorIndex prefers code files over roadmap docs for implementation querie
 
     assert.equal(matches[0]?.path, "ai-system/core/tool-executor.ts");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -397,7 +398,7 @@ test("VectorIndex ignores internal artifact and vector index directories", async
     assert.equal(matches.some((match) => match.path.startsWith(".ai-system-vector/")), false);
     assert.equal(matches[0]?.path, "ai-system/core/tool-executor.ts");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -432,7 +433,7 @@ test("expandContextReadFiles promotes related changed files from the working tre
     assert.equal(result.changedHintFiles.includes("src/unrelated.ts"), false);
     assert.equal(result.rankedCandidates.some((entry) => entry.path === "src/env.ts" && entry.sources.includes("changed-file")), true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -471,7 +472,7 @@ test("expandContextReadFiles trims oversized low-priority context candidates by 
     assert.equal(result.budgetTrimmedFiles.includes("src/bootstrap-guide.ts"), true);
     assert.equal(result.readFiles.includes("src/bootstrap-guide.ts"), false);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

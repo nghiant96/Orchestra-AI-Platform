@@ -14,6 +14,7 @@ import {
 import { getExecutionBudgetSummary } from "../ai-system/core/run-executor-utils.js";
 import { createArtifactState } from "../ai-system/core/artifacts.js";
 import { createLogger } from "../ai-system/utils/logger.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("Run Executor Core", () => {
   afterEach(() => {
@@ -244,7 +245,7 @@ describe("Run Executor Core", () => {
         // mock.restoreAll() runs in afterEach; this block keeps the temp repo cleanup scoped to the test.
       }
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 

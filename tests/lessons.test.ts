@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { removeTempDir } from "./test-utils.js";
 import {
   appendProjectLesson,
   formatLessonsForPrompt,
@@ -22,7 +23,7 @@ test("project lessons are stored, read, and formatted for planning", async () =>
     assert.equal(lessons[0]?.title, "Preserve queue IDs");
     assert.match(formatLessonsForPrompt(lessons), /Project lessons to respect/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

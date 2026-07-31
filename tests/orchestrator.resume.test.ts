@@ -13,6 +13,9 @@ import {
 } from "../ai-system/core/artifacts.js";
 import { loadRules } from "../ai-system/core/orchestrator-runtime.js";
 import type { ArtifactSummary, Logger, PlanResult, ReviewIssue, RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
+
+const FAKE_CLI_TIMEOUT_MS = 60_000;
 
 test("Orchestrator.resume completes a paused plan by running generator and reviewer", async () => {
   const repo = await createTestRepo();
@@ -498,10 +501,13 @@ async function createTestRepo(overrides: Record<string, unknown> = {}): Promise<
           data_dir: ".ai-system-artifacts"
         },
         providers: {
-          planner: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
-          reviewer: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
-          generator: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 },
-          fixer: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: 8000 }
+          // The fake CLI answers in milliseconds; this budget is only a hang
+          // guard. Sizing it near the happy path makes the suite fail whenever
+          // the host is busy, so keep it far above any legitimate run.
+          planner: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: FAKE_CLI_TIMEOUT_MS },
+          reviewer: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: FAKE_CLI_TIMEOUT_MS },
+          generator: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: FAKE_CLI_TIMEOUT_MS },
+          fixer: { type: "agy-cli", command: fakeCliPath, retries: 0, timeout_ms: FAKE_CLI_TIMEOUT_MS }
         },
         ...overrides
       },
@@ -516,7 +522,7 @@ async function createTestRepo(overrides: Record<string, unknown> = {}): Promise<
     configPath,
     orchestrator: new Orchestrator({ repoRoot, logger: silentLogger(), configPath }),
     cleanup: async () => {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     },
     loadMergedRules: async () => {
       const loaded = await loadRules(repoRoot, configPath);

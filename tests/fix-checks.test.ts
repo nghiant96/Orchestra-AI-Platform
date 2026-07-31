@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { buildFixChecksTask, prepareFixChecksTask } from "../ai-system/core/fix-checks.js";
 import { createLogger } from "../ai-system/utils/logger.js";
+import { removeTempDir } from "./test-utils.js";
 
 async function createTempRepo(files: Record<string, string>) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-fix-checks-"));
@@ -70,7 +71,7 @@ test("prepareFixChecksTask returns null when checks are green", async () => {
 
     assert.equal(result, null);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -107,6 +108,6 @@ test("prepareFixChecksTask collects failing checks and extracts file hints", asy
     assert.deepEqual(result?.fileHints, ["src/auth.ts"]);
     assert.match(result?.task ?? "", /src\/auth\.ts/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

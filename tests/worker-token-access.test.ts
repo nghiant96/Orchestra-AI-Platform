@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import http from "node:http";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir } from "./test-utils.js";
 
 test("worker token can register but cannot list workers", async () => {
   const previousWorkerToken = process.env.ORCHESTRA_WORKER_TOKEN;
@@ -44,6 +44,6 @@ test("worker token can register but cannot list workers", async () => {
       process.env.ORCHESTRA_WORKER_TOKEN = previousWorkerToken;
     }
     await closeServer(server);
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

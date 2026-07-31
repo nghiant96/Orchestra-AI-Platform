@@ -22,6 +22,7 @@ import {
   mapRunSummaryToQueueJob
 } from "../ai-system/jobs/job-service.js";
 import type { OrchestratorResult } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 function createResult({ task, cwd, ok }: { task: string; cwd: string; ok: boolean }): OrchestratorResult {
   return {
@@ -75,7 +76,7 @@ describe("JobService", () => {
 
   test.after(async () => {
     await queue.stop();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   const ctx = () => ({

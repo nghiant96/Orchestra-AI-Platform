@@ -6,6 +6,7 @@ import test from "node:test";
 import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { buildImplementationPromptWithContext } from "../ai-system/worker/contextual-phase-prompt.js";
 import { extractContextPackFromProviderResult } from "../ai-system/worker/context-pack-parser.js";
+import { removeTempDir } from "./test-utils.js";
 import {
   createFallbackWorkerContextPack,
   loadWorkerContextPack,
@@ -217,6 +218,6 @@ test("context pack persistence writes JSON and markdown artifacts", async () => 
     assert.equal(loaded?.jobId, "job-3");
     assert.equal(renderWorkerContextPackMarkdown(pack), markdown);
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });

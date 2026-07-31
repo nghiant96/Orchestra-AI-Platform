@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 import type { QueueJob } from "./job-queue.js";
 import { normalizeQueueJob } from "./normalizers.js";
+import { writeFileAtomic } from "../utils/atomic-file.js";
 import type { JobRecordLockHandle, JobRecordRepository } from "./job-repository.js";
 import { withPostgresClient } from "./postgres.js";
 
@@ -208,10 +209,7 @@ export class PostgresJobRepository implements JobRecordRepository {
 
   private async writeSnapshot(job: QueueJob): Promise<void> {
     await fs.mkdir(this.jobsDir, { recursive: true });
-    const targetPath = this.jobPath(job.jobId);
-    const tempPath = `${targetPath}.tmp.${Date.now()}`;
-    await fs.writeFile(tempPath, `${JSON.stringify(job, null, 2)}\n`, "utf8");
-    await fs.rename(tempPath, targetPath);
+    await writeFileAtomic(this.jobPath(job.jobId), `${JSON.stringify(job, null, 2)}\n`);
   }
 
   private async listSnapshotJobs(limit: number): Promise<QueueJob[]> {

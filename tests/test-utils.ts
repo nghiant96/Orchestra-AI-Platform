@@ -1,9 +1,22 @@
+import fs from "node:fs/promises";
 import http from "node:http";
 import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import type { Logger } from "../ai-system/types.js";
 
 const readyServers = new WeakSet<http.Server>();
+
+/**
+ * Remove a temporary directory created by a test.
+ *
+ * Recursive removal races with anything still touching the tree — a queue drain
+ * that has not settled, a git subprocess winding down — and surfaces as
+ * ENOTEMPTY or EBUSY. `maxRetries` makes fs.rm retry exactly those errors
+ * instead of failing teardown, so cleanup does not turn into a flaky assertion.
+ */
+export async function removeTempDir(target: string): Promise<void> {
+  await fs.rm(target, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+}
 
 /**
  * Robustly wait for a server to start listening with retries and polling.
@@ -95,6 +108,48 @@ export async function closeServer(server: http.Server): Promise<void> {
       resolve();
     });
   });
+}
+
+/**
+ * Poll a job until it reaches the expected status.
+ *
+ * The budget is a hang guard, not a performance assertion. Reaching a terminal
+ * status can mean claiming a job, spawning a provider subprocess, and writing
+ * artifacts — while the rest of the suite competes for the same machine. Sizing
+ * this near the happy path is what turns a busy host into a red build, so it is
+ * deliberately generous; a job that arrives quickly still returns immediately.
+ *
+ * A 404 is treated as "not visible yet" because a freshly created job can lag
+ * behind the response that announced it.
+ */
+export async function waitForJobStatus(
+  baseUrl: string,
+  jobId: string,
+  status: string,
+  options: { headers?: Record<string, string>; timeoutMs?: number } = {}
+): Promise<any> {
+  const { headers = {}, timeoutMs = 60_000 } = options;
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = "<never observed>";
+
+  while (Date.now() < deadline) {
+    try {
+      const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`, undefined, 200, headers);
+      if (job?.status === status) {
+        return job;
+      }
+      lastStatus = String(job?.status ?? "<none>");
+    } catch (error) {
+      if (!(error as Error).message.includes("HTTP 404")) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(
+    `Timed out after ${timeoutMs}ms waiting for job ${jobId} to reach ${status}; last status was ${lastStatus}`
+  );
 }
 
 /**

@@ -6,6 +6,7 @@ import path from "node:path";
 import { prepareRuntimeRules } from "../ai-system/core/orchestrator-runtime.js";
 import { buildRoutingDecision } from "../ai-system/core/provider-router.js";
 import type { Logger, RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("prepareRuntimeRules routes low-risk text tasks to the fast profile", async () => {
   await withEnv({}, async () => {
@@ -25,7 +26,7 @@ test("prepareRuntimeRules routes low-risk text tasks to the fast profile", async
       assert.equal(rules.providers.reviewer.command, "codex");
       assert.equal(rules.providers.generator.type, "codex-cli");
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -49,7 +50,7 @@ test("prepareRuntimeRules routes risky tasks to the safe profile using provider 
       assert.equal(rules.providers.planner.type, "agy-cli");
       assert.equal(rules.providers.generator.type, "codex-cli");
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -76,7 +77,7 @@ test("explicit role env overrides stay authoritative after dynamic routing", asy
       assert.equal(rules.providers.reviewer.type, "codex-cli");
       assert.equal(rules.providers.reviewer.command, "codex");
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -97,7 +98,7 @@ test("AI_SYSTEM_ROUTING_PROFILE forces the requested routing profile", async () 
       assert.equal(decision.profile, "safe");
       assert.equal(rules.providers.reviewer.type, "claude-cli");
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -122,7 +123,7 @@ test("AI_SYSTEM_PROVIDER rebuilds all role configs from matching provider templa
       assert.equal(rules.providers.fixer.type, "agy-cli");
       assert.equal(rules.providers.fixer.command, "agy");
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -149,7 +150,7 @@ test("AI_SYSTEM_PROVIDER=default restores the mixed local provider commands", as
       assert.equal(rules.providers.fixer.type, "codex-cli");
       assert.equal(rules.providers.fixer.command, "codex");
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -176,7 +177,7 @@ test("implementation-stage routing upgrades reviewer when the plan targets risky
       assert.equal(decision.roleProviders.reviewer, "claude-cli");
       assert.ok(decision.signals.some((signal) => signal.name === "plan:risky-paths"));
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -257,7 +258,7 @@ test("adaptive routing uses recent general run outcomes to favor the safer imple
       assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
       assert.match(decision.reason, /adaptive routing/i);
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -323,7 +324,7 @@ test("adaptive routing favors the fast profile when recent docs reviews succeed 
       assert.equal(decision.roleProviders.reviewer, "codex-cli");
       assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -395,7 +396,7 @@ test("adaptive routing penalizes slower and costlier reviewers when quality is o
       assert.equal(decision.roleProviders.reviewer, "agy-cli");
       assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -484,7 +485,7 @@ test("adaptive routing penalizes providers that repeatedly exceed run budgets", 
       assert.equal(decision.roleProviders.reviewer, "agy-cli");
       assert.ok(decision.signals.some((signal) => signal.name === "history:provider-outcomes"));
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Orchestrator } from "../ai-system/core/orchestrator.js";
 import { createLogger } from "../ai-system/utils/logger.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("Orchestrator Integration", () => {
   afterEach(() => {
@@ -62,7 +63,7 @@ describe("Orchestrator Integration", () => {
       assert.strictEqual(result.plan.refactorAnalysis.affectedFiles.length, 2); // b.ts + related.ts
       assert.ok(result.refactorAnalysis);
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await removeTempDir(tempDir);
     }
   });
 });

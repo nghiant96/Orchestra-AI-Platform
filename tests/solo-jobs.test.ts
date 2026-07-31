@@ -18,6 +18,7 @@ import {
 import { runCommand } from "../ai-system/utils/api.js";
 import type { WorkerProviderAdapter } from "../ai-system/worker/providers/provider-adapter.js";
 import type { AuditLogRepository } from "../ai-system/core/audit-log.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("Solo job operations list, show, read logs, explain diff, and undo", async () => {
   const repoRoot = await createGitRepo("solo-jobs-");
@@ -67,7 +68,7 @@ test("Solo job operations list, show, read logs, explain diff, and undo", async 
     ));
     assert.equal(manifestAfterUndo.status, "reverted");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -114,7 +115,7 @@ test("Solo continue seeds a new job from previous artifacts and verification fai
     assert.match(continued.prompt, /src\/needs-fix\.ts/);
     assert.equal(continueAudit.events.some((event) => event.action === "solo.continue"), true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -160,7 +161,7 @@ test("Solo commit helper generates a message and commits only job changed files"
     assert.equal(manifestAfterCommit.repo.gitCommitAfter, commit.commitSha);
     assert.equal(audit.events.some((event) => event.action === "solo.commit"), true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createDryRunToolExecutionSummary, runToolChecks, summarizeConfiguredTools } from "../ai-system/core/tool-executor.js";
 import type { GeneratedFile, RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("runToolChecks validates generated JSON and records a high-severity issue", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-json-"));
@@ -27,7 +28,7 @@ test("runToolChecks validates generated JSON and records a high-severity issue",
     assert.equal(summary.issues[0]?.severity, "high");
     assert.match(summary.issues[0]?.description ?? "", /invalid json syntax/i);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -91,7 +92,7 @@ test("runToolChecks auto-detects npm scripts and stores structured command resul
 
     assert.equal(testResult?.skipped, true);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -158,7 +159,7 @@ test("runToolChecks supports changed-file placeholders in configured script args
     assert.equal(lintConfig?.scopedToChangedFiles, true);
     assert.equal(lintConfig?.source, "configured-script");
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -221,7 +222,7 @@ test("runToolChecks auto-detects scoped lint/test scripts for changed files", as
     assert.equal(testResult?.scope, "changed-files");
     assert.deepEqual(testResult?.args, ["run", "test:related", "--", "src/example.test.ts"]);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -292,7 +293,7 @@ test("runToolChecks scopes lint/test to a single changed workspace package", asy
     assert.equal(testResult?.workingDirectory, "packages/web");
     assert.deepEqual(testResult?.args, ["run", "test"]);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -362,7 +363,7 @@ test("runToolChecks prefers the changed package lint script over the root lint s
     assert.deepEqual(lintResult?.args, ["run", "lint"]);
     assert.match(lintResult?.stdout ?? "", /dashboard/);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -429,7 +430,7 @@ test("runToolChecks scopes generic package eslint scripts to changed files", asy
     } else {
       process.env.PATH = previousPath;
     }
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -487,7 +488,7 @@ test("runToolChecks scopes typecheck to a single changed workspace package when 
     assert.match(typecheckResult?.stdout ?? "", /packages[/\\]web/);
     assert.ok(typecheckResult?.args?.includes(path.join(tempDir, "packages/web/tsconfig.json")));
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -554,7 +555,7 @@ test("runToolChecks prefers a changed package tsconfig over the root typecheck s
     assert.match(typecheckResult?.stdout ?? "", /dashboard/);
     assert.ok(typecheckResult?.args?.includes(path.join(tempDir, "dashboard/tsconfig.json")));
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -644,7 +645,7 @@ test("runToolChecks uses pnpm workspace filters when changes span multiple packa
     assert.match(lintResult?.stdout ?? "", /packages[/\\]web/);
     assert.match(lintResult?.stdout ?? "", /packages[/\\]api/);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -715,7 +716,7 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
     } else {
       process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET = previousSecret;
     }
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -752,7 +753,7 @@ test("summarizeConfiguredTools auto-detects Python Go and Rust test adapters", a
       assert.equal(testSummary?.command, scenario.command);
       assert.deepEqual(testSummary?.args, scenario.args);
     } finally {
-      await fs.rm(tempDir, { recursive: true, force: true });
+      await removeTempDir(tempDir);
     }
   }
 });
@@ -809,7 +810,7 @@ test("runToolChecks preserves sandbox settings for configured non-Node adapters"
     } else {
       process.env.AI_SYSTEM_ADAPTER_SECRET = previousSecret;
     }
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -846,7 +847,7 @@ test("runToolChecks lets explicit tool commands override detected adapters", asy
     assert.deepEqual(testResult?.args, ["-e", "console.log('configured command wins')"]);
     assert.match(testResult?.stdout ?? "", /configured command wins/);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -878,7 +879,7 @@ test("runToolChecks skips non-Node typecheck when adapter has no typecheck comma
     assert.equal(typecheckResult?.skipped, true);
     assert.match(typecheckResult?.summary ?? "", /no configured or detected command/i);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -983,7 +984,7 @@ test("runToolChecks builds a safe docker invocation for workspace-scoped checks"
     } else {
       process.env.AI_SYSTEM_TOOL_DOCKER_SECRET = previousSecret;
     }
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -1027,7 +1028,7 @@ test("runToolChecks skips docker sandbox when docker is unavailable", async () =
     } else {
       process.env.PATH = previousPath;
     }
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -1099,7 +1100,7 @@ test("runToolChecks auto-builds missing docker image when enabled", async () => 
     } else {
       process.env.PATH = previousPath;
     }
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -1137,7 +1138,7 @@ test("createDryRunToolExecutionSummary skips command-based checks explicitly", a
     assert.match(lintResult?.summary ?? "", /dry-run repo sandbox is incomplete/);
     assert.equal(typecheckResult?.skipped, true);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -1207,7 +1208,7 @@ test("runToolChecks scopes package build scripts for dashboard changes when buil
     assert.deepEqual(buildResult?.args, ["run", "build"]);
     assert.match(buildResult?.stdout ?? "", /dashboard/);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 

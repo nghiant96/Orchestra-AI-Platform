@@ -108,7 +108,7 @@ export async function runWorkerRuntime(
           providerCommand: config.providerCommand,
           emitLog,
           markFilesystemMutation: async (stage: string, worktreePath?: string) => {
-            const checkpoint = await retryTransientJobMutation(() => client.checkpoint(worker.id, job.jobId, lease.leaseId, {
+            const checkpoint = await retryWhileJobLocked(() => client.checkpoint(worker.id, job.jobId, lease.leaseId, {
               stage,
               filesystemMutated: true,
               worktreePath
@@ -133,7 +133,7 @@ export async function runWorkerRuntime(
         }
 
         if (result.ok) {
-          const completion = await retryTransientJobMutation(() => client.complete(worker.id, job.jobId, lease.leaseId, {
+          const completion = await retryWhileJobLocked(() => client.complete(worker.id, job.jobId, lease.leaseId, {
             resultSummary: result.summary,
             artifactPath: result.artifactPath,
             workerLogs: logBuffer,
@@ -146,7 +146,7 @@ export async function runWorkerRuntime(
           }
           completedJobs += 1;
         } else {
-          const failure = await retryTransientJobMutation(() => client.fail(worker.id, job.jobId, lease.leaseId, result.summary, {
+          const failure = await retryWhileJobLocked(() => client.fail(worker.id, job.jobId, lease.leaseId, result.summary, {
             artifactPath: result.artifactPath,
             workerLogs: logBuffer,
             diffSummaries: result.diffSummaries,
@@ -171,7 +171,7 @@ export async function runWorkerRuntime(
           }
         }
         const failureMessage = error instanceof Error ? error.message : "Worker job failed";
-        const failure = await retryTransientJobMutation(() => client.fail(worker.id, job.jobId, lease.leaseId, failureMessage, {
+        const failure = await retryWhileJobLocked(() => client.fail(worker.id, job.jobId, lease.leaseId, failureMessage, {
           workerLogs: logBuffer
         })).catch(() => ({ ok: false }));
         if ((failure as { ok: boolean }).ok) {
@@ -206,7 +206,7 @@ export async function runWorkerRuntime(
   };
 
   async function sendHeartbeat(status: "idle" | "busy" = activeJob ? "busy" : "idle"): Promise<void> {
-    const result = await retryTransientHeartbeat(async () => client.heartbeat(worker.id, {
+    const result = await retryWhileJobLocked(async () => client.heartbeat(worker.id, {
         status,
         currentJobId: activeJob?.job.jobId,
         leaseId: activeJob?.leaseId,
@@ -220,22 +220,19 @@ export async function runWorkerRuntime(
     }
   }
 
-  async function retryTransientHeartbeat<T>(fn: () => Promise<T>): Promise<T> {
-    try {
-      return await fn();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      if (message !== "Job is locked; retry") {
-        throw error;
-      }
-      await sleep(25);
-      return fn();
-    }
-  }
-
-  async function retryTransientJobMutation<T>(fn: () => Promise<T>): Promise<T> {
+  /**
+   * Losing a race for a job record lock is routine, not a fault: the server
+   * serialises writers and tells the loser to come back. Every call that can
+   * hit it therefore retries with a widening backoff.
+   *
+   * Heartbeats used to get a single retry at a fixed delay while mutations got
+   * five. A heartbeat that lost twice threw out of the runtime loop and took
+   * the whole worker down over transient contention, so both now share one
+   * policy.
+   */
+  async function retryWhileJobLocked<T>(fn: () => Promise<T>, attempts = 5): Promise<T> {
     let lastError: unknown;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       try {
         return await fn();
       } catch (error) {
@@ -250,14 +247,35 @@ export async function runWorkerRuntime(
     throw lastError;
   }
 
-  async function safeClaim(): Promise<{ job: QueueJob | null; lease: { leaseId: string } | null }> {
-    try {
-      const result = await client.claim(worker.id);
-      return { job: result.job, lease: result.lease ? { leaseId: result.lease.leaseId } : null };
-    } catch (error) {
-      logger.warn(`Worker claim failed: ${(error as Error).message}`);
-      return { job: null, lease: null };
+  /**
+   * Claim the next job, retrying a failed request before reporting an empty
+   * queue.
+   *
+   * "Nothing to claim" and "the claim request failed" are indistinguishable to
+   * the caller, and in `once` mode an empty claim ends the run. Collapsing a
+   * transient failure into an empty result therefore made a one-shot worker
+   * exit reporting success having done no work at all.
+   */
+  async function safeClaim(
+    attempts = 3
+  ): Promise<{ job: QueueJob | null; lease: { leaseId: string } | null }> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      try {
+        const result = await client.claim(worker.id);
+        return { job: result.job, lease: result.lease ? { leaseId: result.lease.leaseId } : null };
+      } catch (error) {
+        lastError = error;
+        logger.warn(
+          `Worker claim attempt ${attempt + 1}/${attempts} failed: ${(error as Error).message}`
+        );
+        await sleep(50 * (attempt + 1));
+      }
     }
+    logger.error(
+      `Worker claim gave up after ${attempts} attempts: ${(lastError as Error)?.message ?? "unknown error"}`
+    );
+    return { job: null, lease: null };
   }
 }
 

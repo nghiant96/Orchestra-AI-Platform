@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { listen, waitForHttpReady, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, waitForHttpReady, closeServer, silentLogger, requestJson, removeTempDir } from "./test-utils.js";
 
 // Phase W0 workspace baseline smoke tests.
 // These tests verify that the existing server/CLI behavior is unchanged
@@ -106,14 +106,14 @@ test("Phase W0 — workspace artifacts can coexist with run artifacts", async ()
         assert.equal(runState.status, "completed");
         assert.equal(runState.task, "old task");
     } finally {
-        await fs.rm(repoRoot, { recursive: true, force: true });
+        await removeTempDir(repoRoot);
     }
 });
 
 async function cleanupDir(dir: string): Promise<void> {
     for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
-            await fs.rm(dir, { recursive: true, force: true });
+            await removeTempDir(dir);
             return;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {

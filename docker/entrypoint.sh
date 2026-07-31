@@ -5,8 +5,15 @@ APP_ROOT="/opt/ai-coding-system"
 DEFAULT_WORKDIR="${AI_SYSTEM_WORKDIR:-/workspace}"
 SERVER_MODE="${AI_SYSTEM_SERVER_MODE:-false}"
 
+# The image ships compiled JavaScript; the TypeScript toolchain is not present
+# in the runtime stage.
+SERVER_ENTRY="${APP_ROOT}/dist/ai-system/server.js"
+CLI_ENTRY="${APP_ROOT}/dist/ai-system/cli.js"
+
 run_server() {
-  exec node --import tsx "${APP_ROOT}/ai-system/server.ts"
+  # exec keeps the server as tini's direct child, so SIGTERM reaches its
+  # shutdown handler instead of terminating this shell.
+  exec node "${SERVER_ENTRY}"
 }
 
 if [[ $# -eq 0 ]]; then
@@ -14,7 +21,7 @@ if [[ $# -eq 0 ]]; then
     run_server
   fi
 
-  exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" --help
+  exec node "${CLI_ENTRY}" --help
 fi
 
 if [[ "${1}" == "server" ]]; then
@@ -22,11 +29,11 @@ if [[ "${1}" == "server" ]]; then
 fi
 
 if [[ "${1}" == "--help" || "${1}" == "-h" ]]; then
-  exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" "$@"
+  exec node "${CLI_ENTRY}" "$@"
 fi
 
 if [[ "${1}" == "--cwd" ]]; then
-  exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" "$@"
+  exec node "${CLI_ENTRY}" "$@"
 fi
 
-exec node --import tsx "${APP_ROOT}/ai-system/cli.ts" --cwd "${DEFAULT_WORKDIR}" "$@"
+exec node "${CLI_ENTRY}" --cwd "${DEFAULT_WORKDIR}" "$@"

@@ -10,6 +10,7 @@ import {
 } from "../ai-system/worker/diff-boundary-checker.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import type { WorkerContextPack } from "../ai-system/worker/context-pack.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("diff boundary checker warns for outside boundary changes by default", async () => {
   const repoRoot = await createGitRepo("diff-boundary-warn-");
@@ -32,7 +33,7 @@ test("diff boundary checker warns for outside boundary changes by default", asyn
     assert.equal(result.findings[0]?.code, "BOUNDARY_OUTSIDE_ALLOWED");
     assert.equal(result.findings[0]?.severity, "warning");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -59,7 +60,7 @@ test("diff boundary checker warns for low confidence and fails outside boundary 
       true
     );
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -80,7 +81,7 @@ test("diff boundary checker fails for doNotTouch matches", async () => {
     assert.equal(result.findings[0]?.code, "TOUCHED_DO_NOT_TOUCH");
     assert.equal(result.findings[0]?.severity, "error");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -109,7 +110,7 @@ test("diff boundary checker detects undeclared new files and writes artifact", a
     assert.equal(artifact.version, 1);
     assert.equal(artifact.ok, false);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -135,7 +136,7 @@ test("diff boundary checker warns for undeclared new files by default", async ()
       true
     );
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -160,7 +161,7 @@ test("diff boundary checker supports exact, recursive, single-level, and simple 
     assert.equal(result.ok, true);
     assert.deepEqual(result.findings, []);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

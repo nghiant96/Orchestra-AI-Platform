@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { loadRules } from "../ai-system/core/orchestrator-runtime.js";
 import { applySetupChoices, inspectProjectConfiguration, runSetupCheck, writeProjectPreset } from "../ai-system/core/config-workflow.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("loadRules normalizes provider commands from a type-only .ai-system.json override", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-config-"));
@@ -36,7 +37,7 @@ test("loadRules normalizes provider commands from a type-only .ai-system.json ov
     assert.equal(rules.providers.fixer.type, "codex-cli");
     assert.equal(rules.providers.fixer.command, "codex");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -53,7 +54,7 @@ test("loadRules applies the codex-all preset from .ai-system.json", async () => 
     assert.equal(rules.providers.generator.command, "codex");
     assert.equal(rules.providers.fixer.command, "codex");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -98,7 +99,7 @@ test("writeProjectPreset preserves unrelated config and clears legacy provider o
     assert.equal(inspection.effectiveRules.providers.planner.command, "codex");
     assert.equal(inspection.effectiveRules.memory.backend, "openmemory");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -152,7 +153,7 @@ test("loadRules applies global config defaults before project overrides", async 
     assert.equal(rules.memory.backend, "openmemory");
     assert.equal(rules.routing?.enabled, false);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -198,7 +199,7 @@ test("loadRules can inspect the global layer without mixing in project overrides
     assert.equal(rules.providers.reviewer.type, "claude-cli");
     assert.equal(rules.routing?.enabled, false);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -283,7 +284,7 @@ test("applySetupChoices writes codex/openmemory project defaults and env values"
       assert.match(envRaw, /AI_SYSTEM_OPENMEMORY_BASE_URL=http:\/\/127\.0\.0\.1:19080/);
       assert.match(envRaw, /AI_SYSTEM_OPENMEMORY_API_KEY=test-openmemory-key/);
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -325,7 +326,7 @@ test("runSetupCheck reports OpenMemory probe failures against the configured env
         assert.equal(result.openmemory.add.ok, false);
       }
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -361,7 +362,7 @@ test("runSetupCheck includes runtime, server, and dashboard prerequisites", asyn
     process.env.AI_SYSTEM_SERVER_TOKEN = originalServerToken;
     process.env.AI_SYSTEM_ALLOWED_WORKDIRS = originalAllowedWorkdirs;
     process.env.AI_SYSTEM_SERVER_MODE = originalServerMode;
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -399,7 +400,7 @@ test("project-configured providers stay pinned while auto roles remain routable"
       assert.equal(inspection.effectiveRules.providers.fixer.type, "codex-cli");
       assert.ok(inspection.toolSummaries.length >= 4);
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });

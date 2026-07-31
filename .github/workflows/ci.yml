@@ -10,6 +10,26 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
 
+    services:
+      # Real Postgres, so the HA-path tests execute SQL instead of asserting
+      # that the class was constructed.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: orchestra
+          POSTGRES_USER: orchestra
+          POSTGRES_PASSWORD: orchestra-ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orchestra -d orchestra"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      ORCHESTRA_TEST_POSTGRES_URL: postgresql://orchestra:orchestra-ci@127.0.0.1:5432/orchestra
+
     steps:
       - uses: actions/checkout@v4
 
@@ -37,5 +57,70 @@ jobs:
       - name: Run Tests
         run: pnpm test
 
+      - name: Assert Postgres integration tests actually ran
+        # A skipped suite reports success. Without this guard, a broken
+        # ORCHESTRA_TEST_POSTGRES_URL would silently return the project to
+        # claiming an HA path that nothing exercises.
+        run: pnpm run test:postgres
+
+      - name: Run Dashboard Tests
+        run: pnpm run dashboard:test
+
       - name: Build Dashboard
         run: pnpm run dashboard:build
+
+  docker-image:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build runtime image
+        # Builds from the lockfile; fails if pnpm-lock.yaml and package.json
+        # have drifted apart.
+        run: docker build --tag orchestra-ai-platform:ci .
+
+      - name: Image runs as a non-root user
+        run: |
+          user=$(docker run --rm --entrypoint sh orchestra-ai-platform:ci -c 'id -un')
+          echo "image user: ${user}"
+          test "${user}" != "root"
+
+      - name: Image ships compiled output, not the TypeScript toolchain
+        run: |
+          docker run --rm --entrypoint sh orchestra-ai-platform:ci -c \
+            'test -f /opt/ai-coding-system/dist/ai-system/server.js'
+          docker run --rm --entrypoint sh orchestra-ai-platform:ci -c \
+            '! test -d /opt/ai-coding-system/node_modules/tsx'
+
+      - name: Server starts, answers /health, and stops on SIGTERM
+        run: |
+          docker run --detach --name orchestra-ci \
+            --env AI_SYSTEM_SERVER_MODE=true \
+            --env AI_SYSTEM_SERVER_TOKEN=ci-health-token \
+            --env PORT=3927 \
+            --publish 3927:3927 \
+            orchestra-ai-platform:ci
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS -H 'Authorization: Bearer ci-health-token' \
+              http://127.0.0.1:3927/health > /dev/null; then
+              echo "health ok after ${attempt} attempt(s)"
+              break
+            fi
+            if [ "${attempt}" -eq 30 ]; then
+              echo "server never became healthy"
+              docker logs orchestra-ci
+              exit 1
+            fi
+            sleep 2
+          done
+
+          # A container that exits 143 died on the signal; a graceful shutdown
+          # exits 0.
+          docker stop --timeout 30 orchestra-ci
+          code=$(docker inspect --format '{{.State.ExitCode}}' orchestra-ci)
+          echo "exit code: ${code}"
+          docker logs orchestra-ci
+          docker rm orchestra-ci
+          test "${code}" = "0"

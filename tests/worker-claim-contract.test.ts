@@ -5,7 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir } from "./test-utils.js";
 
 function createResult({ task, cwd, ok }: { task: string; cwd: string; ok: boolean }): any {
   return {
@@ -392,7 +392,7 @@ describe("Worker Claim And Lease", () => {
 async function cleanupDir(dir: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeTempDir(dir);
       return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {

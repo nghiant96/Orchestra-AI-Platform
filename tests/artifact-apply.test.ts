@@ -6,6 +6,7 @@ import path from "node:path";
 import { createArtifactState, persistIterationArtifacts, persistPlanArtifacts } from "../ai-system/core/artifacts.js";
 import { applyArtifactCandidate, loadArtifactCandidate } from "../ai-system/core/artifact-apply.js";
 import type { RulesConfig, PlanResult } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("loadArtifactCandidate and applyArtifactCandidate load and apply the latest iteration artifact", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-artifact-apply-"));
@@ -83,7 +84,7 @@ test("loadArtifactCandidate and applyArtifactCandidate load and apply the latest
     assert.equal(artifactIndex.applyEventCount, 1);
     assert.deepEqual(artifactIndex.latestFiles, ["src/example.ts"]);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

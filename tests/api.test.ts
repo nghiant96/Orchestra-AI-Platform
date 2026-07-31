@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { loadEnvironment, parseEnvFileContent, runCommand } from "../ai-system/utils/api.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("parseEnvFileContent supports inline comments and multiline quoted values", () => {
   const parsed = parseEnvFileContent([
@@ -51,7 +52,7 @@ test("loadEnvironment loads repo-local .env without overriding existing variable
       process.env[newKey] = previousNew;
     }
 
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -81,7 +82,7 @@ test("runCommand force-kills hung child processes after the grace period", async
     await waitFor(() => isProcessGone(pid), 1500);
     assert.equal(isProcessGone(pid), true);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -99,7 +100,7 @@ test("runCommand can ignore stdin for non-interactive CLI providers", async () =
     assert.equal(result.stdout, "ok");
     assert.equal(result.code, 0);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 

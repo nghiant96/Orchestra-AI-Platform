@@ -7,6 +7,7 @@ import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import { runNamingGuard, writeNamingGuardArtifact } from "../ai-system/worker/naming-guard.js";
 import { scanRepoConventions, writeRepoConventionScanArtifact } from "../ai-system/worker/repo-convention-scanner.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("naming guard warns for scenario-like generated names", async () => {
   const result = await withEnv({}, async () => runNamingGuard({
@@ -32,7 +33,7 @@ test("naming guard strict mode fails suspicious names and writes artifact", asyn
     const artifact = JSON.parse(await fs.readFile(path.join(tmpDir, ARTIFACT_PATHS.namingCheck), "utf8"));
     assert.equal(artifact.ok, false);
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });
 
@@ -94,7 +95,7 @@ test("repo convention scanner records common filename patterns", async () => {
     );
     assert.ok(await exists(path.join(artifactDir, ARTIFACT_PATHS.repoConventions)));
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

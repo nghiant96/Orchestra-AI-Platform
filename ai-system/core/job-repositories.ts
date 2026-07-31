@@ -4,6 +4,7 @@ import path from "node:path";
 // @ts-expect-error Node 24 exposes node:sqlite at runtime, but the pinned TS libs here do not declare it yet.
 import { DatabaseSync } from "node:sqlite";
 import { normalizeQueueJob } from "./normalizers.js";
+import { writeFileAtomic } from "../utils/atomic-file.js";
 import { createPostgresPool } from "./postgres.js";
 import { resolveStoreMode } from "./store-mode.js";
 import { PostgresJobRepository } from "./postgres-job-repository.js";
@@ -41,10 +42,7 @@ export class FileJobRepository implements JobRecordRepository {
 
   async write(job: QueueJob): Promise<void> {
     await fs.mkdir(this.jobsDir, { recursive: true });
-    const targetPath = this.jobPath(job.jobId);
-    const tempPath = `${targetPath}.tmp.${Date.now()}`;
-    await fs.writeFile(tempPath, `${JSON.stringify(job, null, 2)}\n`, "utf8");
-    await fs.rename(tempPath, targetPath);
+    await writeFileAtomic(this.jobPath(job.jobId), `${JSON.stringify(job, null, 2)}\n`);
   }
 
   async delete(jobId: string): Promise<boolean> {
@@ -170,10 +168,7 @@ export class SqliteJobRepository implements JobRecordRepository {
 
   private async writeSnapshot(job: QueueJob): Promise<void> {
     await fs.mkdir(this.jobsDir, { recursive: true });
-    const targetPath = this.jobPath(job.jobId);
-    const tempPath = `${targetPath}.tmp.${Date.now()}`;
-    await fs.writeFile(tempPath, `${JSON.stringify(job, null, 2)}\n`, "utf8");
-    await fs.rename(tempPath, targetPath);
+    await writeFileAtomic(this.jobPath(job.jobId), `${JSON.stringify(job, null, 2)}\n`);
   }
 
   private async listSnapshotJobs(limit: number): Promise<QueueJob[]> {

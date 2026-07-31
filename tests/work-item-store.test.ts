@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { WorkStore } from "../ai-system/work/work-store.js";
 import type { RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("WorkItem Store", () => {
   let tmpDir: string;
@@ -23,7 +24,7 @@ describe("WorkItem Store", () => {
   });
 
   after(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   test("creates and saves a work item", async () => {

@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { DependencyGraph } from "../ai-system/core/dependency-graph.js";
+import { removeTempDir } from "./test-utils.js";
 
 async function createTempRepo(files: Record<string, string>) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-test-"));
@@ -39,7 +40,7 @@ test("DependencyGraph correctly identifies internal imports", async () => {
     const relatedDepth2 = await graph.getRelatedFiles(["index.ts"], 2);
     assert.ok(relatedDepth2.includes("src/c.ts"));
   } finally {
-    await fs.rm(repo, { recursive: true, force: true });
+    await removeTempDir(repo);
   }
 });
 
@@ -53,6 +54,6 @@ test("DependencyGraph handles missing files gracefully", async () => {
     await graph.buildGraph(["main.ts"]);
     assert.equal(graph.nodes.get("main.ts")?.imports.length, 0);
   } finally {
-    await fs.rm(repo, { recursive: true, force: true });
+    await removeTempDir(repo);
   }
 });

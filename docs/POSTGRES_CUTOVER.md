@@ -5,15 +5,29 @@ Use this when moving a release from SQLite/file state to the Postgres-backed HA 
 ## Before You Start
 
 - Confirm the target Postgres database exists and is reachable.
-- Confirm `AI_SYSTEM_SERVER_TOKEN` is set.
+- Confirm `AI_SYSTEM_SERVER_TOKEN` and `POSTGRES_PASSWORD` are set. Compose
+  refuses to start without them rather than falling back to a default secret.
 - Keep the old workspace state mounted until validation is complete.
+
+## Rehearse Against A Throwaway Database First
+
+The backend has integration tests; run them against the target's engine version
+before touching real data.
+
+```bash
+export POSTGRES_PASSWORD=<secret>
+docker compose --profile postgres up -d postgres
+export ORCHESTRA_TEST_POSTGRES_URL="postgresql://orchestra:${POSTGRES_PASSWORD}@127.0.0.1:5432/orchestra"
+pnpm run test:postgres
+```
 
 ## 10-Minute Cutover
 
 ```bash
-export AI_SYSTEM_SERVER_TOKEN=replace-me
+export AI_SYSTEM_SERVER_TOKEN=<secret>
+export POSTGRES_PASSWORD=<secret>
 export ORCHESTRA_STORE=postgres
-export ORCHESTRA_POSTGRES_URL=postgresql://orchestra:orchestra@localhost:5432/orchestra
+export ORCHESTRA_POSTGRES_URL="postgresql://orchestra:${POSTGRES_PASSWORD}@postgres:5432/orchestra"
 docker compose --profile postgres up -d postgres orchestra-ai-platform
 pnpm run postgres:migrate
 ```

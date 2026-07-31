@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer, mapRunSummaryToQueueJob, resolveQueueRunApprovalMode } from "../ai-system/server-app.js";
+import { FileBackedJobQueue, resolveJobQueueDirectory } from "../ai-system/core/job-queue.js";
 import type { OrchestratorResult } from "../ai-system/types.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir, waitForJobStatus } from "./test-utils.js";
 
 test("server jobs API enqueues, completes, lists, and returns stable JSON", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-server-jobs-"));
@@ -23,7 +23,7 @@ test("server jobs API enqueues, completes, lists, and returns stable JSON", asyn
     assert.equal(created.status, "queued");
     assert.equal(typeof created.jobId, "string");
 
-    const completed = await waitForJob(baseUrl, String(created.jobId), "completed");
+    const completed = await waitForJobStatus(baseUrl, String(created.jobId), "completed");
     assert.equal(completed.task, "do queued work");
     assert.equal(completed.cwd, canonicalRepoRoot);
     assert.equal(completed.artifactPath, path.join(canonicalRepoRoot, ".ai-system-artifacts", "mock-run"));
@@ -94,8 +94,8 @@ test("server cancels queued jobs", async () => {
     const cancelled = await requestJson(baseUrl, "POST", `/jobs/${queued.jobId}/cancel`);
     assert.equal(cancelled.status, "cancelled");
     releaseFirstJob();
-    await waitForJob(baseUrl, String(queued.jobId), "cancelled");
-    await waitForJob(baseUrl, String(first.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(queued.jobId), "cancelled");
+    await waitForJobStatus(baseUrl, String(first.jobId), "completed");
   } finally {
     releaseFirstJob();
     await closeServer(server);
@@ -233,7 +233,7 @@ test("project registry and audit log expose multi-project operations", async () 
       "x-ai-system-role": "operator",
       "x-ai-system-actor": "tester"
     });
-    await waitForJob(baseUrl, String(created.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(created.jobId), "completed");
 
     const audit = await requestJson(baseUrl, "GET", "/audit");
     assert.ok(audit.events.some((event: any) => event.action === "job.create" && event.actor.id === "tester"));
@@ -369,7 +369,7 @@ test("server smoke covers health projects jobs stats lessons and audit", async (
       }
     );
     assert.equal(created.approvalMode, "auto");
-    await waitForJob(baseUrl, String(created.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(created.jobId), "completed");
 
     const jobs = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodedCwd}`);
     assert.ok(jobs.jobs.some((job: any) => job.jobId === created.jobId));
@@ -426,8 +426,8 @@ test("jobs API filters queue records by requested project cwd", async () => {
     const baseUrl = await listen(server);
     const first = await requestJson(baseUrl, "POST", "/jobs", { task: "project a" }, 202);
     const second = await requestJson(baseUrl, "POST", "/jobs", { task: "project b", cwd: otherRoot }, 202);
-    await waitForJob(baseUrl, String(first.jobId), "completed");
-    await waitForJob(baseUrl, String(second.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(first.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(second.jobId), "completed");
 
     const projectA = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(repoRoot)}`);
     assert.deepEqual(
@@ -506,62 +506,47 @@ test("artifact run summaries map to typed queue jobs", () => {
   assert.equal(mapRunSummaryToQueueJob({ ...baseRun, status: "unexpected" }, "/repo").status, "failed");
 });
 
-async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const job = await requestJsonMaybe(baseUrl, "GET", `/jobs/${jobId}`);
-    if (job?.status === status) {
-      return job;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
-}
+test("FileBackedJobQueue.stop waits for an in-flight drain instead of leaving it to start jobs afterwards", async () => {
+  // A drain suspended on its job listing has not registered a run promise yet.
+  // stop() must still wait for it — otherwise the pass resumes after shutdown
+  // and starts a job against a repository that is already closed. The exact
+  // suspension point depends on filesystem timing, so sweep the window.
+  for (const stopDelayMs of [0, 10, 25, 40, 50, 60, 80]) {
+    const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "queue-stop-race-"));
 
-async function requestJsonMaybe(
-  baseUrl: string,
-  method: string,
-  pathname: string,
-  body?: unknown
-): Promise<any | null> {
-  const url = new URL(pathname, baseUrl);
-  const payload = body === undefined ? null : JSON.stringify(body);
-  return new Promise((resolve, reject) => {
-    const req = http.request(
-      url,
-      {
-        method,
-        headers: {
-          ...(payload
-            ? {
-                "Content-Type": "application/json",
-                "Content-Length": Buffer.byteLength(payload)
-              }
-            : {})
+    try {
+      let shutdownComplete = false;
+      let startedAfterShutdown = false;
+
+      const queue = new FileBackedJobQueue(
+        resolveJobQueueDirectory(repoRoot),
+        async ({ task, cwd, dryRun }) => {
+          if (shutdownComplete) {
+            startedAfterShutdown = true;
+          }
+          return createResult({ task, cwd, dryRun, ok: true });
         }
-      },
-      (res) => {
-        const chunks: Buffer[] = [];
-        res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-        res.on("end", () => {
-          if (res.statusCode === 404) {
-            resolve(null);
-            return;
-          }
-          try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-          } catch (error) {
-            reject(error);
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    if (payload) {
-      req.write(payload);
+      );
+
+      queue.start();
+      await queue.enqueue({ task: "work queued before shutdown", cwd: repoRoot, dryRun: true });
+      await new Promise((resolve) => setTimeout(resolve, stopDelayMs));
+
+      await queue.stop();
+      shutdownComplete = true;
+
+      // Give any leaked drain the time it would need to surface.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      assert.equal(
+        startedAfterShutdown,
+        false,
+        `queue started a job after stop() resolved (stop delay ${stopDelayMs}ms)`
+      );
+    } finally {
+      await removeTempDir(repoRoot);
     }
-    req.end();
-  });
-}
+  }
+});
 
 function createResult({ task, cwd, dryRun, ok }: { task: string; cwd: string; dryRun: boolean; ok: boolean }): OrchestratorResult {
   return {
@@ -612,7 +597,7 @@ function createResult({ task, cwd, dryRun, ok }: { task: string; cwd: string; dr
 async function cleanupDir(dir: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeTempDir(dir);
       return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {

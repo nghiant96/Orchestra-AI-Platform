@@ -10,7 +10,7 @@ import { loadWorkerRuntimeConfig } from "../ai-system/worker/worker-config.js";
 import { runWorkerRuntime } from "../ai-system/worker/worker-runtime.js";
 import { CodexProvider } from "../ai-system/worker/providers/codex-provider.js";
 import { buildProviderEnv } from "../ai-system/worker/provider-env.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir } from "./test-utils.js";
 
 describe("Worker provider execution", () => {
   test("mock CodexProvider success creates diff artifacts without mutating main checkout in dry-run", async () => {
@@ -66,7 +66,7 @@ describe("Worker provider execution", () => {
     } finally {
       restoreEnv(previousBackend, previousWorkerToken);
       await closeServer(server);
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
       await fs.rm(fakeCodex, { force: true });
     }
   });
@@ -118,7 +118,7 @@ describe("Worker provider execution", () => {
     } finally {
       restoreEnv(previousBackend, previousWorkerToken);
       await closeServer(server);
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
       await fs.rm(fakeCodex, { force: true });
     }
   });
@@ -142,8 +142,8 @@ describe("Worker provider execution", () => {
       assert.equal(result.ok, false);
       assert.match(result.summary, /outside workspace root/);
     } finally {
-      await fs.rm(workspaceRoot, { recursive: true, force: true });
-      await fs.rm(outsideRoot, { recursive: true, force: true });
+      await removeTempDir(workspaceRoot);
+      await removeTempDir(outsideRoot);
     }
   });
 });

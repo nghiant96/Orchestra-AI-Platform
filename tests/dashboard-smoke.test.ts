@@ -4,13 +4,13 @@ import path from "node:path";
 import os from "node:os";
 import fs from "node:fs/promises";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { requestJson } from "./test-utils.js";
+import { requestJson, removeTempDir } from "./test-utils.js";
 import type http from "node:http";
 
 async function cleanupDir(dir: string): Promise<void> {
   for (let i = 0; i < 5; i++) {
     try {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeTempDir(dir);
       return;
     } catch {
       await new Promise((r) => setTimeout(r, 100));

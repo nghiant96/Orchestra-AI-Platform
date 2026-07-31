@@ -8,6 +8,7 @@ import { FileAuditLog, resolveAuditLogPath } from "../ai-system/core/audit-log.j
 import { createApprovalArtifactBinding } from "../ai-system/approvals/approval-proof.js";
 import { assertHermesAuth } from "../ai-system/mcp/auth.js";
 import { executeMcpTool } from "../ai-system/mcp/tools.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("MCP tools", () => {
   test("auth validates Hermes token when configured", () => {
@@ -48,7 +49,7 @@ describe("MCP tools", () => {
       assert.equal(cancelled.workItem.status, "cancelled");
     } finally {
       await queue.stop();
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeTempDir(tmp);
     }
   });
 
@@ -101,7 +102,7 @@ describe("MCP tools", () => {
       assert.equal(result.approved, true);
     } finally {
       await queue.stop();
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeTempDir(tmp);
     }
   });
 
@@ -124,7 +125,7 @@ describe("MCP tools", () => {
       );
     } finally {
       await queue.stop();
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeTempDir(tmp);
     }
   });
 });

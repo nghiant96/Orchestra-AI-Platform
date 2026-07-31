@@ -8,7 +8,7 @@ import { assessWorkItem } from "../ai-system/work/assessment.js";
 import { buildChecklist } from "../ai-system/work/checklist.js";
 import { buildTaskGraph } from "../ai-system/work/task-graph.js";
 import type { RulesConfig } from "../ai-system/types.js";
-import { listen, waitForHttpReady, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, waitForHttpReady, closeServer, silentLogger, requestJson, removeTempDir, waitForJobStatus } from "./test-utils.js";
 
 test("workspace assessment, graph, and checklist are generated deterministically", async () => {
   const rules = { artifacts: { data_dir: ".artifacts" } } as RulesConfig;
@@ -72,7 +72,7 @@ test("workspace API can create assess run and list work items", async () => {
     assert.equal(run.workItem.graph.nodes.find((node: any) => node.id === "inspect-1").assignedRunId, run.job.jobId);
     assert.match(run.job.task, /Graph node: inspect-1 \(inspect\)/);
 
-    await waitForJob(baseUrl, String(run.job.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(run.job.jobId), "completed");
     const loaded = await requestJson(baseUrl, "GET", `/work-items/${created.workItem.id}?cwd=${encodeURIComponent(repoRoot)}`);
     assert.equal(loaded.workItem.graph.nodes.find((node: any) => node.id === "inspect-1").status, "completed");
     assert.equal(loaded.workItem.checklist.find((item: any) => item.id === "inspect-1").status, "passed");
@@ -150,26 +150,10 @@ function createResult(task: string, cwd: string, dryRun: boolean) {
   };
 }
 
-async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`);
-      if (job.status === status) return job;
-    } catch (error) {
-      const message = (error as Error).message;
-      if (!message.includes("HTTP 404")) {
-        throw error;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
-}
-
 async function cleanupDir(dir: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
-      await fs.rm(dir, { recursive: true, force: true });
+      await removeTempDir(dir);
       return;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOTEMPTY" || attempt === 4) {

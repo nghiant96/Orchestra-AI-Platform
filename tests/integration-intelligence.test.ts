@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { analyzeIntegration } from "../ai-system/core/integration-intelligence.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("integration intelligence writes a warning report for frontend/backend mismatches", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "integration-intel-"));
@@ -54,6 +55,6 @@ test("integration intelligence writes a warning report for frontend/backend mism
     assert.equal(written.version, 1);
     assert.equal(Array.isArray(written.warnings), true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

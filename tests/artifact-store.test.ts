@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { ARTIFACT_PATHS, checkLogPath, phaseArtifactPath } from "../ai-system/artifacts/artifact-paths.js";
 import { LocalArtifactStore } from "../ai-system/artifacts/local-artifact-store.js";
+import { removeTempDir } from "./test-utils.js";
 import {
   updateManifestArtifactRefs,
   updateManifestStatus,
@@ -79,7 +80,7 @@ test("LocalArtifactStore creates, writes, reads, and lists unified jobs", async 
       "Fix login loading state.\n"
     );
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });
 
@@ -97,6 +98,6 @@ test("LocalArtifactStore rejects paths that escape the job root", async () => {
       /Invalid artifact job id/
     );
   } finally {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });

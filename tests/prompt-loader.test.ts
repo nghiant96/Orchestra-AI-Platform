@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadPromptExamplesForTask, loadPromptTemplate } from "../ai-system/utils/prompt-loader.js";
 import type { RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("project prompt override wins over built-in template", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-prompts-"));
@@ -21,7 +22,7 @@ test("project prompt override wins over built-in template", async () => {
     });
     assert.equal(template.trim(), "Custom planner {{max_files}}");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -38,7 +39,7 @@ test("missing custom prompt falls back to built-in template", async () => {
     });
     assert.match(template, /Select at most/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -60,7 +61,7 @@ test("unsafe custom prompt paths are rejected", async () => {
       /Unsafe prompt path/
     );
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -79,7 +80,7 @@ test("custom examples directory is injected", async () => {
     });
     assert.equal(examples.trim(), "Custom refactor example");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

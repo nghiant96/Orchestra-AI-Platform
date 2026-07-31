@@ -2,6 +2,7 @@ import type http from "node:http";
 import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig } from "../../utils/config.js";
 import { canPerformAction } from "../../core/permissions.js";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
+import { readJsonBody } from "../read-json-body.js";
 
 export const configRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
@@ -54,10 +55,4 @@ export const configRoute: RouteHandler = {
 async function loadRules(cwd: string) {
   const { loadRules } = await import("../../core/orchestrator-runtime.js");
   return loadRules(cwd);
-}
-
-async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return chunks.length === 0 ? {} : JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
 }

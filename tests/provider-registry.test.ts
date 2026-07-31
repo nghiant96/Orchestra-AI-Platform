@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createProvider } from "../ai-system/providers/registry.js";
 import type { RulesConfig } from "../ai-system/types.js";
-import { silentLogger } from "./test-utils.js";
+import { silentLogger, removeTempDir } from "./test-utils.js";
 
 test("provider failover keeps startup and permission errors on the original provider", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-provider-failover-"));
@@ -39,6 +39,6 @@ test("provider failover keeps startup and permission errors on the original prov
       }
     );
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

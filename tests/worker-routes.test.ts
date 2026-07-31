@@ -5,7 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir, waitForJobStatus } from "./test-utils.js";
 
 describe("Worker Routes", () => {
   let tmpDir: string;
@@ -25,7 +25,7 @@ describe("Worker Routes", () => {
 
   after(async () => {
     await closeServer(server);
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   test("POST /workers/register creates a worker", async () => {
@@ -64,7 +64,7 @@ describe("Worker Routes", () => {
       assert.match(String(result.error || ""), /Workspace root not in allowed workdirs/);
     } finally {
       await fs.rm(linkedRoot, { force: true });
-      await fs.rm(outsideRoot, { recursive: true, force: true });
+      await removeTempDir(outsideRoot);
     }
   });
 
@@ -225,7 +225,7 @@ describe("Worker Routes", () => {
       "x-ai-system-actor": "dashboard"
     });
 
-    await waitForJob(baseUrl, String(created.jobId), "completed");
+    await waitForJobStatus(baseUrl, String(created.jobId), "completed");
 
     const jobs = await requestJson(baseUrl, "GET", "/jobs", undefined, 200, {
       "x-ai-system-role": "operator",
@@ -234,14 +234,3 @@ describe("Worker Routes", () => {
     assert.ok(jobs.jobs.length > 0);
   });
 });
-
-async function waitForJob(baseUrl: string, jobId: string, status: string): Promise<any> {
-  for (let i = 0; i < 20; i++) {
-    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`, undefined, 200);
-    if (job.status === status) {
-      return job;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Job ${jobId} did not reach ${status}`);
-}

@@ -20,6 +20,7 @@ import { createWorkerStore } from "./worker-store.js";
 import type { RouteHandler, ServerRouteContext } from "../server/routes-context.js";
 import type { Worker } from "./worker-types.js";
 import type { QueueJob } from "../core/job-queue.js";
+import { readJsonBody } from "../server/read-json-body.js";
 
 const workerStoreCache = new Map<string, ReturnType<typeof createWorkerStore>>();
 
@@ -340,12 +341,6 @@ export const workerRoutes: RouteHandler = {
     return false;
   }
 };
-
-async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  return chunks.length === 0 ? {} : JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
-}
 
 function sanitizeWorker(worker: Worker): Omit<Worker, "sessionToken"> {
   const { sessionToken: _sessionToken, ...safe } = worker;

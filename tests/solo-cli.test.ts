@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { runCommand } from "../ai-system/utils/api.js";
+import { removeTempDir } from "./test-utils.js";
 
 const workspaceRoot = process.cwd();
 const tsxLoaderPath = path.join(workspaceRoot, "node_modules", "tsx", "dist", "esm", "index.mjs");
@@ -76,8 +77,8 @@ test("CLI quick job history, diff explain, and undo run without server", async (
     assert.match(undo.stdout, /Solo Undo/);
     await assert.rejects(() => fs.stat(path.join(repoRoot, "src", "solo-cli-output.ts")), /ENOENT/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+    await removeTempDir(repoRoot);
+    await removeTempDir(path.dirname(fakeCodex));
   }
 });
 
@@ -103,8 +104,8 @@ test("CLI quick job can opt into a dirty working tree", async () => {
     assert.match(result.stdout, /success: true/);
     await fs.access(path.join(repoRoot, "src", "solo-cli-output.ts"));
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+    await removeTempDir(repoRoot);
+    await removeTempDir(path.dirname(fakeCodex));
   }
 });
 
@@ -130,8 +131,8 @@ test("CLI quick job can stash and restore dirty changes", async () => {
     assert.match(readme, /stashed dirty solo cli test/);
     assert.match(result.stdout, /Solo Job/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+    await removeTempDir(repoRoot);
+    await removeTempDir(path.dirname(fakeCodex));
   }
 });
 
@@ -162,8 +163,8 @@ test("CLI quick job can run in a dedicated worktree", async () => {
     const worktreePath = path.join(worktreeRoot, entries[0] ?? "");
     await fs.access(path.join(worktreePath, "src", "solo-cli-output.ts"));
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+    await removeTempDir(repoRoot);
+    await removeTempDir(path.dirname(fakeCodex));
   }
 });
 
@@ -200,8 +201,8 @@ test("CLI continue and commit run without server", async () => {
     });
     assert.equal(sourceStatus.stdout.trim(), "");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
-    await fs.rm(path.dirname(fakeCodex), { recursive: true, force: true });
+    await removeTempDir(repoRoot);
+    await removeTempDir(path.dirname(fakeCodex));
   }
 });
 

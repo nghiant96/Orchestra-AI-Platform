@@ -7,7 +7,7 @@ import { createAiSystemServer } from "../ai-system/server-app.js";
 import { parseArgs } from "../ai-system/cli/arg-parser.js";
 import { loadWorkerRuntimeConfig } from "../ai-system/worker/worker-config.js";
 import { runWorkerRuntime } from "../ai-system/worker/worker-runtime.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir, waitForJobStatus } from "./test-utils.js";
 
 describe("Phase 2 worker CLI", () => {
   test("parseArgs accepts worker start flags", async () => {
@@ -100,7 +100,7 @@ describe("Phase 2 worker CLI", () => {
       assert.equal(summary.failedJobs, 0);
       assert.ok(summary.uploadedLogLines > 0);
 
-      const job = await waitForJob(baseUrl, String(created.jobId), "completed", { Authorization: "Bearer server-token" });
+      const job = await waitForJobStatus(baseUrl, String(created.jobId), "completed", { headers: { Authorization: "Bearer server-token" } });
       assert.equal(job.status, "completed");
       assert.ok(Array.isArray(job.workerLogs));
       const workerLogs = job.workerLogs.join("\n");
@@ -110,7 +110,7 @@ describe("Phase 2 worker CLI", () => {
       restoreEnvValue("ORCHESTRA_EXECUTION_BACKEND", previousBackend);
       restoreEnvValue("ORCHESTRA_WORKER_TOKEN", previousWorkerToken);
       await closeServer(server);
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 
@@ -160,7 +160,7 @@ describe("Phase 2 worker CLI", () => {
       );
 
       assert.equal(summary.claimedJobs, 1);
-      const job = await waitForJob(baseUrl, String(created.jobId), "completed", { Authorization: "Bearer server-token" });
+      const job = await waitForJobStatus(baseUrl, String(created.jobId), "completed", { headers: { Authorization: "Bearer server-token" } });
       assert.equal(job.status, "completed");
       assert.equal(job.mutationCheckpoint?.filesystemMutated, true);
       assert.ok(await fs.stat(path.join(repoRoot, "output.txt")).then(() => true));
@@ -174,7 +174,7 @@ describe("Phase 2 worker CLI", () => {
       restoreEnvValue("ORCHESTRA_EXECUTION_BACKEND", previousBackend);
       restoreEnvValue("ORCHESTRA_WORKER_TOKEN", previousWorkerToken);
       await closeServer(server);
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 
@@ -224,7 +224,7 @@ describe("Phase 2 worker CLI", () => {
       );
 
       assert.equal(summary.claimedJobs, 1);
-      const job = await waitForJob(baseUrl, String(created.jobId), "completed", { Authorization: "Bearer server-token" });
+      const job = await waitForJobStatus(baseUrl, String(created.jobId), "completed", { headers: { Authorization: "Bearer server-token" } });
       assert.equal(job.status, "completed");
       assert.equal(job.mutationCheckpoint, undefined);
       await assert.rejects(() => fs.stat(path.join(repoRoot, "dry-run-output.txt")), /ENOENT/);
@@ -233,7 +233,7 @@ describe("Phase 2 worker CLI", () => {
       restoreEnvValue("ORCHESTRA_EXECUTION_BACKEND", previousBackend);
       restoreEnvValue("ORCHESTRA_WORKER_TOKEN", previousWorkerToken);
       await closeServer(server);
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
     }
   });
 });
@@ -266,20 +266,4 @@ function restoreEnvValue(name: string, value: string | undefined): void {
   } else {
     process.env[name] = value;
   }
-}
-
-async function waitForJob(
-  baseUrl: string,
-  jobId: string,
-  status: string,
-  headers: Record<string, string>
-): Promise<any> {
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const job = await requestJson(baseUrl, "GET", `/jobs/${jobId}`, undefined, 200, headers);
-    if (job.status === status) {
-      return job;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  throw new Error(`Timed out waiting for job ${jobId} to reach ${status}`);
 }

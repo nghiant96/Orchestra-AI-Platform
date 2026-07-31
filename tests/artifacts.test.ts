@@ -21,6 +21,7 @@ import {
   restoreArtifactState
 } from "../ai-system/core/artifacts.js";
 import { buildExecutionSummary } from "../ai-system/core/execution-summary.js";
+import { removeTempDir } from "./test-utils.js";
 import type {
   ContextSelectionCandidate,
   FileGenerationResult,
@@ -249,7 +250,7 @@ test("artifact checkpoints can be restored into resume-ready state", async () =>
     assert.equal(planManifest.vectorMatches?.[0]?.path, "src/auth.ts");
     assert.equal(planManifest.rankedCandidates?.[0]?.path, "src/auth.ts");
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -323,7 +324,7 @@ test("external task metadata is persisted and backward compatible", async () => 
     assert.equal(summary.artifactIndex?.externalTask, undefined);
 
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -349,7 +350,7 @@ test("resolveResumeStatePath('last') returns the newest resumable run", async ()
       path.join(earlierRunDir, "run-state.json")
     );
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -396,7 +397,7 @@ test("persistRoutingArtifacts writes stage-specific routing manifests", async ()
     assert.equal(saved.decision.profile, "safe");
     assert.equal(state.stepPaths["routing-implementation"], artifactPath);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -542,7 +543,7 @@ test("loadRecentRunSummary returns latest run state, index, and routing details"
     assert.equal(summary.runState.execution?.totalDurationMs, 60);
     assert.equal(summary.runState.execution?.failure?.class, "tool-check-failed");
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -626,7 +627,7 @@ test("listRecentRunSummaries and loadRunSummary support browsing multiple runs",
     assert.equal(summary.runState.task, "Older run");
     assert.equal(summary.runState.execution?.failure?.class, "tool-check-failed");
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -677,7 +678,7 @@ test("runs show --json --save writes machine-readable output to disk", async () 
     const saved = JSON.parse(await fs.readFile(savePath, "utf8")) as { runState?: { task?: string } };
     assert.equal(saved.runState?.task, "Saved run");
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 

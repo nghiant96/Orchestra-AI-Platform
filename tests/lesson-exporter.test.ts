@@ -9,6 +9,7 @@ import {
 } from "../ai-system/work/lesson-exporter.js";
 import type { QueueJob } from "../ai-system/core/job-queue.js";
 import type { WorkItem } from "../ai-system/work/work-item.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("work item lesson exporter", () => {
   test("generates redacted success and failure lessons", async () => {
@@ -53,7 +54,7 @@ describe("work item lesson exporter", () => {
       assert.equal(failed.lessonType, "failure");
       assert.equal(failed.failure?.message, "Typecheck failed");
     } finally {
-      await fs.rm(tmp, { recursive: true, force: true });
+      await removeTempDir(tmp);
     }
   });
 });

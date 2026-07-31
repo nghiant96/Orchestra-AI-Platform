@@ -5,7 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { createAiSystemServer } from "../ai-system/server-app.js";
-import { listen, closeServer, silentLogger, requestJson } from "./test-utils.js";
+import { listen, closeServer, silentLogger, requestJson, removeTempDir } from "./test-utils.js";
 
 describe("Lease Expiry, Mutation Checkpoints, And Stall Policy", () => {
   let tmpDir: string;
@@ -36,7 +36,7 @@ describe("Lease Expiry, Mutation Checkpoints, And Stall Policy", () => {
   after(async () => {
     await closeServer(server);
     delete process.env.ORCHESTRA_EXECUTION_BACKEND;
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   async function registerWorker(name: string, workspaceRoots: string[] = [tmpDir]) {

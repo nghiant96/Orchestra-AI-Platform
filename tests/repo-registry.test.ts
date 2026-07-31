@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { RepoRegistryStore, resolveRegisteredRepoPath } from "../ai-system/repos/repo-registry.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("repo registry", () => {
   test("registers and resolves repos inside allowed roots only", async () => {
@@ -25,8 +26,8 @@ describe("repo registry", () => {
         /outside AI_SYSTEM_ALLOWED_WORKDIRS/
       );
     } finally {
-      await fs.rm(root, { recursive: true, force: true });
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeTempDir(root);
+      await removeTempDir(outside);
     }
   });
 });

@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { prepareFixFromRun } from "../ai-system/core/fix-from-run.js";
 import { createLogger } from "../ai-system/utils/logger.js";
+import { removeTempDir } from "./test-utils.js";
 
 async function createTempRepo() {
   return await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-fix-from-run-"));
@@ -47,7 +48,7 @@ test("prepareFixFromRun returns resumable recovery when retry hint exists", asyn
     assert.ok(preparation.resumeTarget?.endsWith("run-state.json"));
     assert.match(preparation.task, /Fix auth flow/);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -102,6 +103,6 @@ test("prepareFixFromRun builds follow-up task for non-resumable run", async () =
     assert.match(preparation.task, /Latest failing checks/);
     assert.deepEqual(preparation.fileHints, ["src/auth.ts"]);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

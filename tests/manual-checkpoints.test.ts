@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { loadEditableContextCheckpoint, loadEditablePlanCheckpoint } from "../ai-system/core/manual-checkpoints.js";
 import type { PlanResult, RulesConfig } from "../ai-system/types.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("loadEditablePlanCheckpoint reads user-edited plan.json safely", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-manual-plan-"));
@@ -45,7 +46,7 @@ test("loadEditablePlanCheckpoint reads user-edited plan.json safely", async () =
     assert.deepEqual(plan.writeTargets, ["src/edited.ts"]);
     assert.deepEqual(plan.notes, ["edited manually"]);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 
@@ -68,7 +69,7 @@ test("loadEditableContextCheckpoint reloads edited context files", async () => {
 
     assert.deepEqual(contexts, [{ path: "src/context.ts", content: "export const edited = true;\n" }]);
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
+    await removeTempDir(tempDir);
   }
 });
 

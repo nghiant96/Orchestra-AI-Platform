@@ -8,7 +8,12 @@ const DEFAULT_PROVIDER_ENV_KEYS = [
   "CODEX_HOME",
   "OPENAI_API_KEY",
   "OPENAI_BASE_URL",
-  "OPENAI_ORG_ID"
+  "OPENAI_ORG_ID",
+  // The Claude CLI is one of the providers this project drives; without its
+  // key on the allowlist that provider can only authenticate from an on-disk
+  // credential file, which is exactly what container deployments should avoid.
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL"
 ];
 
 export function buildProviderEnv(extra: Record<string, string | undefined> = {}): Record<string, string> {

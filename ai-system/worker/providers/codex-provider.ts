@@ -10,6 +10,22 @@ import { WorkerProcessSupervisor } from "../worker-process-supervisor.js";
 import { prepareWorkerWorktree } from "../worker-worktree.js";
 import type { WorkerProviderAdapter, WorkerProviderExecutionInput, WorkerProviderExecutionResult } from "./provider-adapter.js";
 
+/**
+ * Budget for the `--version` availability probe.
+ *
+ * The probe only proves the binary can be spawned, but it competes for CPU with
+ * everything else on the host. A budget tight enough to expire under load turns
+ * a busy machine into a bogus "provider is not available" job failure, so this
+ * is deliberately generous — a genuinely missing binary fails immediately with
+ * ENOENT and never reaches the timeout.
+ */
+const DEFAULT_PROBE_TIMEOUT_MS = 30_000;
+
+function resolveProbeTimeoutMs(): number {
+  const configured = Number(process.env.ORCHESTRA_PROVIDER_PROBE_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_PROBE_TIMEOUT_MS;
+}
+
 export class CodexProvider implements WorkerProviderAdapter {
   readonly id = "codex" as const;
   private readonly supervisor = new WorkerProcessSupervisor();
@@ -25,7 +41,7 @@ export class CodexProvider implements WorkerProviderAdapter {
         args: ["--version"],
         cwd: input.worktreePath,
         env: input.env,
-        timeoutMs: 5000,
+        timeoutMs: resolveProbeTimeoutMs(),
         signal: input.signal
       });
       return true;

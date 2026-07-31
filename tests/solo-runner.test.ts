@@ -7,6 +7,7 @@ import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { runSoloJob } from "../ai-system/solo/solo-runner.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import type { WorkerProviderAdapter } from "../ai-system/worker/providers/provider-adapter.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("SoloRunner creates unified artifacts and an undo-ready patch", async () => {
   const repoRoot = await createGitRepo("solo-runner-");
@@ -57,7 +58,7 @@ test("SoloRunner creates unified artifacts and an undo-ready patch", async () =>
       cwd: repoRoot
     });
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -87,7 +88,7 @@ test("SoloRunner refuses to mix a new job with existing working tree changes", a
 
     assert.equal(providerCalled, false);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { collectReviewChanges, parseGitDiffNameStatus, parseGitStatusPaths } from "../ai-system/core/current-change-review.js";
+import { removeTempDir } from "./test-utils.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -69,7 +70,7 @@ test("collectReviewChanges supports staged and base-ref review targets", async (
     assert.equal(base.originalFiles[0]?.content, "export const value = 1;\n");
     assert.equal(base.candidateFiles[0]?.content, "export const value = 3;\n");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -92,7 +93,7 @@ test("collectReviewChanges uses HEAD as the baseline for working-tree review", a
     assert.equal(workingTree.originalFiles[0]?.content, "export const value = 1;\n");
     assert.equal(workingTree.candidateFiles[0]?.content, "export const value = 2;\n");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -117,7 +118,7 @@ test("collectReviewChanges supports explicit file scope review", async () => {
     assert.equal(scoped.originalFiles[0]?.content, "export const scope = 1;\n");
     assert.equal(scoped.candidateFiles[0]?.content, "export const scope = 2;\n");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -143,7 +144,7 @@ test("collectReviewChanges supports staged review within an explicit file scope"
     assert.equal(staged.originalFiles[0]?.content, "export const scope = 1;\n");
     assert.equal(staged.candidateFiles[0]?.content, "export const scope = 2;\n");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -168,7 +169,7 @@ test("collectReviewChanges supports base-ref review within an explicit file scop
     assert.equal(base.originalFiles[0]?.content, "export const scope = 1;\n");
     assert.equal(base.candidateFiles[0]?.content, "export const scope = 2;\n");
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

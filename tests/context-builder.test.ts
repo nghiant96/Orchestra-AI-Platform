@@ -8,6 +8,7 @@ import { buildContext } from "../ai-system/context/context-builder.js";
 import { buildMemoryNamespace } from "../ai-system/memory/memory-namespace.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import type { SemanticContextProvider } from "../ai-system/context/semantic-context-provider.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("context builder ranks ripgrep, convention, and semantic candidates and writes pre-context artifacts", async () => {
   const repoRoot = await createGitRepo("context-builder-");
@@ -39,7 +40,7 @@ test("context builder ranks ripgrep, convention, and semantic candidates and wri
     assert.equal(namespace.workspaceRootHash.length, 16);
     assert.equal(namespace.projectId.length > 0, true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 
@@ -59,7 +60,7 @@ test("context builder keeps the allowed diff boundary tight around nested files"
     assert.ok(built.preContextPack.allowedDiffBoundary.some((boundary) => boundary === "dashboard/src/**" || boundary === "src/payment/**" || boundary === "src/payment/components/**"));
     assert.equal(built.preContextPack.allowedDiffBoundary.some((boundary) => boundary === "dashboard/**"), false);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });
 

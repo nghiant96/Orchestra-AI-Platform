@@ -8,6 +8,7 @@ import { FileAuditLog } from "../ai-system/core/audit-log.js";
 import { resolveJobQueueDirectory } from "../ai-system/core/job-queue.js";
 import { resolveAuditLogPath } from "../ai-system/core/audit-log.js";
 import { WorkStore } from "../ai-system/work/work-store.js";
+import { removeTempDir } from "./test-utils.js";
 import {
   listWorkItems,
   createWorkItem,
@@ -33,7 +34,7 @@ describe("WorkItemService", () => {
 
   test.after(async () => {
     await queue.stop();
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   const ctx = () => ({

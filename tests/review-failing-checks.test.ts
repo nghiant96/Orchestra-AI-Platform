@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import { reviewFailingChecks } from "../ai-system/core/review-failing-checks.js";
 import { createLogger } from "../ai-system/utils/logger.js";
+import { removeTempDir } from "./test-utils.js";
 
 async function createTempRepo(files: Record<string, string>) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-review-failing-checks-"));
@@ -46,6 +47,6 @@ test("reviewFailingChecks returns null when repo checks are green", async () => 
 
     assert.equal(result, null);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

@@ -109,6 +109,8 @@ export class FileBackedJobQueue implements JobRepository {
   private controllers = new Map<string, AbortController>();
   private activeWorkspaces = new Set<string>();
   private activeRunPromises = new Set<Promise<void>>();
+  /** In-flight drain, so stop() can wait for a pass that is mid-await. */
+  private drainPromise: Promise<void> | null = null;
   private isPaused = false;
   private isStopped = false;
   private readonly repository: JobRecordRepository;
@@ -559,6 +561,11 @@ export class FileBackedJobQueue implements JobRepository {
       clearTimeout(this.drainTimer);
       this.drainTimer = null;
     }
+    // A drain that is mid-await has not registered its run promise yet, so
+    // waiting only on activeRunPromises can return while that pass is still
+    // about to launch a job — against a repository this method is closing.
+    // Settle the drain first, then whatever it managed to start.
+    await Promise.allSettled([this.drainPromise ?? Promise.resolve()]);
     await Promise.allSettled([...this.activeRunPromises]);
     await this.repository.close();
   }
@@ -586,7 +593,12 @@ export class FileBackedJobQueue implements JobRepository {
     }
     this.drainTimer = setTimeout(() => {
       this.drainTimer = null;
-      void this.drain();
+      const pass = this.drain().finally(() => {
+        if (this.drainPromise === pass) {
+          this.drainPromise = null;
+        }
+      });
+      this.drainPromise = pass;
     }, 50);
   }
 
@@ -597,6 +609,11 @@ export class FileBackedJobQueue implements JobRepository {
     const concurrency = Math.max(1, Number(this.options.concurrency || 1));
     while (this.activeJobs < concurrency) {
       const all = await this.list(100);
+      // stop() may have landed while the listing was in flight; a job started
+      // now would outlive the shutdown that is already underway.
+      if (this.isPaused || this.isStopped) {
+        break;
+      }
       const next = [...all].reverse().find((job) => job.status === "queued" && !this.activeWorkspaces.has(job.cwd));
       if (!next) {
         break;

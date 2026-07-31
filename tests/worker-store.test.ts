@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { WorkerStore, resolveWorkerStoreDir } from "../ai-system/workers/worker-store.js";
 import type { Worker } from "../ai-system/workers/worker-types.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("WorkerStore", () => {
   let tmpDir: string;
@@ -16,7 +17,7 @@ describe("WorkerStore", () => {
   });
 
   after(async () => {
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   });
 
   test("creates a worker and loads it", async () => {

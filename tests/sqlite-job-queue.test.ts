@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { FileBackedJobQueue, resolveJobQueueDirectory } from "../ai-system/core/job-queue.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("SQLite job queue survives restart and preserves claims", async () => {
   const previous = process.env.ORCHESTRA_STORE;
@@ -64,7 +65,7 @@ test("SQLite job queue survives restart and preserves claims", async () => {
     } else {
       process.env.ORCHESTRA_STORE = previous;
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });
 
@@ -111,7 +112,7 @@ test("SQLite job queue migrates legacy file-backed jobs on startup", async () =>
     } else {
       process.env.ORCHESTRA_STORE = previous;
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });
 
@@ -191,7 +192,7 @@ test("SQLite job queue migration schedules legacy jobs for execution", async () 
     } else {
       process.env.ORCHESTRA_STORE = previous;
     }
-    await fs.rm(tmpDir, { recursive: true, force: true });
+    await removeTempDir(tmpDir);
   }
 });
 

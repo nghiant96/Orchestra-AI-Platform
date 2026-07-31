@@ -8,6 +8,7 @@ import { planWorkItemBranch, deriveWorktreePath } from "../ai-system/work/branch
 import { createWorktree } from "../ai-system/work/worktree-manager.js";
 import { cleanupFinishedWorktree, cleanupWorkspaceLifecycle } from "../ai-system/work/worktree-cleanup.js";
 import { WorkStore } from "../ai-system/work/work-store.js";
+import { removeTempDir } from "./test-utils.js";
 
 test("workspace branch and worktree helpers create safe metadata", async () => {
   const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "worktree-test-"));
@@ -40,6 +41,6 @@ test("workspace branch and worktree helpers create safe metadata", async () => {
     assert.equal(typeof report.removedWorktrees, "number");
     assert.equal(report.repairedWorkItems >= 0, true);
   } finally {
-    await fs.rm(repoRoot, { recursive: true, force: true });
+    await removeTempDir(repoRoot);
   }
 });

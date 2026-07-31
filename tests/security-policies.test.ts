@@ -7,6 +7,7 @@ import { isForbiddenPath, validatePath } from "../ai-system/security/path-policy
 import { checkCommand, isCommandAllowed } from "../ai-system/security/command-policy.js";
 import { resolveTokenRole, canAccessRoute, validateTokenConfiguration } from "../ai-system/security/token-policy.js";
 import type { TokenRole } from "../ai-system/security/token-policy.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("Path Policy", () => {
   test(".env files are forbidden", () => {
@@ -48,8 +49,8 @@ describe("Path Policy", () => {
       assert.equal(result.allowed, false);
       assert.ok(result.reason);
     } finally {
-      await fs.rm(root, { recursive: true, force: true });
-      await fs.rm(outside, { recursive: true, force: true });
+      await removeTempDir(root);
+      await removeTempDir(outside);
     }
   });
 });

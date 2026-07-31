@@ -5,12 +5,16 @@ services:
       dockerfile: Dockerfile
     image: orchestra-ai-platform:local
     working_dir: /workspace
+    security_opt:
+      - no-new-privileges:true
     environment:
       AI_SYSTEM_WORKDIR: /workspace
       AI_SYSTEM_SERVER_MODE: ${AI_SYSTEM_SERVER_MODE:-false}
-      AI_SYSTEM_SERVER_TOKEN: ${AI_SYSTEM_SERVER_TOKEN:-}
+      # Required in server mode. Compose refuses to start rather than let a
+      # server come up with an empty token.
+      AI_SYSTEM_SERVER_TOKEN: ${AI_SYSTEM_SERVER_TOKEN:?set AI_SYSTEM_SERVER_TOKEN to a real secret}
       ORCHESTRA_STORE: ${ORCHESTRA_STORE:-sqlite}
-      ORCHESTRA_POSTGRES_URL: ${ORCHESTRA_POSTGRES_URL:-postgresql://orchestra:orchestra@postgres:5432/orchestra}
+      ORCHESTRA_POSTGRES_URL: ${ORCHESTRA_POSTGRES_URL:-postgresql://orchestra:${POSTGRES_PASSWORD:-orchestra}@postgres:5432/orchestra}
       PORT: ${PORT:-3927}
       AI_SYSTEM_MEMORY_ENABLED: ${AI_SYSTEM_MEMORY_ENABLED:-true}
       AI_SYSTEM_MEMORY_BACKEND: ${AI_SYSTEM_MEMORY_BACKEND:-local-file}
@@ -20,27 +24,41 @@ services:
       AI_SYSTEM_REVIEWER_PROVIDER: ${AI_SYSTEM_REVIEWER_PROVIDER:-agy-cli}
       AI_SYSTEM_GENERATOR_PROVIDER: ${AI_SYSTEM_GENERATOR_PROVIDER:-codex-cli}
       AI_SYSTEM_FIXER_PROVIDER: ${AI_SYSTEM_FIXER_PROVIDER:-codex-cli}
+      # Provider credentials arrive as scoped secrets, never as a bind mount of
+      # the host's ~/.codex, ~/.claude, or ~/.gemini. Those directories hold
+      # long-lived credentials for every project on the machine, and this
+      # container executes AI-generated code.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_ORG_ID: ${OPENAI_ORG_ID:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # Provider CLIs that insist on a config directory get a container-local
+      # one instead of the host's.
+      CODEX_HOME: /home/node/.provider-config/codex
     ports:
       - "${PORT:-3927}:${PORT:-3927}"
     volumes:
       - .:/workspace
       - orchestra-ai-state:/workspace/.ai-system-server
       - orchestra-ai-artifacts:/workspace/.ai-system-artifacts
-      - ${HOME}/.gemini:/root/.gemini
-      - ${HOME}/.codex:/root/.codex
-      - ${HOME}/.claude:/root/.claude
+      - orchestra-provider-config:/home/node/.provider-config
     stdin_open: true
     tty: true
 
   postgres:
     image: postgres:16-alpine
     profiles: ["postgres"]
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-orchestra}
       POSTGRES_USER: ${POSTGRES_USER:-orchestra}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orchestra}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD to a real secret}
+    # Bound to loopback: the platform service reaches Postgres over the compose
+    # network, so there is no reason to publish it to every interface.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - orchestra-postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -53,4 +71,5 @@ services:
 volumes:
   orchestra-ai-state:
   orchestra-ai-artifacts:
+  orchestra-provider-config:
   orchestra-postgres-data:

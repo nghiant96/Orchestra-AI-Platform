@@ -7,6 +7,7 @@ import { ARTIFACT_PATHS } from "../ai-system/artifacts/artifact-paths.js";
 import { runCommand } from "../ai-system/utils/api.js";
 import { buildWorkerTaskPhasePlan, loadWorkerTaskPhaseState } from "../ai-system/worker/task-phases.js";
 import { executeWorkerJob } from "../ai-system/worker/job-executor.js";
+import { removeTempDir } from "./test-utils.js";
 
 describe("Worker phase planning", () => {
   test("splits a large task into multiple resumable phases", () => {
@@ -101,7 +102,7 @@ describe("Worker phase execution", () => {
       assert.equal(manifest.artifacts.verification, ARTIFACT_PATHS.verification);
     } finally {
       process.env.ORCHESTRA_CONTEXT_PACK_MODE = previousContextPackMode;
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
       await fs.rm(fakeCodex, { force: true });
     }
   });
@@ -176,7 +177,7 @@ describe("Worker phase execution", () => {
       assert.ok(await exists(path.join(worktreePath, "phase-1.txt")));
       assert.ok(await exists(path.join(worktreePath, "phase-2.txt")) || await exists(path.join(worktreePath, "phase-3.txt")));
     } finally {
-      await fs.rm(repoRoot, { recursive: true, force: true });
+      await removeTempDir(repoRoot);
       await fs.rm(fakeCodex, { force: true });
     }
   });

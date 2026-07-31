@@ -24,6 +24,7 @@ import { workItemsRoute } from "./server/routes/work-items.js";
 import { reposRoute } from "./server/routes/repos.js";
 import { workerRoutes } from "./workers/worker-routes.js";
 import type { RouteHandler, ServerRouteContext } from "./server/routes-context.js";
+import { HttpBodyError } from "./server/read-json-body.js";
 import { resolveExecutionBackend } from "./core/execution-backend.js";
 import { resolveStoreMode } from "./core/store-mode.js";
 import type { Logger, RulesConfig } from "./types.js";
@@ -314,6 +315,14 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       });
     } catch (error) {
       const normalized = error as Error;
+      // An oversized or malformed body is the client's mistake, not ours —
+      // report it as such instead of flattening everything into a 500.
+      if (error instanceof HttpBodyError) {
+        return respondJson(res, error.statusCode, {
+          ok: false,
+          error: normalized.message
+        });
+      }
       return respondJson(res, 500, {
         ok: false,
         error: normalized.message
