@@ -66,6 +66,7 @@ export type CliCommand =
   | { kind: "work-ci-watch"; target: string }
   | { kind: "work-ci-fix"; target: string }
   | { kind: "work-schedule" }
+  | { kind: "work-dispatch"; maxParallel?: number; write?: boolean; serverUrl?: string }
   | { kind: "work-metrics" }
   | {
       kind: "worker-start";

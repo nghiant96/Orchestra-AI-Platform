@@ -77,3 +77,26 @@ test("redactJsonString redacts JSON strings", () => {
   assert.ok(result.includes("ghp_REDACTED"));
   assert.ok(result.includes('"name":"test"'));
 });
+
+test("redactSecrets scrubs this process's secret env values however they are printed", () => {
+  const previous = process.env.ORCHESTRA_TEST_SERVER_TOKEN;
+  process.env.ORCHESTRA_TEST_SERVER_TOKEN = "plain-looking-server-secret";
+  try {
+    // No vendor pattern matches this; only knowing the value catches it.
+    const result = redactSecrets("echo printed: plain-looking-server-secret");
+    assert.equal(result, "echo printed: REDACTED");
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_TEST_SERVER_TOKEN;
+    else process.env.ORCHESTRA_TEST_SERVER_TOKEN = previous;
+  }
+});
+
+test("redactSecrets masks secret-named assignments from env dumps and JSON", () => {
+  const envDump = redactSecrets("PATH=/usr/bin\nAI_SYSTEM_SERVER_TOKEN=some-remote-value\nHOME=/home/me");
+  assert.match(envDump, /AI_SYSTEM_SERVER_TOKEN=REDACTED/);
+  assert.match(envDump, /PATH=\/usr\/bin/);
+
+  const jsonDump = redactSecrets(JSON.stringify({ ORCHESTRA_WORKER_TOKEN: "another-remote-value", PORT: "3927" }));
+  assert.doesNotMatch(jsonDump, /another-remote-value/);
+  assert.match(jsonDump, /"PORT":"3927"/);
+});

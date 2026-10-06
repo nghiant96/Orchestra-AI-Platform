@@ -7,9 +7,11 @@ export function normalizeReviewResult(result: unknown): ReviewResult {
   const issues = Array.isArray((result as ReviewResult | undefined)?.issues)
     ? (result as ReviewResult).issues.map(normalizeIssue).filter(Boolean) as ReviewIssue[]
     : [];
+  const missingTests = (result as ReviewResult | undefined)?.missingTests;
   return {
     summary: typeof (result as ReviewResult | undefined)?.summary === "string" ? (result as ReviewResult).summary : "",
-    issues
+    issues,
+    ...(Array.isArray(missingTests) ? { missingTests } : {})
   };
 }
 
@@ -108,7 +110,24 @@ function normalizeIssue(issue: unknown): ReviewIssue | null {
     return null;
   }
 
-  return { severity, category, path, description, suggestedFix };
+  // Rebuilding the issue from a fixed set of fields used to drop everything
+  // else on it — line numbers, risk, affected files — even though reviewers are
+  // explicitly asked to supply them. Carry the optional fields through instead
+  // of quietly discarding work that was already paid for.
+  return {
+    severity,
+    category,
+    path,
+    description,
+    suggestedFix,
+    ...(typeof candidate.line === "number" ? { line: candidate.line } : {}),
+    ...(typeof candidate.risk === "string" ? { risk: candidate.risk } : {}),
+    ...(typeof candidate.verificationCommand === "string"
+      ? { verificationCommand: candidate.verificationCommand }
+      : {}),
+    ...(Array.isArray(candidate.affectedFiles) ? { affectedFiles: candidate.affectedFiles } : {}),
+    ...(candidate.agreement ? { agreement: candidate.agreement } : {})
+  };
 }
 
 function validationIssue(

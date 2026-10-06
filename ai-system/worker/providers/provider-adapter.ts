@@ -17,6 +17,8 @@ export interface WorkerProviderExecutionInput {
   approvalPolicy?: unknown;
   env: Record<string, string>;
   signal?: AbortSignal;
+  /** Names this invocation in the job's usage report. */
+  phaseLabel?: string;
 }
 
 export interface WorkerProviderExecutionResult {

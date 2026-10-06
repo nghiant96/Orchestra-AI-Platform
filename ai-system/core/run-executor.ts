@@ -51,6 +51,7 @@ import {
 } from "./run-executor-finalize.js";
 import { generateCandidate } from "./run-executor-steps.js";
 import type { LoopExecutionState, RuntimeDependencies } from "./run-executor-types.js";
+import { resolveReviewPanelConfig, runReviewPanel, type ReviewLens } from "./review-panel.js";
 
 export async function executeGenerationLoop({
   startIteration,
@@ -303,27 +304,49 @@ export async function executeGenerationLoop({
       toolResults: state.latestToolResults
     });
 
-    logger.step(`Reviewing generated files with ${runtime.reviewerProvider.id}`);
+    const reviewPanel = resolveReviewPanelConfig((rules as { review_panel?: unknown }).review_panel);
+    const runOneReview = (lens?: ReviewLens) =>
+      runtime.reviewer.reviewCode(
+        task,
+        plan,
+        shouldUseStrictReview(approvalPolicy),
+        originalFiles,
+        state.currentResult!.files,
+        preReviewIssues,
+        state.diffSummaries!,
+        repoRoot,
+        implementationMemoryContext,
+        blastRadius,
+        lens
+      );
+
+    if (reviewPanel.enabled) {
+      logger.step(
+        `Reviewing generated files with a ${reviewPanel.lenses.length}-lens panel on ${runtime.reviewerProvider.id} (quorum ${reviewPanel.quorum})`
+      );
+    } else {
+      logger.step(`Reviewing generated files with ${runtime.reviewerProvider.id}`);
+    }
+
     const reviewStage = await state.executionMachine.runStage(
       "iteration-review",
-      async () =>
-        normalizeReviewResult(
-          await runtime.reviewer.reviewCode(
-            task,
-            plan,
-            shouldUseStrictReview(approvalPolicy),
-            originalFiles,
-            state.currentResult!.files,
-            preReviewIssues,
-            state.diffSummaries!,
-            repoRoot,
-            implementationMemoryContext,
-            blastRadius
-          )
-        ),
+      async () => {
+        if (!reviewPanel.enabled) {
+          return normalizeReviewResult(await runOneReview());
+        }
+        const outcome = await runReviewPanel(reviewPanel.lenses, reviewPanel.quorum, runOneReview);
+        for (const panelist of outcome.panelists) {
+          if (!panelist.ok) {
+            logger.warn(`Review lens ${panelist.lensId} failed: ${panelist.error}`);
+          }
+        }
+        return normalizeReviewResult(outcome.result);
+      },
       {
         iteration,
-        detail: `Reviewer provider: ${runtime.reviewerProvider.id}.`
+        detail: reviewPanel.enabled
+          ? `Reviewer provider: ${runtime.reviewerProvider.id}. Panel: ${reviewPanel.lenses.map((lens) => lens.id).join(", ")} (quorum ${reviewPanel.quorum}).`
+          : `Reviewer provider: ${runtime.reviewerProvider.id}.`
       }
     );
     const review = reviewStage.result;

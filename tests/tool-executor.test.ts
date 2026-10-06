@@ -653,7 +653,10 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-system-tool-sandbox-"));
   const changedFiles: GeneratedFile[] = [{ path: "src/example.ts", content: "export const value = 1;\n" }];
   const previousSecret = process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET;
+  const previousLeak = process.env.AI_SYSTEM_TOOL_SANDBOX_LEAK;
   process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET = "visible-in-clean-env";
+  // Not in include_env: clean-env must keep it away from the child process.
+  process.env.AI_SYSTEM_TOOL_SANDBOX_LEAK = "leaked-into-clean-env";
 
   try {
     await fs.mkdir(path.join(tempDir, "scripts"), { recursive: true });
@@ -675,7 +678,7 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
     );
     await fs.writeFile(
       path.join(tempDir, "scripts", "print-env.js"),
-      "console.log(process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET ?? 'missing'); process.exit(0);\n",
+      "console.log(process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET ?? 'missing'); console.log(process.env.AI_SYSTEM_TOOL_SANDBOX_LEAK ?? 'excluded'); process.exit(0);\n",
       "utf8"
     );
 
@@ -708,6 +711,8 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
     assert.equal(lintResult?.ok, true);
     assert.equal(lintResult?.sandboxMode, "clean-env");
     assert.match(lintResult?.stdout ?? "", /visible-in-clean-env/);
+    assert.match(lintResult?.stdout ?? "", /excluded/);
+    assert.doesNotMatch(lintResult?.stdout ?? "", /leaked-into-clean-env/);
     assert.equal(lintConfig?.sandboxMode, "clean-env");
     assert.match(lintConfig?.summary ?? "", /sandbox=clean-env/);
   } finally {
@@ -715,6 +720,11 @@ test("runToolChecks supports clean-env sandbox mode with explicit env passthroug
       delete process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET;
     } else {
       process.env.AI_SYSTEM_TOOL_SANDBOX_SECRET = previousSecret;
+    }
+    if (previousLeak === undefined) {
+      delete process.env.AI_SYSTEM_TOOL_SANDBOX_LEAK;
+    } else {
+      process.env.AI_SYSTEM_TOOL_SANDBOX_LEAK = previousLeak;
     }
     await removeTempDir(tempDir);
   }

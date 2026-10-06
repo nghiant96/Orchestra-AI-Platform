@@ -7,11 +7,21 @@ import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
 import type { JobRepository } from "./repository-contracts.js";
 import type { JobRecordRepository } from "./job-repository.js";
 import { createJobRecordRepository } from "./job-repositories.js";
-import { scheduleWorkItems } from "../work/scheduler.js";
-import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
-import type { WorkItem } from "../work/work-item.js";
 
 export type QueueJobStatus = "queued" | "assigned" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled" | "stalled";
+
+/** Statuses a job never leaves: only these may be pruned, and nothing may overwrite them. */
+const FINISHED_STATUSES: ReadonlySet<QueueJobStatus> = new Set(["completed", "failed", "cancelled"]);
+
+/** Records kept by the count-based retention when no `queue_days` is configured. */
+const RETAINED_FINISHED_JOBS = 100;
+
+const DRAIN_DELAY_MS = 50;
+/** Back-off after a store failure, so an outage is not hammered every 50ms. */
+const DRAIN_RETRY_DELAY_MS = 1000;
+
+const LOCK_RETRY_ATTEMPTS = 8;
+const LOCK_RETRY_BASE_DELAY_MS = 25;
 
 export type QueueApprovalMode = "manual" | "auto";
 
@@ -76,6 +86,9 @@ export interface QueueJob {
     retryHint?: RetryHint | null;
   };
   externalTask?: import("../types.js").ExternalTaskRef;
+  /** Set when the job came from a work item graph node, for traceability and phase planning. */
+  workItemId?: string;
+  graphNodeId?: string;
   lease?: JobLease;
   attempt?: number;
   workerSelector?: {
@@ -98,6 +111,8 @@ export interface JobQueueRunInput {
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
   externalTask?: import("../types.js").ExternalTaskRef;
+  workItemId?: string;
+  graphNodeId?: string;
   signal?: AbortSignal;
 }
 
@@ -158,6 +173,8 @@ export class FileBackedJobQueue implements JobRepository {
       approvalPolicy: input.approvalPolicy,
       approvalArtifact: null,
       externalTask: input.externalTask,
+      workItemId: input.workItemId,
+      graphNodeId: input.graphNodeId,
       createdAt: now,
       updatedAt: now,
       artifactPath: null,
@@ -168,45 +185,6 @@ export class FileBackedJobQueue implements JobRepository {
     this.scheduleDrain();
     void this.cleanupOldJobs();
     return job;
-  }
-
-  /**
-   * Enqueue work items in batch, running them through the scheduler first.
-   * Only ready items are enqueued; blocked items are logged and skipped.
-   * Returns the scheduler plan for diagnostics.
-   */
-  async enqueueBatch(
-    workItems: WorkItem[],
-    baseInput: Omit<JobQueueRunInput, "jobId">,
-    schedulerOptions: SchedulerOptions = {}
-  ): Promise<{ plan: SchedulerPlan; jobs: QueueJob[] }> {
-    const plan = scheduleWorkItems(workItems, schedulerOptions);
-
-    if (plan.blocked.length > 0) {
-      this.options.logger?.info(
-        `Scheduler blocked ${plan.blocked.length} work item(s): ${plan.blocked
-          .map((b) => `${b.workItem.id} (${b.conflicts.map((c) => c.reason).join("; ")})`)
-          .join(", ")}`
-      );
-    }
-
-    const jobs: QueueJob[] = [];
-    for (const item of plan.ready) {
-      const job = await this.enqueue({
-        task: `[${item.id}] ${item.title}`,
-        cwd: baseInput.cwd,
-        dryRun: baseInput.dryRun,
-        resume: baseInput.resume,
-        workflowMode: baseInput.workflowMode,
-        workflowProfile: baseInput.workflowProfile,
-        approvalMode: baseInput.approvalMode,
-        approvalPolicy: baseInput.approvalPolicy,
-        externalTask: item.externalTask ?? baseInput.externalTask
-      });
-      jobs.push(job);
-    }
-
-    return { plan, jobs };
   }
 
   async get(jobId: string): Promise<QueueJob | null> {
@@ -221,8 +199,7 @@ export class FileBackedJobQueue implements JobRepository {
   }
 
   async cancel(jobId: string): Promise<QueueJob | null> {
-    const job = await this.get(jobId);
-    if (!job) {
+    if (!isSafeJobId(jobId)) {
       return null;
     }
 
@@ -233,23 +210,73 @@ export class FileBackedJobQueue implements JobRepository {
       this.controllers.delete(jobId);
     }
 
-    if (job.status === "queued") {
+    // Under the job lock, a cancel is ordered against worker complete/fail and
+    // the in-process run's final write: whichever lands first wins, and neither
+    // overwrites the other from a stale read. Every unfinished status is
+    // cancellable — including `assigned`, which a worker has claimed but not
+    // started, and `stalled`, which is waiting for an operator.
+    const outcome = await this.withJobLockRetrying(jobId, async () => {
+      const job = await this.get(jobId);
+      if (!job || FINISHED_STATUSES.has(job.status)) {
+        return job;
+      }
       return this.updateJob(job, {
         status: "cancelled",
         finishedAt: new Date().toISOString(),
-        resultSummary: "Job cancelled before it started."
+        resultSummary: job.status === "queued" ? "Job cancelled before it started." : "Job cancelled by user."
       });
+    });
+    if (!outcome) {
+      throw new Error("Job is locked; retry");
     }
+    return outcome.value;
+  }
 
-    if (job.status === "running" || job.status === "waiting_for_approval") {
-      return this.updateJob(job, {
-        status: "cancelled",
-        finishedAt: new Date().toISOString(),
-        resultSummary: "Job cancelled by user."
-      });
+  /**
+   * Run work outside the queue while holding its workspace: no queued job
+   * starts in `cwd` meanwhile, and shutdown waits for it like any other run.
+   * Refused — without calling `fn` — while the queue is paused or stopped, or
+   * when something already runs in that workspace.
+   */
+  async runExclusive<T>(
+    cwd: string,
+    fn: () => Promise<T>
+  ): Promise<{ ok: true; value: T } | { ok: false; reason: "paused" | "busy" }> {
+    if (this.isPaused || this.isStopped) {
+      return { ok: false, reason: "paused" };
     }
+    if (this.activeWorkspaces.has(cwd)) {
+      return { ok: false, reason: "busy" };
+    }
+    this.activeWorkspaces.add(cwd);
+    const run = fn();
+    const settled = run.then(
+      () => undefined,
+      () => undefined
+    );
+    this.activeRunPromises.add(settled);
+    try {
+      return { ok: true, value: await run };
+    } finally {
+      this.activeRunPromises.delete(settled);
+      this.activeWorkspaces.delete(cwd);
+      this.scheduleDrain();
+    }
+  }
 
-    return job;
+  /**
+   * Record that an in-process run is waiting for approval — unless the job has
+   * already finished. A cancel that lands first must not be turned back into a
+   * job that looks like it is still waiting.
+   */
+  async markWaitingForApproval(jobId: string, patch: (job: QueueJob) => Partial<QueueJob>): Promise<void> {
+    await this.withJobLockRetrying(jobId, async () => {
+      const job = await this.get(jobId);
+      if (!job || FINISHED_STATUSES.has(job.status)) {
+        return;
+      }
+      await this.updateJob(job, { ...patch(job), status: "waiting_for_approval" });
+    });
   }
 
   async delete(jobId: string): Promise<boolean> {
@@ -309,6 +336,7 @@ export class FileBackedJobQueue implements JobRepository {
     const locked = await this.withJobLock(jobId, async () => {
       const job = await this.get(jobId);
       if (!job) return { ok: false, error: "Job not found" };
+      if (job.status === "cancelled") return { ok: false, error: "Job was cancelled" };
 
       if (!job.lease) return { ok: false, error: "No active lease" };
       if (job.lease.leaseId !== leaseId) {
@@ -318,9 +346,10 @@ export class FileBackedJobQueue implements JobRepository {
         return { ok: false, error: "Invalid leaseId" };
       }
 
-      if (job.status === "completed" || job.status === "failed") {
-        return { ok: true };
-      }
+      // A repeated complete is idempotent; completing a job that already
+      // failed would discard this result while reporting success.
+      if (job.status === "completed") return { ok: true };
+      if (job.status === "failed") return { ok: false, error: "Job already failed" };
 
       const now = Date.now();
       if (new Date(job.lease.expiresAt).getTime() < now) {
@@ -349,6 +378,7 @@ export class FileBackedJobQueue implements JobRepository {
     const locked = await this.withJobLock(jobId, async () => {
       const job = await this.get(jobId);
       if (!job) return { ok: false, error: "Job not found" };
+      if (job.status === "cancelled") return { ok: false, error: "Job was cancelled" };
 
       if (!job.lease) return { ok: false, error: "No active lease" };
       if (job.lease.leaseId !== leaseId) {
@@ -358,9 +388,8 @@ export class FileBackedJobQueue implements JobRepository {
         return { ok: false, error: "Invalid leaseId" };
       }
 
-      if (job.status === "completed" || job.status === "failed") {
-        return { ok: true };
-      }
+      if (job.status === "failed") return { ok: true };
+      if (job.status === "completed") return { ok: false, error: "Job already completed" };
 
       const now = Date.now();
       if (new Date(job.lease.expiresAt).getTime() < now) {
@@ -552,7 +581,9 @@ export class FileBackedJobQueue implements JobRepository {
   start(): void {
     this.isStopped = false;
     this.scheduleDrain();
-    this.cleanupHungJobs();
+    void this.cleanupHungJobs().catch((error) => {
+      this.options.logger?.warn(`Failed to clean up jobs interrupted by the last shutdown: ${(error as Error).message}`);
+    });
   }
 
   async stop(): Promise<void> {
@@ -571,9 +602,13 @@ export class FileBackedJobQueue implements JobRepository {
   }
 
   private async cleanupHungJobs(): Promise<void> {
-    // Mark jobs that were 'running' when the server stopped as 'failed'
+    // An in-process run dies with the server, so its 'running' record is now
+    // orphaned. A leased job is different: it runs in an external worker that
+    // outlives a server restart, and failing it here threw away the result the
+    // worker was about to report. Lease expiry (detectStaleLeases) decides
+    // whether that worker is gone.
     const jobs = await this.list(100);
-    const hungJobs = jobs.filter((j) => j.status === "running" || j.status === "cancel_requested");
+    const hungJobs = jobs.filter((j) => !j.lease && (j.status === "running" || j.status === "cancel_requested"));
     for (const job of hungJobs) {
       this.options.logger?.warn(`Cleaning up hung job ${job.jobId} from previous session.`);
       await this.updateJob(job, {
@@ -584,7 +619,7 @@ export class FileBackedJobQueue implements JobRepository {
     }
   }
 
-  private scheduleDrain(): void {
+  private scheduleDrain(delayMs = DRAIN_DELAY_MS): void {
     if (this.isStopped) {
       return;
     }
@@ -593,13 +628,20 @@ export class FileBackedJobQueue implements JobRepository {
     }
     this.drainTimer = setTimeout(() => {
       this.drainTimer = null;
-      const pass = this.drain().finally(() => {
-        if (this.drainPromise === pass) {
-          this.drainPromise = null;
-        }
-      });
+      const pass = this.drain()
+        .catch((error) => {
+          // Listing the queue fails while the store is down. Unhandled, that
+          // rejection would take the whole server down with it.
+          this.options.logger?.warn(`Queue drain failed; retrying: ${(error as Error).message}`);
+          this.scheduleDrain(DRAIN_RETRY_DELAY_MS);
+        })
+        .finally(() => {
+          if (this.drainPromise === pass) {
+            this.drainPromise = null;
+          }
+        });
       this.drainPromise = pass;
-    }, 50);
+    }, delayMs);
   }
 
   private async drain(): Promise<void> {
@@ -620,35 +662,59 @@ export class FileBackedJobQueue implements JobRepository {
       }
       this.activeJobs += 1;
       this.activeWorkspaces.add(next.cwd);
-      const runPromise = this.runJob(next).finally(() => {
-        this.activeJobs -= 1;
-        this.activeWorkspaces.delete(next.cwd);
-        this.activeRunPromises.delete(runPromise);
-        this.scheduleDrain();
-      });
+      const runPromise = this.runJob(next)
+        .then(
+          () => DRAIN_DELAY_MS,
+          (error: unknown) => {
+            // runJob only rejects when the store itself fails around the run.
+            this.options.logger?.error(`Queued job ${next.jobId} could not be processed: ${(error as Error).message}`);
+            return DRAIN_RETRY_DELAY_MS;
+          }
+        )
+        .then((delayMs) => {
+          this.activeJobs -= 1;
+          this.activeWorkspaces.delete(next.cwd);
+          this.activeRunPromises.delete(runPromise);
+          this.scheduleDrain(delayMs);
+        });
       this.activeRunPromises.add(runPromise);
       void runPromise;
     }
   }
 
   private async runJob(job: QueueJob): Promise<void> {
-    const latest = await this.get(job.jobId);
-    if (!latest || latest.status !== "queued") {
-      return;
-    }
-
+    // Registered before the job turns 'running', so any cancel from then on
+    // can reach the run.
     const controller = new AbortController();
     this.controllers.set(job.jobId, controller);
 
-    const startedAt = new Date();
-    const waitTimeMs = startedAt.getTime() - new Date(latest.createdAt).getTime();
-
-    const running = await this.updateJob(latest, {
-      status: "running",
-      startedAt: startedAt.toISOString(),
-      waitTimeMs,
-      error: null
-    });
+    let running: QueueJob | null = null;
+    try {
+      // Flip queued → running under the lock. From a stale read, a cancel that
+      // landed in between was overwritten and the job ran anyway.
+      const claimed = await this.withJobLockRetrying(job.jobId, async () => {
+        const latest = await this.get(job.jobId);
+        if (!latest || latest.status !== "queued") {
+          return null;
+        }
+        const now = new Date();
+        return this.updateJob(latest, {
+          status: "running",
+          startedAt: now.toISOString(),
+          waitTimeMs: now.getTime() - new Date(latest.createdAt).getTime(),
+          error: null
+        });
+      });
+      running = claimed?.value ?? null;
+    } finally {
+      if (!running) {
+        this.controllers.delete(job.jobId);
+      }
+    }
+    if (!running) {
+      return;
+    }
+    const startedAt = new Date(running.startedAt ?? Date.now());
 
     try {
       const result = await this.runner({
@@ -669,21 +735,20 @@ export class FileBackedJobQueue implements JobRepository {
       if (controller.signal.aborted) {
         const finishedAt = new Date().toISOString();
         const executionTimeMs = new Date(finishedAt).getTime() - startedAt.getTime();
-        await this.updateJob(running, {
+        await this.finishRun(running, () => ({
           status: "cancelled",
           finishedAt,
           executionTimeMs,
           resultSummary: "Job was aborted."
-        });
+        }));
         return;
       }
 
-      const current = (await this.get(running.jobId)) ?? running;
       const status: QueueJobStatus = result.ok ? "completed" : "failed";
       const finishedAt = new Date().toISOString();
       const executionTimeMs = new Date(finishedAt).getTime() - startedAt.getTime();
 
-      await this.updateJob(current, {
+      await this.finishRun(running, (current) => ({
         status,
         finishedAt,
         executionTimeMs,
@@ -704,18 +769,18 @@ export class FileBackedJobQueue implements JobRepository {
             retryHint: result.execution.retryHint ?? null
           }
           : undefined
-      });
+      }));
     } catch (error) {
       const isAbort = error instanceof Error && error.name === "AbortError";
       const finishedAt = new Date().toISOString();
       const executionTimeMs = new Date(finishedAt).getTime() - startedAt.getTime();
-      await this.updateJob(running, {
+      await this.finishRun(running, () => ({
         status: isAbort ? "cancelled" : "failed",
         finishedAt,
         executionTimeMs,
         error: (error as Error).message,
         resultSummary: isAbort ? "Job aborted." : "Job failed before producing a run result."
-      });
+      }));
       this.options.logger?.error(`Queued job ${running.jobId} ${isAbort ? "aborted" : "failed"}: ${(error as Error).message}`);
     } finally {
       this.controllers.delete(job.jobId);
@@ -736,6 +801,26 @@ export class FileBackedJobQueue implements JobRepository {
     await this.repository.write(job);
   }
 
+  /**
+   * Record an in-process run's final state unless the job finished meanwhile —
+   * typically a cancel that landed after the run's abort check. Done under the
+   * job lock so it is ordered against cancel(); if the lock stays busy,
+   * recording the result unlocked beats dropping it.
+   */
+  private async finishRun(running: QueueJob, patch: (current: QueueJob) => Partial<QueueJob>): Promise<void> {
+    const write = async () => {
+      const current = (await this.get(running.jobId)) ?? running;
+      if (FINISHED_STATUSES.has(current.status)) {
+        return;
+      }
+      await this.updateJob(current, patch(current));
+    };
+    if (!(await this.withJobLockRetrying(running.jobId, write))) {
+      this.options.logger?.warn(`Job ${running.jobId} stayed locked; recording its result without the lock.`);
+      await write();
+    }
+  }
+
   private async withJobLock<T>(jobId: string, fn: () => Promise<T>): Promise<T | null> {
     const lock = await this.repository.acquireLock(jobId);
     if (!lock) {
@@ -748,9 +833,31 @@ export class FileBackedJobQueue implements JobRepository {
     }
   }
 
+  /**
+   * Like withJobLock, but rides out brief contention — a worker heartbeat
+   * holds the lock for a moment — instead of failing at once. Resolves to null
+   * only if the lock never came free.
+   */
+  private async withJobLockRetrying<T>(jobId: string, fn: () => Promise<T>): Promise<{ value: T } | null> {
+    for (let attempt = 0; attempt < LOCK_RETRY_ATTEMPTS; attempt += 1) {
+      const lock = await this.repository.acquireLock(jobId);
+      if (lock) {
+        try {
+          return { value: await fn() };
+        } finally {
+          await lock.release().catch(() => {});
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_BASE_DELAY_MS * (attempt + 1)));
+    }
+    return null;
+  }
+
   private async cleanupOldJobs(): Promise<void> {
     try {
-      const all = await this.list(500);
+      // Only finished jobs are pruned. A queued job, a running one, or one
+      // waiting days for approval is live work, however old or numerous.
+      const all = (await this.list(500)).filter((job) => FINISHED_STATUSES.has(job.status));
       const retentionDays = this.options.retentionDays;
 
       if (retentionDays && retentionDays > 0) {
@@ -771,9 +878,9 @@ export class FileBackedJobQueue implements JobRepository {
         return;
       }
 
-      if (all.length <= 100) return;
+      if (all.length <= RETAINED_FINISHED_JOBS) return;
 
-      const toDelete = all.slice(100);
+      const toDelete = all.slice(RETAINED_FINISHED_JOBS);
       for (const job of toDelete) {
         try {
           await this.delete(job.jobId);

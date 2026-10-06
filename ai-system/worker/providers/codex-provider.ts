@@ -7,6 +7,7 @@ import type { DiffSummary, ToolExecutionResult } from "../../types.js";
 import { redactSecrets } from "../../security/secret-redaction.js";
 import { ensurePathWithinRoot } from "../worker-safety.js";
 import { WorkerProcessSupervisor } from "../worker-process-supervisor.js";
+import type { ProviderUsageRecorder } from "../provider-usage.js";
 import { prepareWorkerWorktree } from "../worker-worktree.js";
 import type { WorkerProviderAdapter, WorkerProviderExecutionInput, WorkerProviderExecutionResult } from "./provider-adapter.js";
 
@@ -28,9 +29,14 @@ function resolveProbeTimeoutMs(): number {
 
 export class CodexProvider implements WorkerProviderAdapter {
   readonly id = "codex" as const;
-  private readonly supervisor = new WorkerProcessSupervisor();
+  private readonly supervisor: WorkerProcessSupervisor;
 
-  constructor(private readonly command = process.env.ORCHESTRA_CODEX_COMMAND || "codex") {}
+  constructor(
+    private readonly command = process.env.ORCHESTRA_CODEX_COMMAND || "codex",
+    usage?: ProviderUsageRecorder
+  ) {
+    this.supervisor = new WorkerProcessSupervisor(usage);
+  }
 
   async isAvailable(input: WorkerProviderExecutionInput): Promise<boolean> {
     const policy = checkCommand(`${this.command} --version`);
@@ -86,7 +92,8 @@ export class CodexProvider implements WorkerProviderAdapter {
         cwd: input.worktreePath,
         env: input.env,
         timeoutMs: Number(process.env.ORCHESTRA_CODEX_TIMEOUT_MS || 10 * 60 * 1000),
-        signal: input.signal
+        signal: input.signal,
+        usageLabel: input.phaseLabel ?? "provider:execute"
       });
       stdout = result.stdout;
       stderr = result.stderr;

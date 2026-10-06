@@ -16,6 +16,9 @@ services:
       ORCHESTRA_STORE: ${ORCHESTRA_STORE:-sqlite}
       ORCHESTRA_POSTGRES_URL: ${ORCHESTRA_POSTGRES_URL:-postgresql://orchestra:${POSTGRES_PASSWORD:-orchestra}@postgres:5432/orchestra}
       PORT: ${PORT:-3927}
+      AI_SYSTEM_CORS_ORIGINS: ${AI_SYSTEM_CORS_ORIGINS:-}
+      AI_SYSTEM_RATE_LIMIT_PER_MINUTE: ${AI_SYSTEM_RATE_LIMIT_PER_MINUTE:-600}
+      AI_SYSTEM_TRUST_PROXY: ${AI_SYSTEM_TRUST_PROXY:-false}
       AI_SYSTEM_MEMORY_ENABLED: ${AI_SYSTEM_MEMORY_ENABLED:-true}
       AI_SYSTEM_MEMORY_BACKEND: ${AI_SYSTEM_MEMORY_BACKEND:-local-file}
       AI_SYSTEM_MEMORY_TRANSPORT: ${AI_SYSTEM_MEMORY_TRANSPORT:-http}
@@ -37,7 +40,9 @@ services:
       # one instead of the host's.
       CODEX_HOME: /home/node/.provider-config/codex
     ports:
-      - "${PORT:-3927}:${PORT:-3927}"
+      # Published on the host's loopback only. Set AI_SYSTEM_PUBLISH_HOST=0.0.0.0
+      # to let other machines reach it — put TLS in front when you do.
+      - "${AI_SYSTEM_PUBLISH_HOST:-127.0.0.1}:${PORT:-3927}:${PORT:-3927}"
     volumes:
       - .:/workspace
       - orchestra-ai-state:/workspace/.ai-system-server

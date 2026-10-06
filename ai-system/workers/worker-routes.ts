@@ -21,6 +21,7 @@ import type { RouteHandler, ServerRouteContext } from "../server/routes-context.
 import type { Worker } from "./worker-types.js";
 import type { QueueJob } from "../core/job-queue.js";
 import { readJsonBody } from "../server/read-json-body.js";
+import { tokensMatch } from "../security/token-policy.js";
 
 const workerStoreCache = new Map<string, ReturnType<typeof createWorkerStore>>();
 
@@ -41,6 +42,32 @@ function buildServiceCtx(req: http.IncomingMessage, ctx: ServerRouteContext) {
     actor: ctx.actor,
     allowedRoots: ctx.allowedRoots
   };
+}
+
+const WORKER_SESSION_HEADER = "x-orchestra-worker-session";
+
+/**
+ * Every worker shares one worker token, so by itself it cannot tell workers
+ * apart: any holder could heartbeat, claim, or complete as any workerId. A
+ * request made with it must also carry the session token that worker got at
+ * registration. The server token is the root credential and an
+ * unauthenticated local server trusts everyone, so neither is asked.
+ */
+async function hasValidWorkerSession(req: http.IncomingMessage, ctx: ServerRouteContext, workerId: string): Promise<boolean> {
+  if (ctx.tokenRole !== "worker") {
+    return true;
+  }
+  const presented = req.headers[WORKER_SESSION_HEADER];
+  if (typeof presented !== "string" || !presented) {
+    return false;
+  }
+  const worker = await getOrCreateStore(ctx.defaultCwd).load(workerId);
+  return Boolean(worker?.sessionToken) && tokensMatch(presented, worker!.sessionToken!);
+}
+
+function rejectWorkerSession(res: http.ServerResponse, ctx: ServerRouteContext): true {
+  ctx.respondJson(res, 401, { ok: false, error: "Invalid worker session" });
+  return true;
 }
 
 function buildExtendedServiceCtx(req: http.IncomingMessage, ctx: ServerRouteContext) {
@@ -111,6 +138,9 @@ export const workerRoutes: RouteHandler = {
 
       if (req.method === "POST" && action) {
         if (action === "heartbeat") {
+          if (!(await hasValidWorkerSession(req, ctx, workerId))) {
+            return rejectWorkerSession(res, ctx);
+          }
           const payload = await readJsonBody(req);
           try {
             const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
@@ -180,6 +210,9 @@ export const workerRoutes: RouteHandler = {
     const claimMatch = /^\/workers\/([^/]+)\/jobs\/claim$/.exec(url.pathname);
     if (claimMatch && req.method === "POST") {
       const workerId = claimMatch[1] ?? "";
+      if (!(await hasValidWorkerSession(req, ctx, workerId))) {
+        return rejectWorkerSession(res, ctx);
+      }
       const serviceCtx = buildExtendedServiceCtx(req, ctx);
       try {
         const result = await claimJob(serviceCtx, workerId);
@@ -206,6 +239,9 @@ export const workerRoutes: RouteHandler = {
       if (!leaseId || !workerId) {
         ctx.respondJson(res, 400, { ok: false, error: "leaseId and workerId are required" });
         return true;
+      }
+      if (!(await hasValidWorkerSession(req, ctx, workerId))) {
+        return rejectWorkerSession(res, ctx);
       }
 
       try {
@@ -239,6 +275,9 @@ export const workerRoutes: RouteHandler = {
         ctx.respondJson(res, 400, { ok: false, error: "leaseId and workerId are required" });
         return true;
       }
+      if (!(await hasValidWorkerSession(req, ctx, workerId))) {
+        return rejectWorkerSession(res, ctx);
+      }
 
       try {
         const result = await startJob(serviceCtx, workerId, jobId, leaseId);
@@ -257,6 +296,9 @@ export const workerRoutes: RouteHandler = {
     if (logsMatch && req.method === "POST") {
       const workerId = logsMatch[1] ?? "";
       const jobId = logsMatch[2] ?? "";
+      if (!(await hasValidWorkerSession(req, ctx, workerId))) {
+        return rejectWorkerSession(res, ctx);
+      }
       const payload = await readJsonBody(req);
       const leaseId = typeof payload?.leaseId === "string" ? payload.leaseId : "";
       const lines = Array.isArray(payload?.lines)
@@ -298,6 +340,9 @@ export const workerRoutes: RouteHandler = {
       if (!leaseId || !workerId) {
         ctx.respondJson(res, 400, { ok: false, error: "leaseId and workerId are required" });
         return true;
+      }
+      if (!(await hasValidWorkerSession(req, ctx, workerId))) {
+        return rejectWorkerSession(res, ctx);
       }
 
       try {

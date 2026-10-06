@@ -9,9 +9,11 @@ import {
   assessWorkItem,
   runWorkItem,
   handoffWorkItem,
-  cancelOrRetryWorkItem
+  cancelOrRetryWorkItem,
+  dispatchReadyWorkItems
 } from "../../work/work-item-service.js";
 import { RepoRegistryError, resolveRegisteredRepoPath } from "../../repos/repo-registry.js";
+import { isValidWorkItemId } from "../../work/work-store.js";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 import { readJsonBody } from "../read-json-body.js";
 
@@ -72,9 +74,54 @@ export const workItemsRoute: RouteHandler = {
       return true;
     }
 
+    // Must be matched before the /work-items/:id pattern below, which would
+    // otherwise read "dispatch" as a work item id.
+    if (url.pathname === "/work-items/dispatch" && req.method === "POST") {
+      if (!canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "work_item.run")) {
+        ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
+        return true;
+      }
+      const payload = await readJsonBody(req);
+      const repo = await resolveRepoOrRespond(ctx, res, payload);
+      if (repo === false) return true;
+      const cwd = await ctx.resolveRequestedCwd(payload?.cwd ?? repo?.localPath, ctx.defaultCwd, ctx.allowedRoots);
+      if (!cwd) {
+        ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
+        return true;
+      }
+
+      const rawMaxParallel = payload?.maxParallel;
+      if (rawMaxParallel !== undefined) {
+        const parsed = Number(rawMaxParallel);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          ctx.respondJson(res, 400, { ok: false, error: "maxParallel must be a positive integer" });
+          return true;
+        }
+      }
+
+      const serviceCtx = {
+        actor: ctx.actor,
+        auditLog: ctx.auditLog,
+        rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules,
+        queue: ctx.queue
+      };
+      const result = await dispatchReadyWorkItems(serviceCtx, cwd, {
+        dryRun: payload?.dryRun !== false,
+        maxParallel: rawMaxParallel === undefined ? undefined : Number(rawMaxParallel)
+      });
+      // 202: the jobs are queued, not finished. Partial failures are reported
+      // in the body rather than collapsing the whole batch into an error.
+      ctx.respondJson(res, 202, result);
+      return true;
+    }
+
     const workItemMatch = /^\/work-items\/([^/]+)(?:\/(assess|run|cancel|retry|handoff))?$/.exec(url.pathname);
     if (workItemMatch && req.method === "GET" && !workItemMatch[2]) {
       const workItemId = workItemMatch[1] ?? "";
+      if (!isValidWorkItemId(workItemId)) {
+        ctx.respondJson(res, 400, { ok: false, error: `Invalid work item id: ${workItemId}` });
+        return true;
+      }
       const cwd = await resolveWorkItemRouteCwd(ctx, url.searchParams.get("cwd"), url.searchParams.get("repoId"));
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
@@ -98,6 +145,10 @@ export const workItemsRoute: RouteHandler = {
     const eventsMatch = /^\/work-items\/([^/]+)\/events$/.exec(url.pathname);
     if (eventsMatch && req.method === "GET") {
       const workItemId = eventsMatch[1] ?? "";
+      if (!isValidWorkItemId(workItemId)) {
+        ctx.respondJson(res, 400, { ok: false, error: `Invalid work item id: ${workItemId}` });
+        return true;
+      }
       const cwd = await resolveWorkItemRouteCwd(ctx, url.searchParams.get("cwd"), url.searchParams.get("repoId"));
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
@@ -121,6 +172,10 @@ export const workItemsRoute: RouteHandler = {
     const lessonMatch = /^\/work-items\/([^/]+)\/lesson$/.exec(url.pathname);
     if (lessonMatch && req.method === "GET") {
       const workItemId = lessonMatch[1] ?? "";
+      if (!isValidWorkItemId(workItemId)) {
+        ctx.respondJson(res, 400, { ok: false, error: `Invalid work item id: ${workItemId}` });
+        return true;
+      }
       const cwd = await resolveWorkItemRouteCwd(ctx, url.searchParams.get("cwd"), url.searchParams.get("repoId"));
       if (!cwd) {
         ctx.respondJson(res, 403, { ok: false, error: "Requested cwd is outside AI_SYSTEM_ALLOWED_WORKDIRS" });
@@ -147,6 +202,10 @@ export const workItemsRoute: RouteHandler = {
         return true;
       }
       const workItemId = workItemMatch[1] ?? "";
+      if (!isValidWorkItemId(workItemId)) {
+        ctx.respondJson(res, 400, { ok: false, error: `Invalid work item id: ${workItemId}` });
+        return true;
+      }
       const action = workItemMatch[2];
       const payload = await readJsonBody(req);
       const repo = await resolveRepoOrRespond(ctx, res, payload, url.searchParams.get("repoId"));

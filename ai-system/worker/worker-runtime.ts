@@ -1,7 +1,7 @@
 import type { Logger } from "../types.js";
 import type { QueueJob } from "../core/job-queue.js";
 import type { Worker } from "../workers/worker-types.js";
-import { WorkerApiClient } from "./worker-client.js";
+import { WorkerApiClient, WorkerApiError } from "./worker-client.js";
 import { executeWorkerJob, type WorkerJobExecutionContext, type WorkerJobExecutionResult } from "./job-executor.js";
 import type { WorkerRuntimeConfig } from "./worker-config.js";
 import { redactWorkerLogLine } from "./worker-safety.js";
@@ -39,8 +39,9 @@ export async function runWorkerRuntime(
     version: "0.1.0"
   });
   const worker = registration.worker;
+  client.useSession(worker.sessionToken);
 
-  let activeJob: { job: QueueJob; leaseId: string } | null = null;
+  let activeJob: { job: QueueJob; leaseId: string; controller: AbortController } | null = null;
   let claimedJobs = 0;
   let completedJobs = 0;
   let failedJobs = 0;
@@ -50,6 +51,13 @@ export async function runWorkerRuntime(
   const heartbeatTimer = setInterval(() => {
     void sendHeartbeat().catch((error) => {
       logger.warn(`Worker heartbeat failed: ${(error as Error).message}`);
+      // 409 means the server would not renew the active job's lease: the job
+      // was cancelled or the lease was lost. Its result would be refused, so
+      // stop the provider now instead of finishing the work for nothing.
+      if (error instanceof WorkerApiError && error.status === 409 && activeJob) {
+        logger.warn(`Abandoning worker job ${activeJob.job.jobId}: ${error.message}`);
+        activeJob.controller.abort(error);
+      }
       if ((error as Error).message.includes("lease")) {
         stopped = true;
       }
@@ -87,7 +95,8 @@ export async function runWorkerRuntime(
       if (!started.ok) {
         throw new Error(started.error || "Failed to start worker job");
       }
-      activeJob = { job, leaseId: lease.leaseId };
+      const controller = new AbortController();
+      activeJob = { job, leaseId: lease.leaseId, controller };
       await sendHeartbeat("busy");
 
       const logBuffer: string[] = [];
@@ -106,6 +115,7 @@ export async function runWorkerRuntime(
           workspaceRoots: worker.workspaceRoots.length > 0 ? worker.workspaceRoots : config.workspaceRoots,
           providerId: config.provider,
           providerCommand: config.providerCommand,
+          signal: controller.signal,
           emitLog,
           markFilesystemMutation: async (stage: string, worktreePath?: string) => {
             const checkpoint = await retryWhileJobLocked(() => client.checkpoint(worker.id, job.jobId, lease.leaseId, {
@@ -132,7 +142,10 @@ export async function runWorkerRuntime(
           }
         }
 
-        if (result.ok) {
+        if (controller.signal.aborted) {
+          // The server already refused this job's lease; a report would be too.
+          logger.warn(`Worker job ${job.jobId} was abandoned before it finished.`);
+        } else if (result.ok) {
           const completion = await retryWhileJobLocked(() => client.complete(worker.id, job.jobId, lease.leaseId, {
             resultSummary: result.summary,
             artifactPath: result.artifactPath,
@@ -171,13 +184,17 @@ export async function runWorkerRuntime(
           }
         }
         const failureMessage = error instanceof Error ? error.message : "Worker job failed";
-        const failure = await retryWhileJobLocked(() => client.fail(worker.id, job.jobId, lease.leaseId, failureMessage, {
-          workerLogs: logBuffer
-        })).catch(() => ({ ok: false }));
-        if ((failure as { ok: boolean }).ok) {
-          failedJobs += 1;
+        if (controller.signal.aborted) {
+          logger.warn(`Worker job ${job.jobId} was abandoned: ${failureMessage}`);
+        } else {
+          const failure = await retryWhileJobLocked(() => client.fail(worker.id, job.jobId, lease.leaseId, failureMessage, {
+            workerLogs: logBuffer
+          })).catch(() => ({ ok: false }));
+          if ((failure as { ok: boolean }).ok) {
+            failedJobs += 1;
+          }
+          logger.error(`Worker job ${job.jobId} failed: ${failureMessage}`);
         }
-        logger.error(`Worker job ${job.jobId} failed: ${failureMessage}`);
       } finally {
         activeJob = null;
         await sendHeartbeat("idle");

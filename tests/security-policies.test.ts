@@ -5,7 +5,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { isForbiddenPath, validatePath } from "../ai-system/security/path-policy.js";
 import { checkCommand, isCommandAllowed } from "../ai-system/security/command-policy.js";
-import { resolveTokenRole, canAccessRoute, validateTokenConfiguration } from "../ai-system/security/token-policy.js";
+import { resolveTokenRole, canAccessRoute, tokensMatch, validateTokenConfiguration } from "../ai-system/security/token-policy.js";
 import type { TokenRole } from "../ai-system/security/token-policy.js";
 import { removeTempDir } from "./test-utils.js";
 
@@ -164,6 +164,16 @@ describe("Token Policy", () => {
     assert.equal(canAccessRoute("hermes" as TokenRole, "/work-items"), true);
     assert.equal(canAccessRoute("hermes" as TokenRole, "/jobs"), true);
     assert.equal(canAccessRoute("hermes" as TokenRole, "/health"), true);
+  });
+
+  test("tokensMatch accepts only the exact token, whatever the length", () => {
+    assert.equal(tokensMatch("server-token", "server-token"), true);
+    assert.equal(tokensMatch("server-toke", "server-token"), false);
+    assert.equal(tokensMatch("server-token-and-more", "server-token"), false);
+    assert.equal(tokensMatch("Server-token", "server-token"), false);
+    assert.equal(tokensMatch("", "server-token"), false);
+    // An unset secret must never authenticate, not even an empty token.
+    assert.equal(tokensMatch("", ""), false);
   });
 
   test("validateTokenConfiguration rejects placeholder and duplicate tokens", () => {

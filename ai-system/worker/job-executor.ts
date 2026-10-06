@@ -35,6 +35,8 @@ import { runDiffBoundaryCheck, writeDiffBoundaryCheckArtifact } from "./diff-bou
 import { runNamingGuard, writeNamingGuardArtifact } from "./naming-guard.js";
 import { scanRepoConventions, writeRepoConventionScanArtifact } from "./repo-convention-scanner.js";
 import { resolveWorkerProvider } from "./providers/index.js";
+import { ProviderUsageRecorder } from "./provider-usage.js";
+import { persistProviderUsage, summarizeProviderUsage } from "./provider-usage-artifact.js";
 import { runWorkerVerification } from "./verification-runner.js";
 import {
   ensureWorkerTaskPhaseState,
@@ -55,6 +57,8 @@ export interface WorkerJobExecutionContext {
   workspaceRoots: string[];
   providerId?: string;
   providerCommand?: string;
+  /** Aborted when the server refuses the job's lease — typically a cancel. */
+  signal?: AbortSignal;
   emitLog(message: string): void;
   markFilesystemMutation(stage: string, worktreePath?: string): Promise<void>;
 }
@@ -179,7 +183,10 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
 
   await initializeWorkerManifest(ctx, prepared, providerId);
 
-  const provider = resolveWorkerProvider(providerId, { codexCommand: ctx.providerCommand });
+  // One recorder per job: the worker path had no cost telemetry at all, so a
+  // fleet run could not report what it spent.
+  const usage = new ProviderUsageRecorder(ctx.job.jobId);
+  const provider = resolveWorkerProvider(providerId, { codexCommand: ctx.providerCommand, usage });
   const providerInputBase = {
     jobId: ctx.job.jobId,
     cwd: ctx.job.cwd,
@@ -192,6 +199,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     workflowProfile: ctx.job.workflowProfile,
     approvalPolicy: ctx.job.approvalPolicy,
     env: buildProviderEnv(),
+    signal: ctx.signal,
   };
 
   if (!(await provider.isAvailable({ ...providerInputBase, task: ctx.job.task }))) {
@@ -210,7 +218,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         retryable: true,
         suggestion: "Install/authenticate the provider CLI or configure ORCHESTRA_WORKER_PROVIDER."
       }
-    });
+    }, { usage });
   }
 
   const repoConventions = await scanRepoConventions(prepared.worktreePath);
@@ -242,7 +250,8 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
 
   const loadedState = await loadWorkerTaskPhaseState(prepared.artifactDir);
   const { plan, state: initialPhaseState } = ensureWorkerTaskPhaseState(ctx.job.jobId, ctx.job.task, loadedState, {
-    workflowProfile: ctx.job.workflowProfile
+    workflowProfile: ctx.job.workflowProfile,
+    preDecomposed: Boolean(ctx.job.graphNodeId)
   });
   let phaseState = initialPhaseState;
   if (!loadedState) {
@@ -266,6 +275,24 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   let contextPack: WorkerContextPack | null = await loadWorkerContextPack(prepared.artifactDir);
   for (let index = resumeIndex; index < plan.phases.length; index += 1) {
     const phase = plan.phases[index];
+    if (ctx.signal?.aborted) {
+      // Cancelled between phases: starting another provider round would only
+      // spend time and tokens on a result the server will refuse.
+      emit(`job abandoned before phase ${index + 1}/${plan.phases.length}`);
+      return finishWorkerJob(prepared.artifactDir, "failed", {
+        ok: false,
+        summary: "Job was abandoned: the server refused its lease.",
+        logs,
+        filesystemMutated: !ctx.job.dryRun,
+        artifactPath: prepared.artifactDir,
+        failure: {
+          class: "cancelled",
+          message: "Job was abandoned: the server refused its lease.",
+          step: "worker-cancelled",
+          retryable: false
+        }
+      }, { usage });
+    }
     emit(`phase ${index + 1}/${plan.phases.length}: ${phase.title}`);
     phaseState = updateWorkerTaskPhaseStateForStart(phaseState, phase.id);
     await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
@@ -287,7 +314,8 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
 
     const phaseResult = await provider.execute({
       ...providerInputBase,
-      task: phaseTask
+      task: phaseTask,
+      phaseLabel: `phase:${phase.index + 1}:${phase.kind}`
     });
     latestResult = phaseResult;
     await persistWorkerPhaseArtifact(prepared.artifactDir, phase, phaseResult);
@@ -308,7 +336,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
         diffSummaries: phaseResult.diffSummaries,
         latestToolResults: phaseResult.latestToolResults,
         failure: phaseResult.failure
-      });
+      }, { usage });
     }
 
     if (phase.kind === "setup") {
@@ -378,7 +406,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           retryable: false,
           suggestion: `Review ${ARTIFACT_PATHS.diffBoundaryCheck} and keep changes inside the context pack boundary.`
         }
-      }, "failed", "skipped");
+      }, { guardStatus: "failed", verificationStatus: "skipped", usage });
     }
     finalGuardStatus = boundaryCheck.findings.length > 0 ? "warning" : "passed";
 
@@ -409,7 +437,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           retryable: false,
           suggestion: `Review ${ARTIFACT_PATHS.namingCheck} and rename generated files to durable domain names.`
         }
-      }, "failed", "skipped");
+      }, { guardStatus: "failed", verificationStatus: "skipped", usage });
     }
     if (namingCheck.findings.length > 0) {
       finalGuardStatus = "warning";
@@ -420,7 +448,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
       worktreePath: prepared.worktreePath,
       artifactDir: prepared.artifactDir,
       changedFiles: finalResult.changedFiles,
-      signal: undefined,
+      signal: ctx.signal,
       logger: {
         info: (message) => emit(`verification: ${message}`),
         warn: (message) => emit(`verification warning: ${message}`),
@@ -449,7 +477,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
           retryable: true,
           suggestion: "Fix the failing verification commands and rerun the worker job."
         }
-      }, boundaryCheck.findings.length > 0 || namingCheck.findings.length > 0 ? "warning" : "passed", "failed");
+      }, { guardStatus: boundaryCheck.findings.length > 0 || namingCheck.findings.length > 0 ? "warning" : "passed", verificationStatus: "failed", usage });
     }
     finalVerificationStatus = "passed";
   }
@@ -463,7 +491,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     diffSummaries: finalResult.diffSummaries,
     latestToolResults: finalResult.latestToolResults,
     failure: finalResult.failure
-  }, finalGuardStatus, finalVerificationStatus);
+  }, { guardStatus: finalGuardStatus, verificationStatus: finalVerificationStatus, usage });
 }
 
 async function persistWorkerPhaseArtifact(
@@ -577,15 +605,28 @@ async function finishWorkerJob(
   artifactDir: string,
   status: "completed" | "failed",
   result: WorkerJobExecutionResult,
-  guardStatus: ArtifactGuardStatus = "skipped",
-  verificationStatus: ArtifactVerificationStatus = "skipped"
+  options: {
+    guardStatus?: ArtifactGuardStatus;
+    verificationStatus?: ArtifactVerificationStatus;
+    usage?: ProviderUsageRecorder;
+  } = {}
 ): Promise<WorkerJobExecutionResult> {
+  const { guardStatus = "skipped", verificationStatus = "skipped", usage } = options;
   await updateManifestStatus(artifactDir, status);
   await updateManifestSummary(artifactDir, {
     changedFileCount: await readChangedFileCount(artifactDir),
     guardStatus,
     verificationStatus
   });
+  // Every exit from a provider job funnels through here, so this is the one
+  // place the usage report has to be written — including on failure, because a
+  // failed attempt still spent tokens.
+  if (usage) {
+    const report = await persistProviderUsage(artifactDir, usage);
+    if (report) {
+      result.logs?.push(redactWorkerLogLine(summarizeProviderUsage(report)));
+    }
+  }
   return result;
 }
 

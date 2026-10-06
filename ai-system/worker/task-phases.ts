@@ -52,10 +52,21 @@ export type WorkerContextPackMode = "off" | "auto" | "required";
 export function buildWorkerTaskPhasePlan(task: string, options: {
   contextPackMode?: WorkerContextPackMode;
   workflowProfile?: string;
+  /**
+   * The task is already one unit of work — typically a work item graph node.
+   *
+   * Splitting it again is decomposing twice. Worse, a structured node prompt
+   * carries framing lines (`Risk: low`, `Expected output: patch`), and the
+   * clause splitter treated each of those as a slice to implement: a five-node
+   * work item planned 35 provider invocations where ten would do.
+   */
+  preDecomposed?: boolean;
 } = {}): WorkerTaskPhasePlan {
   const trimmed = task.trim();
-  const clauses = extractTaskClauses(trimmed);
-  const implementationClauses = clauses.length > 1 ? clauses : (trimmed.length > 180 ? splitLongTask(trimmed) : [trimmed]);
+  const clauses = options.preDecomposed ? [trimmed] : extractTaskClauses(trimmed);
+  const implementationClauses = clauses.length > 1
+    ? clauses
+    : (!options.preDecomposed && trimmed.length > 180 ? splitLongTask(trimmed) : [trimmed]);
   const implementationPhaseTexts = implementationClauses.length > 1 ? implementationClauses : [trimmed];
   const phases: WorkerTaskPhase[] = [];
 
@@ -182,6 +193,7 @@ export function ensureWorkerTaskPhaseState(
   options: {
     contextPackMode?: WorkerContextPackMode;
     workflowProfile?: string;
+    preDecomposed?: boolean;
   } = {}
 ): { plan: WorkerTaskPhasePlan; state: WorkerTaskPhaseState } {
   if (existing) {

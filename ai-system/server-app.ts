@@ -1,11 +1,12 @@
 import http from "node:http";
 import path from "node:path";
 import { Orchestrator } from "./core/orchestrator.js";
-import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner } from "./core/job-queue.js";
+import { FileBackedJobQueue, resolveJobQueueDirectory, type JobRunner, type QueueJob } from "./core/job-queue.js";
 import { resolveApprovalPolicy } from "./core/risk-policy.js";
-import { createApprovalArtifactBinding, type ApprovalArtifactBinding } from "./approvals/approval-proof.js";
+import { type ApprovalArtifactBinding } from "./approvals/approval-proof.js";
+import { waitForApproval } from "./approvals/approval-wait.js";
 import { applyWorkflowProfileToTask, tightenApprovalPolicyForProfile } from "./workflows/workflow-registry.js";
-import { FileAuditLog, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
+import { FileAuditLog, capActorRole, parseAuditActor, resolveAuditLogPath } from "./core/audit-log.js";
 import { SqliteAuditLog, resolveSqliteAuditLogPath } from "./core/audit-log-sqlite.js";
 import { PostgresAuditLog } from "./core/postgres-audit-log.js";
 import { createPostgresPool } from "./core/postgres.js";
@@ -14,7 +15,16 @@ import { loadRules } from "./core/orchestrator-runtime.js";
 import { WebhookManager } from "./core/webhooks.js";
 import { loadAllowedWorkdirs } from "./core/workspace-registry.js";
 import { cleanupWorkspaceLifecycle } from "./work/worktree-cleanup.js";
-import { resolveTokenRole, canAccessRoute, validateTokenConfiguration } from "./security/token-policy.js";
+import {
+  resolveTokenRole,
+  canAccessRoute,
+  maxActorRoleForToken,
+  tokensMatch,
+  validateTokenConfiguration,
+  type TokenRole
+} from "./security/token-policy.js";
+import { applyCorsHeaders, parseCorsOrigins } from "./security/cors-policy.js";
+import { FixedWindowRateLimiter, isLoopbackAddress, resolveClientAddress } from "./security/rate-limit.js";
 import { validatePath } from "./security/path-policy.js";
 import { healthRoute } from "./server/routes/health.js";
 import { adminRoute } from "./server/routes/admin.js";
@@ -37,7 +47,26 @@ export interface ServerAppOptions {
   allowedWorkdirs?: string[];
   queueConcurrency?: number;
   runner?: JobRunner;
+  /** Browser origins allowed to call the API cross-origin. Empty means same-origin only. */
+  corsOrigins?: string[];
+  rateLimit?: ServerRateLimitOptions;
 }
+
+export interface ServerRateLimitOptions {
+  /**
+   * Requests per client address per minute; 0 disables. Off unless set:
+   * server.ts supplies the production default, embedders opt in.
+   */
+  requestsPerMinute?: number;
+  /** Failed authentications per non-loopback address before it is locked out for the window. */
+  authFailuresPerWindow?: number;
+  authFailureWindowMs?: number;
+  /** Attribute requests to the proxy-appended X-Forwarded-For entry. Only behind a reverse proxy. */
+  trustProxy?: boolean;
+}
+
+const DEFAULT_AUTH_FAILURES_PER_WINDOW = 20;
+const DEFAULT_AUTH_FAILURE_WINDOW_MS = 5 * 60 * 1000;
 
 export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const defaultCwd = path.resolve(options.defaultCwd);
@@ -51,6 +80,14 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     hermesToken
   };
   validateTokenConfiguration(tokenConfig);
+  const corsOrigins = parseCorsOrigins(options.corsOrigins ?? []);
+  const trustProxy = options.rateLimit?.trustProxy === true;
+  const requestsPerMinute = options.rateLimit?.requestsPerMinute ?? 0;
+  const requestLimiter = requestsPerMinute > 0 ? new FixedWindowRateLimiter(requestsPerMinute, 60_000) : null;
+  const authFailureLimiter = new FixedWindowRateLimiter(
+    options.rateLimit?.authFailuresPerWindow ?? DEFAULT_AUTH_FAILURES_PER_WINDOW,
+    options.rateLimit?.authFailureWindowMs ?? DEFAULT_AUTH_FAILURE_WINDOW_MS
+  );
   const allowedRoots = loadAllowedWorkdirs(defaultCwd, options.allowedWorkdirs);
   const logClients = new Set<http.ServerResponse>();
   const originalOnLog = options.logger.onLog;
@@ -87,36 +124,38 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   const runner: JobRunner =
     options.runner ??
     (async ({ jobId, task, cwd, dryRun, resume, workflowMode, workflowProfile, approvalPolicy, externalTask, signal }) => {
+      const awaitApproval = (
+        type: "plan" | "checkpoint",
+        data: unknown,
+        waitingPatch: (job: QueueJob) => Partial<QueueJob>
+      ): Promise<boolean> =>
+        waitForApproval({
+          jobId,
+          type,
+          data,
+          pendingApprovals,
+          signal,
+          onWaiting: (binding) => {
+            void queue
+              .markWaitingForApproval(jobId, (job) => ({ ...waitingPatch(job), approvalArtifact: binding }))
+              .catch((error: Error) => options.logger.warn(`Could not mark job ${jobId} as waiting for approval: ${error.message}`));
+          }
+        });
+
       const confirmationHandler: import("./types.js").ConfirmationHandler = {
-        confirmPlan: async (plan) => {
-          return new Promise((resolve) => {
-            const binding = createApprovalArtifactBinding(plan, "plan");
-            pendingApprovals.set(jobId, { resolve, type: "plan", data: plan, binding });
-            void queue.get(jobId).then((j) => {
-              if (j)
-                queue.updateJob(j, {
-                  status: "waiting_for_approval",
-                  approvalArtifact: binding,
-                  resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
-                  execution: {
-                    ...j.execution,
-                    pendingPlan: plan
-                  }
-                });
-            });
-            broadcastLog("info", "Waiting for user approval of the plan...", jobId);
-          });
+        confirmPlan: (plan) => {
+          broadcastLog("info", "Waiting for user approval of the plan...", jobId);
+          return awaitApproval("plan", plan, (job) => ({
+            resultSummary: `Plan ready: ${plan.writeTargets.length} files to be modified.`,
+            execution: {
+              ...job.execution,
+              pendingPlan: plan
+            }
+          }));
         },
-        confirmCheckpoint: async (message, artifactPath) => {
-          return new Promise((resolve) => {
-            const checkpointData = { message, artifactPath };
-            const binding = createApprovalArtifactBinding(checkpointData, "checkpoint");
-            pendingApprovals.set(jobId, { resolve, type: "checkpoint", data: checkpointData, binding });
-            void queue.get(jobId).then((j) => {
-              if (j) queue.updateJob(j, { status: "waiting_for_approval", approvalArtifact: binding });
-            });
-            broadcastLog("info", `Checkpoint: ${message}. Waiting for approval...`, jobId);
-          });
+        confirmCheckpoint: (message, artifactPath) => {
+          broadcastLog("info", `Checkpoint: ${message}. Waiting for approval...`, jobId);
+          return awaitApproval("checkpoint", { message, artifactPath }, () => ({}));
         }
       };
 
@@ -194,7 +233,9 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
     }
 
     if (auditLog instanceof SqliteAuditLog || auditLog instanceof PostgresAuditLog) {
-      void auditLog.importLegacyJsonl(resolveAuditLogPath(defaultCwd));
+      void auditLog
+        .importLegacyJsonl(resolveAuditLogPath(defaultCwd))
+        .catch((error: Error) => options.logger.warn(`Legacy audit log import failed: ${error.message}`));
     }
 
     const runMaintenance = async () => {
@@ -215,12 +256,17 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
       await queue.runRetentionCleanup();
     };
 
+    // Maintenance is best effort. A store hiccup here must not surface as an
+    // unhandled rejection, which would take the server down.
+    const runMaintenanceSafely = () =>
+      runMaintenance().catch((error: Error) => options.logger.warn(`System maintenance failed: ${error.message}`));
+
     // Run initial retention cleanup
-    void runMaintenance();
+    void runMaintenanceSafely();
 
     // Set up periodic cleanup (every 24 hours)
     maintenanceTimer = setInterval(() => {
-      void runMaintenance();
+      void runMaintenanceSafely();
     }, 24 * 60 * 60 * 1000);
     maintenanceTimer.unref?.();
   });
@@ -228,10 +274,28 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
   queue.start();
 
   const server = http.createServer(async (req, res) => {
-    // Basic CORS support
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key");
+    applyCorsHeaders(req, res, corsOrigins);
+
+    const clientAddress = resolveClientAddress(req, trustProxy);
+    if (requestLimiter) {
+      const decision = requestLimiter.hit(clientAddress);
+      if (!decision.allowed) {
+        return respondTooManyRequests(res, decision.retryAfterSeconds);
+      }
+    }
+
+    // Token guessing is throttled per address. A locked-out address is refused
+    // even with a valid token — otherwise 200-versus-429 would still tell a
+    // guesser when it hit. Loopback is exempt: a local caller can read the
+    // token from disk anyway, and on a loopback-bound server one misconfigured
+    // local worker would otherwise lock out every local client.
+    const authFailureKey = requiresAuth && !isLoopbackAddress(clientAddress) ? clientAddress : null;
+    if (authFailureKey) {
+      const decision = authFailureLimiter.check(authFailureKey);
+      if (!decision.allowed) {
+        return respondTooManyRequests(res, decision.retryAfterSeconds);
+      }
+    }
 
     if (req.method === "OPTIONS") {
       res.writeHead(204);
@@ -241,6 +305,23 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
 
     try {
       const url = new URL(req.url || "/", "http://localhost");
+
+      let tokenRole: TokenRole = "dashboard";
+      if (requiresAuth) {
+        const headerValue = (req.headers.authorization || req.headers["x-api-key"] || "") as string;
+        const tokenResult = resolveTokenRole(tokenConfig, headerValue);
+        if (!tokenResult.valid) {
+          if (authFailureKey) {
+            authFailureLimiter.hit(authFailureKey);
+          }
+          return respondJson(res, 401, { ok: false, error: "Unauthorized" });
+        }
+        if (!canAccessRoute(tokenResult.role, url.pathname, req.method)) {
+          return respondJson(res, 403, { ok: false, error: `Token role '${tokenResult.role}' cannot access ${url.pathname}` });
+        }
+        tokenRole = tokenResult.role;
+      }
+
       const routeContext: ServerRouteContext = {
         defaultCwd,
         allowedRoots,
@@ -258,29 +339,16 @@ export function createAiSystemServer(options: ServerAppOptions): http.Server {
         actor: resolveRouteActor(
           req.headers,
           currentGlobalRules ?? (await globalRulesPromise).rules,
-          requiresAuth
+          requiresAuth,
+          tokenRole
         ),
         broadcastLog,
         resolveRequestedCwd,
         resolveOptionalRequestedCwd,
         isAuthorized: (request) => isAuthorized(request, authToken),
-        tokenRole: "dashboard",
+        tokenRole,
         respondJson
       };
-
-      if (requiresAuth) {
-        const headerValue = (req.headers.authorization || req.headers["x-api-key"] || "") as string;
-        const tokenResult = resolveTokenRole(tokenConfig, headerValue);
-        if (!tokenResult.valid) {
-          return respondJson(res, 401, { ok: false, error: "Unauthorized" });
-        }
-        if (!canAccessRoute(tokenResult.role, url.pathname, req.method)) {
-          return respondJson(res, 403, { ok: false, error: `Token role '${tokenResult.role}' cannot access ${url.pathname}` });
-        }
-        routeContext.tokenRole = tokenResult.role;
-      } else {
-        routeContext.tokenRole = "dashboard";
-      }
 
       if (url.pathname === "/logs" && req.method === "GET") {
         res.writeHead(200, {
@@ -377,18 +445,19 @@ function isAuthorized(req: http.IncomingMessage, token: string): boolean {
     return true;
   }
 
-  const header = req.headers.authorization || req.headers["x-api-key"];
-  return header === `Bearer ${token}` || header === token;
+  const header = String(req.headers.authorization || req.headers["x-api-key"] || "");
+  return tokensMatch(header.startsWith("Bearer ") ? header.slice(7) : header, token);
 }
 
 function resolveRouteActor(
   headers: http.IncomingMessage["headers"],
   rules: RulesConfig,
-  requiresAuth: boolean
+  requiresAuth: boolean,
+  tokenRole: TokenRole
 ): ReturnType<typeof parseAuditActor> {
   const actor = parseAuditActor(headers, rules);
   if (requiresAuth) {
-    return actor;
+    return capActorRole(actor, maxActorRoleForToken(tokenRole));
   }
 
   const actorId = firstHeader(headers["x-ai-system-actor"]) || "dashboard";
@@ -410,6 +479,11 @@ export function resolveQueueRunApprovalMode(rules: RulesConfig): { interactive: 
     interactive: !skipApproval,
     pauseAfterPlan: !skipApproval
   };
+}
+
+function respondTooManyRequests(res: http.ServerResponse, retryAfterSeconds: number): boolean {
+  res.setHeader("Retry-After", String(retryAfterSeconds));
+  return respondJson(res, 429, { ok: false, error: "Too many requests" });
 }
 
 function respondJson(res: http.ServerResponse, statusCode: number, body: unknown): boolean {

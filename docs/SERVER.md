@@ -41,6 +41,10 @@ docker run --rm -it \
 | `AI_SYSTEM_SERVER_MODE` | Enable server mode | `false` |
 | `AI_SYSTEM_SERVER_TOKEN` | Bearer token for API auth | None (required in server mode) |
 | `PORT` or `AI_SYSTEM_PORT` | HTTP port | `3927` |
+| `AI_SYSTEM_HOST` | Interface to listen on. `0.0.0.0` accepts network connections | `127.0.0.1` (`0.0.0.0` in the container image) |
+| `AI_SYSTEM_RATE_LIMIT_PER_MINUTE` | Requests per client address per minute; `0` disables. Over budget answers `429` with `Retry-After` | `600` |
+| `AI_SYSTEM_TRUST_PROXY` | `true` behind a reverse proxy: attribute requests to the proxy-appended `X-Forwarded-For` entry. Never set it without a proxy — clients could pick their own address | `false` |
+| `AI_SYSTEM_CORS_ORIGINS` | Comma-separated browser origins allowed cross-origin, e.g. `https://ops.example.com`. `*` is rejected | None (same-origin only) |
 | `AI_SYSTEM_ALLOWED_WORKDIRS` | Comma-separated allowed directories | CWD only |
 | `ORCHESTRA_EXECUTION_BACKEND` | Execution owner mode: `in-process`, `worker`, or reserved `hybrid` | `in-process` |
 | `ORCHESTRA_STORE` | Storage mode: `file`, `sqlite`, or `postgres` | `file` |

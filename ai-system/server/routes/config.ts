@@ -3,19 +3,16 @@ import { loadJsonIfExists, writeJsonFile, resolveProjectConfigPath, mergeConfig 
 import { canPerformAction } from "../../core/permissions.js";
 import type { RouteHandler, ServerRouteContext } from "../routes-context.js";
 import { readJsonBody } from "../read-json-body.js";
+import { maskSecretFields, restoreMaskedSecrets } from "../../security/secret-redaction.js";
 
 export const configRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
     if (url.pathname === "/config" && req.method === "GET") {
       try {
         const { rules, profile, globalProfile, plugins } = await loadRules(ctx.defaultCwd);
-        const safeRules = JSON.parse(JSON.stringify(rules));
-        if (safeRules.providers) {
-          for (const provider of Object.values(safeRules.providers as Record<string, any>)) {
-            if (provider.api_key) provider.api_key = "********";
-          }
-        }
-        if (safeRules.memory?.api_key) safeRules.memory.api_key = "********";
+        // Mask every secret-named field, not a hand-kept list: the list covered
+        // provider and memory API keys but sent webhook signing secrets in clear.
+        const safeRules = maskSecretFields(rules);
         ctx.respondJson(res, 200, { version: 1, rules: safeRules, profile, globalProfile, plugins });
         return true;
       } catch (err) {
@@ -37,10 +34,10 @@ export const configRoute: RouteHandler = {
           return true;
         }
         const existing = (await loadJsonIfExists<any>(configPath)) || {};
-        const updated = mergeConfig(existing, payload);
+        const updated = mergeConfig(existing, restoreMaskedSecrets(payload, existing));
         await writeJsonFile(configPath, updated);
         await ctx.auditLog.append({ actor: ctx.actor, action: "config.update", cwd: ctx.defaultCwd, details: { configPath } });
-        ctx.respondJson(res, 200, { ok: true, config: updated });
+        ctx.respondJson(res, 200, { ok: true, config: maskSecretFields(updated) });
         return true;
       } catch (err) {
         ctx.respondJson(res, 500, { ok: false, error: (err as Error).message });

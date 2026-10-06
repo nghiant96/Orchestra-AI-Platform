@@ -243,6 +243,75 @@ export async function handleWorkCommand(
         return true;
       }
       console.log(`Ready: ${plan.ready.length}, Blocked: ${plan.blocked.length}`);
+      console.log("This is a preview. Run `ai work dispatch` to queue the ready items.");
+      return true;
+    }
+    case "work-dispatch": {
+      // Dispatch goes through the server because that is where the queue lives
+      // and where workers claim from. Running it in this process would execute
+      // the batch here instead of across the fleet.
+      const serverUrl = (command.serverUrl ?? process.env.ORCHESTRA_SERVER_URL ?? "http://127.0.0.1:3927").replace(/\/+$/, "");
+      const token = process.env.AI_SYSTEM_SERVER_TOKEN?.trim();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-ai-system-role": "operator",
+        "x-ai-system-actor": "cli"
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+      }
+
+      let response: Response;
+      try {
+        response = await fetch(`${serverUrl}/work-items/dispatch`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            cwd,
+            dryRun: command.write !== true,
+            maxParallel: command.maxParallel
+          })
+        });
+      } catch (error) {
+        throw new Error(
+          `Could not reach the server at ${serverUrl}: ${(error as Error).message}. Start it with \`pnpm run orchestra:server\`, or point elsewhere with --server.`,
+          { cause: error }
+        );
+      }
+
+      const body = await response.json().catch(() => null) as
+        | { dispatched?: Array<{ workItemId: string; title: string; jobIds: string[] }>;
+            blocked?: Array<{ workItemId: string; reasons: string[] }>;
+            failed?: Array<{ workItemId: string; error: string }>;
+            error?: string }
+        | null;
+
+      if (!response.ok) {
+        throw new Error(`Dispatch failed (HTTP ${response.status}): ${body?.error ?? "unknown error"}`);
+      }
+
+      if (outputJson) {
+        await outputJsonResult(body, savePath);
+        return true;
+      }
+
+      const dispatched = body?.dispatched ?? [];
+      const blocked = body?.blocked ?? [];
+      const failed = body?.failed ?? [];
+      const jobCount = dispatched.reduce((total, entry) => total + entry.jobIds.length, 0);
+
+      console.log(
+        `Dispatched ${dispatched.length} work item(s) as ${jobCount} job(s)${command.write === true ? "" : " (dry-run — pass --write to apply)"}`
+      );
+      for (const entry of dispatched) {
+        console.log(`  ${entry.workItemId}  ${entry.title}  -> ${entry.jobIds.join(", ")}`);
+      }
+      for (const entry of blocked) {
+        console.log(`  blocked  ${entry.workItemId}: ${entry.reasons.join("; ")}`);
+      }
+      for (const entry of failed) {
+        console.log(`  failed   ${entry.workItemId}: ${entry.error}`);
+      }
       return true;
     }
     case "work-metrics": {

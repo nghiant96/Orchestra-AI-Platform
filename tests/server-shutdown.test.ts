@@ -67,6 +67,57 @@ test("server drains and exits cleanly on SIGTERM", async () => {
   }
 });
 
+test("server listens on loopback only unless AI_SYSTEM_HOST says otherwise", async (t) => {
+  const lanAddress = Object.values(os.networkInterfaces())
+    .flat()
+    .find((entry) => entry && entry.family === "IPv4" && !entry.internal)?.address;
+  if (!lanAddress) {
+    t.skip("no non-loopback IPv4 interface to probe from");
+    return;
+  }
+
+  const repoRoot = await fs.mkdtemp(path.join(os.tmpdir(), "server-bind-"));
+  let child: ChildProcessWithoutNullStreams | undefined;
+
+  try {
+    const port = await findFreePort();
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PORT: String(port),
+      AI_SYSTEM_WORKDIR: repoRoot,
+      AI_SYSTEM_SERVER_TOKEN: "shutdown-test-token"
+    };
+    delete env.AI_SYSTEM_HOST;
+    child = spawn(process.execPath, ["--import", tsxLoaderPath, serverEntry], { cwd: repoRoot, env });
+
+    let output = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      output += chunk;
+    });
+
+    await waitForHealth(`http://127.0.0.1:${port}`, child);
+    assert.match(output, new RegExp(`listening on 127\\.0\\.0\\.1:${port}`));
+
+    const reachedFromLan = await new Promise<boolean>((resolve) => {
+      const req = http.get(`http://${lanAddress}:${port}/health`, { timeout: 2000 }, (res) => {
+        res.resume();
+        resolve(true);
+      });
+      req.on("timeout", () => req.destroy());
+      req.on("error", () => resolve(false));
+    });
+    assert.equal(reachedFromLan, false, `server answered on ${lanAddress}:${port}; it should listen on loopback only`);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGKILL");
+    }
+    await removeTempDir(repoRoot);
+  }
+});
+
 async function findFreePort(): Promise<number> {
   const probe = http.createServer();
   await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));

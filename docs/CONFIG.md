@@ -145,6 +145,44 @@ Orchestra loads configuration in this priority order (later overrides earlier):
 | `review.risk_policy.require_approval` | boolean | Require human approval for high-risk |
 | `review.risk_policy.min_review_severity` | string | Minimum severity to flag |
 
+#### `review_panel` — N-of-M Review Fan-Out
+
+Replaces the single reviewer with a panel of independent reviewers, each given a
+different concern to look for. Off by default: a panel costs one provider call
+per lens.
+
+| Field | Type | Description |
+|---|---|---|
+| `review_panel.enabled` | boolean | Turn the panel on. Default `false` |
+| `review_panel.lenses` | string[] | Which lenses sit on the panel. Default: all five |
+| `review_panel.quorum` | number | How many lenses must independently raise a finding before it can block. Default `2` |
+
+Available lenses: `correctness`, `security`, `regression`, `tests`,
+`maintainability`.
+
+```json
+{
+  "review_panel": {
+    "enabled": true,
+    "lenses": ["correctness", "security", "tests"],
+    "quorum": 2
+  }
+}
+```
+
+How findings are reconciled:
+
+- Lenses run **concurrently**, so a panel costs roughly one reviewer's wall clock.
+- Findings at the same path, same category, and within three lines of each other
+  are treated as the same defect.
+- A defect that reaches quorum keeps the **harshest** severity any lens gave it.
+- A defect below quorum is **kept but downgraded to `low`**, so a single lens
+  cannot stall the pipeline while its finding still reaches you. Each finding is
+  annotated with who raised it.
+- A lens that fails is dropped and logged; the panel continues on the rest, and
+  the quorum shrinks to the number that answered. The review only fails if every
+  lens fails.
+
 #### `workspace` — Workspace Engine
 
 | Field | Type | Description |

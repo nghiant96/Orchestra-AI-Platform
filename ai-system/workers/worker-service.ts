@@ -262,7 +262,47 @@ export async function renewLease(
   jobId: string,
   leaseId: string
 ): Promise<LeaseRenewResult> {
+  if (await isLeaseHeldByAnotherWorker(ctx, jobId, leaseId, workerId)) {
+    return { ok: false, error: LEASE_OWNER_MISMATCH };
+  }
   return ctx.queue.renewLease(jobId, leaseId);
+}
+
+const LEASE_OWNER_MISMATCH = "Lease belongs to another worker";
+
+/**
+ * Lease ids travel in job records, so knowing one proves little. Refuse a lease
+ * operation from any worker other than the one that holds the lease.
+ */
+async function isLeaseHeldByAnotherWorker(
+  ctx: WorkerServiceExtendedContext,
+  jobId: string,
+  leaseId: string,
+  workerId: string
+): Promise<boolean> {
+  const job = await ctx.queue.get(jobId);
+  return Boolean(job?.lease && job.lease.leaseId === leaseId && job.lease.workerId !== workerId);
+}
+
+/**
+ * The server later reads job files from the reported artifactPath, so a worker
+ * may only point it inside its own workspace roots (or, for a worker without
+ * any, the server's allowed workdirs). Anything else is dropped, not trusted.
+ */
+async function confineArtifactPath(
+  ctx: WorkerServiceExtendedContext,
+  workerId: string,
+  result: Partial<QueueJob>
+): Promise<{ result: Partial<QueueJob>; rejectedArtifactPath?: string }> {
+  if (typeof result.artifactPath !== "string") {
+    return { result };
+  }
+  const worker = await ctx.store.load(workerId);
+  const roots = worker?.workspaceRoots?.length ? worker.workspaceRoots : ctx.allowedRoots;
+  if (roots.length > 0 && (await isPathWithinWorkspaceRoots(result.artifactPath, roots))) {
+    return { result };
+  }
+  return { result: { ...result, artifactPath: null }, rejectedArtifactPath: result.artifactPath };
 }
 
 export async function startJob(
@@ -291,6 +331,9 @@ export async function sendMutationCheckpoint(
   leaseId: string,
   checkpoint: { stage: string; filesystemMutated: boolean; worktreePath?: string }
 ): Promise<{ ok: boolean; error?: string }> {
+  if (await isLeaseHeldByAnotherWorker(ctx, jobId, leaseId, workerId)) {
+    return { ok: false, error: LEASE_OWNER_MISMATCH };
+  }
   const result = await ctx.queue.saveCheckpoint(jobId, leaseId, checkpoint);
 
   if (result.ok) {
@@ -382,7 +425,11 @@ export async function completeJob(
   leaseId: string,
   result?: Partial<QueueJob>
 ): Promise<{ ok: boolean; error?: string }> {
-  const r = await ctx.queue.completeJob(jobId, leaseId, result || {});
+  if (await isLeaseHeldByAnotherWorker(ctx, jobId, leaseId, workerId)) {
+    return { ok: false, error: LEASE_OWNER_MISMATCH };
+  }
+  const confined = await confineArtifactPath(ctx, workerId, result || {});
+  const r = await ctx.queue.completeJob(jobId, leaseId, confined.result);
 
   if (r.ok) {
     const worker = await ctx.store.load(workerId);
@@ -392,7 +439,7 @@ export async function completeJob(
     await ctx.auditLog.append({
       actor: ctx.actor,
       action: "worker.complete",
-      details: { workerId, jobId, leaseId }
+      details: { workerId, jobId, leaseId, rejectedArtifactPath: confined.rejectedArtifactPath }
     });
   }
 
@@ -407,7 +454,11 @@ export async function failJob(
   errorMessage: string,
   result?: Partial<QueueJob>
 ): Promise<{ ok: boolean; error?: string }> {
-  const r = await ctx.queue.failJob(jobId, leaseId, errorMessage, result || {});
+  if (await isLeaseHeldByAnotherWorker(ctx, jobId, leaseId, workerId)) {
+    return { ok: false, error: LEASE_OWNER_MISMATCH };
+  }
+  const confined = await confineArtifactPath(ctx, workerId, result || {});
+  const r = await ctx.queue.failJob(jobId, leaseId, errorMessage, confined.result);
 
   if (r.ok) {
     const worker = await ctx.store.load(workerId);
@@ -417,7 +468,7 @@ export async function failJob(
     await ctx.auditLog.append({
       actor: ctx.actor,
       action: "worker.fail",
-      details: { workerId, jobId, leaseId, error: errorMessage }
+      details: { workerId, jobId, leaseId, error: errorMessage, rejectedArtifactPath: confined.rejectedArtifactPath }
     });
   }
 
@@ -473,13 +524,22 @@ function workerMatchesJobSelector(worker: Worker, job: QueueJob): boolean {
 }
 
 async function resolveComparablePath(candidate: string): Promise<string | null> {
-  try {
-    return await fs.realpath(candidate);
-  } catch {
+  // Resolve through the deepest ancestor that exists, so a path not created
+  // yet still compares against canonical roots — on macOS /var is a symlink to
+  // /private/var, and a plain path.resolve() would never match.
+  let current = path.resolve(candidate);
+  const missing: string[] = [];
+  for (;;) {
     try {
-      return path.resolve(candidate);
+      const real = await fs.realpath(current);
+      return path.join(real, ...missing.reverse());
     } catch {
-      return null;
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return path.resolve(candidate);
+      }
+      missing.push(path.basename(current));
+      current = parent;
     }
   }
 }

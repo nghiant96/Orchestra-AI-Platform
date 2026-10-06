@@ -12,6 +12,7 @@ export const ARTIFACT_PATHS = {
   providerStdout: "provider/provider-stdout.log",
   providerStderr: "provider/provider-stderr.log",
   process: "provider/process.json",
+  providerUsage: "provider/usage.json",
 
   diffPatch: "diff/diff.patch",
   diffStat: "diff/diff-stat.txt",

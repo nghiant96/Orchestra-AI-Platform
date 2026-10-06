@@ -221,6 +221,42 @@ describe("JobService", () => {
     }
   });
 
+  test("getJobFileContent keeps the requested path inside the artifact snapshot", async () => {
+    const artifactPath = path.join(tmpDir, ".ai-system-artifacts", "traversal-run");
+    const snapshotDir = path.join(artifactPath, "iteration-1", "files");
+    await fs.mkdir(path.join(snapshotDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(artifactPath, "artifact-index.json"), JSON.stringify({ latestIterationPath: "iteration-1" }), "utf8");
+    await fs.writeFile(path.join(snapshotDir, "src", "app.ts"), "export const ok = true;\n", "utf8");
+    await fs.writeFile(path.join(tmpDir, "server-secret.env"), "AI_SYSTEM_SERVER_TOKEN=top-secret\n", "utf8");
+    await fs.symlink(path.join(tmpDir, "server-secret.env"), path.join(snapshotDir, "linked.env"));
+
+    const jobId = "job-artifact-traversal";
+    const originalGet = queue.get.bind(queue);
+    queue.get = async (id: string) => id === jobId ? ({
+      jobId,
+      artifactPath,
+      cwd: tmpDir
+    } as any) : originalGet(id);
+
+    try {
+      const allowed = await getJobFileContent(ctx(), jobId, "src/app.ts", "generated", tmpDir);
+      assert.equal(allowed.ok, true);
+      assert.equal(allowed.content, "export const ok = true;\n");
+
+      for (const escape of ["../../../../server-secret.env", "src/../../../../../server-secret.env", "linked.env"]) {
+        const result = await getJobFileContent(ctx(), jobId, escape, "generated", tmpDir);
+        assert.equal(result.ok, false, `expected ${escape} to be rejected`);
+        assert.equal(result.statusCode, 400);
+        assert.equal(result.content, undefined);
+      }
+
+      const missing = await getJobFileContent(ctx(), jobId, "src/missing.ts", "generated", tmpDir);
+      assert.equal(missing.statusCode, 404);
+    } finally {
+      queue.get = originalGet;
+    }
+  });
+
   test("getJobArtifactContent reads whitelisted worker artifacts only", async () => {
     const artifactPath = path.join(tmpDir, ".ai-system-server", "worker-artifacts", "job-readable-artifact");
     await fs.mkdir(path.join(artifactPath, "context"), { recursive: true });
