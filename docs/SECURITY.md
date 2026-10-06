@@ -28,7 +28,12 @@ The server can perform write operations on your local filesystem.
 
 ## Network Security
 
-- **Binding:** The server binds to `0.0.0.0`. When exposing over a network, always use a reverse proxy with TLS termination and a strong `AI_SYSTEM_SERVER_TOKEN`.
+- **Binding:** The server binds to `127.0.0.1` by default. Set `AI_SYSTEM_HOST=0.0.0.0` to accept network connections, and put a TLS reverse proxy in front with a strong `AI_SYSTEM_SERVER_TOKEN`. The container image listens on `0.0.0.0` internally; `docker-compose.yml` publishes the port on the host's loopback unless `AI_SYSTEM_PUBLISH_HOST` says otherwise.
+- **CORS:** No cross-origin access by default — the dashboard reaches the API through the Vite proxy, so it is same-origin. To allow a browser app on another origin, list it exactly in `AI_SYSTEM_CORS_ORIGINS` (comma-separated `scheme://host[:port]`). Wildcards are rejected at startup.
+- **Token comparison:** Bearer tokens are compared in constant time.
+- **Rate limiting:** Each client address gets `AI_SYSTEM_RATE_LIMIT_PER_MINUTE` requests a minute (default 600). After 20 failed authentications in 5 minutes, a non-loopback address is refused outright — valid token or not — until the window ends. Behind a reverse proxy, set `AI_SYSTEM_TRUST_PROXY=true` so limits apply per client rather than to the proxy as a whole.
+- **Worker identity:** All workers share `ORCHESTRA_WORKER_TOKEN`, so each also receives a session token at registration and must send it as `X-Orchestra-Worker-Session` on every worker call. A lease is usable only by the worker holding it, and a reported `artifactPath` outside that worker's workspace roots is discarded.
+- **Secrets in responses:** `GET /config` masks every secret-named field. Check output is redacted before it is stored or reported: vendor key formats, `*_TOKEN=`-style assignments and JSON fields, and the values of this process's own secret environment variables.
 - **SSL/TLS:** The built-in server does not handle HTTPS. We recommend running Orchestra behind a reverse proxy (like Nginx, Caddy, or Cloudflare Tunnel) if you need to expose it over a network.
 
 ## Auditing

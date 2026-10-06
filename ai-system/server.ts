@@ -8,6 +8,10 @@ async function main(): Promise<void> {
   await loadEnvironment(process.cwd());
 
   const port = Number(process.env.PORT || process.env.AI_SYSTEM_PORT || 3927);
+  // Loopback by default: the API executes code on this host, so reaching it
+  // from the network has to be an explicit choice. The container image sets
+  // 0.0.0.0, where the published port mapping decides the exposure instead.
+  const host = process.env.AI_SYSTEM_HOST?.trim() || "127.0.0.1";
   const defaultCwd = process.env.AI_SYSTEM_WORKDIR || process.cwd();
   const authToken = resolveServerAuthToken(process.env.AI_SYSTEM_SERVER_TOKEN);
 
@@ -23,19 +27,39 @@ async function main(): Promise<void> {
     authToken,
     allowedWorkdirs,
     queueConcurrency,
-    logger
+    logger,
+    corsOrigins: (process.env.AI_SYSTEM_CORS_ORIGINS || "").split(","),
+    rateLimit: {
+      // An open dashboard tab polls ~55 requests a minute and a worker ~36, so
+      // the default leaves room for several of each behind one address.
+      requestsPerMinute: parseRequestsPerMinute(process.env.AI_SYSTEM_RATE_LIMIT_PER_MINUTE),
+      trustProxy: process.env.AI_SYSTEM_TRUST_PROXY === "true"
+    }
   });
 
-  server.listen(port, "0.0.0.0", () => {
-    logger.info(`AI system server listening on port ${port} with cwd ${defaultCwd}`);
+  server.listen(port, host, () => {
+    logger.info(`AI system server listening on ${host}:${port} with cwd ${defaultCwd}`);
   });
 
   server.on("error", (error) => {
-    logger.error(`AI system server failed to start on port ${port}: ${error.message}`);
+    logger.error(`AI system server failed to start on ${host}:${port}: ${error.message}`);
     process.exit(1);
   });
 
   installShutdownHandlers(server, logger);
+}
+
+const DEFAULT_REQUESTS_PER_MINUTE = 600;
+
+function parseRequestsPerMinute(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") {
+    return DEFAULT_REQUESTS_PER_MINUTE;
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`AI_SYSTEM_RATE_LIMIT_PER_MINUTE must be a whole number (0 disables), got: ${raw}`);
+  }
+  return value;
 }
 
 /**

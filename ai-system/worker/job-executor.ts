@@ -57,6 +57,8 @@ export interface WorkerJobExecutionContext {
   workspaceRoots: string[];
   providerId?: string;
   providerCommand?: string;
+  /** Aborted when the server refuses the job's lease — typically a cancel. */
+  signal?: AbortSignal;
   emitLog(message: string): void;
   markFilesystemMutation(stage: string, worktreePath?: string): Promise<void>;
 }
@@ -197,6 +199,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
     workflowProfile: ctx.job.workflowProfile,
     approvalPolicy: ctx.job.approvalPolicy,
     env: buildProviderEnv(),
+    signal: ctx.signal,
   };
 
   if (!(await provider.isAvailable({ ...providerInputBase, task: ctx.job.task }))) {
@@ -272,6 +275,24 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
   let contextPack: WorkerContextPack | null = await loadWorkerContextPack(prepared.artifactDir);
   for (let index = resumeIndex; index < plan.phases.length; index += 1) {
     const phase = plan.phases[index];
+    if (ctx.signal?.aborted) {
+      // Cancelled between phases: starting another provider round would only
+      // spend time and tokens on a result the server will refuse.
+      emit(`job abandoned before phase ${index + 1}/${plan.phases.length}`);
+      return finishWorkerJob(prepared.artifactDir, "failed", {
+        ok: false,
+        summary: "Job was abandoned: the server refused its lease.",
+        logs,
+        filesystemMutated: !ctx.job.dryRun,
+        artifactPath: prepared.artifactDir,
+        failure: {
+          class: "cancelled",
+          message: "Job was abandoned: the server refused its lease.",
+          step: "worker-cancelled",
+          retryable: false
+        }
+      }, { usage });
+    }
     emit(`phase ${index + 1}/${plan.phases.length}: ${phase.title}`);
     phaseState = updateWorkerTaskPhaseStateForStart(phaseState, phase.id);
     await saveWorkerTaskPhaseState(prepared.artifactDir, phaseState);
@@ -427,7 +448,7 @@ async function executeProviderWorkerJob(ctx: WorkerJobExecutionContext, provider
       worktreePath: prepared.worktreePath,
       artifactDir: prepared.artifactDir,
       changedFiles: finalResult.changedFiles,
-      signal: undefined,
+      signal: ctx.signal,
       logger: {
         info: (message) => emit(`verification: ${message}`),
         warn: (message) => emit(`verification warning: ${message}`),

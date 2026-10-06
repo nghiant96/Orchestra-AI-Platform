@@ -52,6 +52,16 @@ Role-sensitive write actions read actor headers through `parseAuditActor`:
 - Operator: can create jobs, approve/reject, pause/resume/clear queue, cancel/resume/retry jobs, and create lessons.
 - Admin: can update config.
 
+The `X-AI-System-Role` and `X-AI-System-Actor` headers are asserted by the client, so the token sets a ceiling they cannot exceed:
+
+| Token | Highest role | Notes |
+|---|---|---|
+| `AI_SYSTEM_SERVER_TOKEN` | admin | Root credential; headers choose the role. |
+| `ORCHESTRA_HERMES_TOKEN` | operator | Cannot write `/config` at all, since config holds the commands the server runs. |
+| `ORCHESTRA_WORKER_TOKEN` | viewer | Limited to the worker lifecycle routes. |
+
+The ceiling also applies to `auth.role_mapping` and `auth.project_role_mapping`, because both are keyed on the client-supplied actor id.
+
 All operator/admin actions should create audit events.
 
 ## Core API Routes
@@ -120,6 +130,8 @@ Returns generated or original file content from the latest iteration artifacts.
 `POST /run`
 
 Runs a synchronous dry-run style execution and returns the result directly. Prefer `/jobs` for dashboard operation.
+
+It needs the operator role, like `POST /jobs`, and answers `409` instead of running when the queue is paused (including worker mode), when another job is running in the same workspace, or when the task would need an approval — a synchronous run has no job record for an approval to target, so queue such tasks with `POST /jobs`.
 
 `GET /config`
 

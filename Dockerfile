@@ -31,6 +31,10 @@ FROM node:24-bookworm-slim AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 ENV AI_SYSTEM_WORKDIR=/workspace
+# The server defaults to loopback, which a published port cannot reach. Inside
+# the container listen on every interface; the host-side port mapping in
+# docker-compose.yml decides who can actually connect.
+ENV AI_SYSTEM_HOST=0.0.0.0
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 

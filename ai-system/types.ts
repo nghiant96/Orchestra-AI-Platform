@@ -813,6 +813,8 @@ export interface CommandRunOptions {
   monitorIntervalMs?: number;
   onMonitor?: (event: CommandMonitorEvent) => void;
   signal?: AbortSignal;
+  /** Per-stream ceiling on captured output; beyond it only the tail is kept. */
+  maxOutputChars?: number;
 }
 
 export interface CommandRetryOptions extends CommandRunOptions {

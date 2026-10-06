@@ -30,8 +30,32 @@ export interface WorkerLogUploadInput {
   leaseId: string;
 }
 
+/** Header carrying the per-worker session token issued at registration. */
+export const WORKER_SESSION_HEADER = "X-Orchestra-Worker-Session";
+
+/** A non-2xx response, with the status kept so callers can act on it. */
+export class WorkerApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "WorkerApiError";
+  }
+}
+
 export class WorkerApiClient {
+  private sessionToken: string | null = null;
+
   constructor(private readonly options: WorkerClientOptions) {}
+
+  /**
+   * Every worker shares one worker token; the session token proves which
+   * worker is calling. Set it from the registration response.
+   */
+  useSession(sessionToken: string | undefined): void {
+    this.sessionToken = sessionToken || null;
+  }
 
   async register(input: WorkerRegisterInput): Promise<{ worker: Worker }> {
     return this.requestJson("/workers", {
@@ -99,6 +123,9 @@ export class WorkerApiClient {
       Authorization: `Bearer ${this.options.token}`,
       Accept: "application/json"
     };
+    if (this.sessionToken) {
+      headers[WORKER_SESSION_HEADER] = this.sessionToken;
+    }
 
     const body = options.body === undefined ? undefined : JSON.stringify(options.body);
     if (body !== undefined) {
@@ -128,7 +155,7 @@ export class WorkerApiClient {
         : typeof errorBody.leaseError === "string"
           ? errorBody.leaseError
           : `HTTP ${response.status} for ${pathname}`;
-      throw new Error(message);
+      throw new WorkerApiError(message, response.status);
     }
     return parsed;
   }

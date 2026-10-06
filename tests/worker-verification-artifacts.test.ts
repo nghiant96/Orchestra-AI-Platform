@@ -77,6 +77,59 @@ test("worker verification artifacts include failed command detail", async () => 
   }
 });
 
+test("worker verification artifacts never carry secrets a check printed", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "verification-redaction-"));
+  const artifactDir = path.join(tmpDir, "artifact");
+  const previous = process.env.ORCHESTRA_TEST_LEAKED_TOKEN;
+  process.env.ORCHESTRA_TEST_LEAKED_TOKEN = "worker-env-secret-value";
+
+  try {
+    await fs.mkdir(path.join(tmpDir, "src"), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, "src", "index.js"), "console.log('hello')\n", "utf8");
+    await fs.writeFile(path.join(tmpDir, "package.json"), JSON.stringify({ name: "verification-redaction-test", private: true }), "utf8");
+    await fs.writeFile(
+      path.join(tmpDir, ".ai-system.json"),
+      JSON.stringify({
+        tools: {
+          enabled: true,
+          commands: {
+            // A failing check that dumps its environment, as a hostile or careless test would.
+            lint: { enabled: true, command: "node", args: ["-e", "console.log(JSON.stringify(process.env)); console.error(process.env.ORCHESTRA_TEST_LEAKED_TOKEN); process.exit(1)"] },
+            typecheck: { enabled: false },
+            build: { enabled: false },
+            test: { enabled: false }
+          }
+        }
+      }),
+      "utf8"
+    );
+
+    const result = await runWorkerVerification({
+      repoRoot: tmpDir,
+      worktreePath: tmpDir,
+      artifactDir,
+      changedFiles: ["src/index.js"],
+      logger: silentLogger()
+    });
+
+    assert.equal(result.ok, false);
+    const written = [
+      await fs.readFile(path.join(artifactDir, ARTIFACT_PATHS.verification), "utf8"),
+      await fs.readFile(path.join(artifactDir, checkJsonPath("lint")), "utf8"),
+      await fs.readFile(path.join(artifactDir, checkLogPath("lint")), "utf8"),
+      // Results also travel to the server as latestToolResults.
+      JSON.stringify(result.results)
+    ];
+    for (const content of written) {
+      assert.doesNotMatch(content, /worker-env-secret-value/);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.ORCHESTRA_TEST_LEAKED_TOKEN;
+    else process.env.ORCHESTRA_TEST_LEAKED_TOKEN = previous;
+    await removeTempDir(tmpDir);
+  }
+});
+
 function silentLogger() {
   return {
     info() {},

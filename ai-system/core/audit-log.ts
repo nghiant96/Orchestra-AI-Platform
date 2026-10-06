@@ -7,7 +7,11 @@ export type AuditRole = "viewer" | "operator" | "admin";
 export interface AuditActor {
   id: string;
   role: AuditRole;
+  /** Highest role the request's credential allows. Set only when it is below admin. */
+  maxRole?: AuditRole;
 }
+
+const ROLE_RANK: Record<AuditRole, number> = { viewer: 0, operator: 1, admin: 2 };
 
 export interface AuditLogRepository {
   setOnEvent(callback: (event: AuditEvent) => void): void;
@@ -120,8 +124,18 @@ export function parseAuditActor(
 }
 
 export function roleCan(actor: AuditActor, required: AuditRole): boolean {
-  const rank: Record<AuditRole, number> = { viewer: 0, operator: 1, admin: 2 };
-  return rank[actor.role] >= rank[required];
+  return ROLE_RANK[actor.role] >= ROLE_RANK[required];
+}
+
+/**
+ * Clamp an actor to the highest role its credential allows. The actor and role
+ * headers are asserted by the client, so they may lower privilege but never
+ * raise it past what the token grants.
+ */
+export function capActorRole(actor: AuditActor, maxRole: AuditRole | undefined): AuditActor {
+  if (!maxRole) return actor;
+  const role = ROLE_RANK[actor.role] > ROLE_RANK[maxRole] ? maxRole : actor.role;
+  return { ...actor, role, maxRole };
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {

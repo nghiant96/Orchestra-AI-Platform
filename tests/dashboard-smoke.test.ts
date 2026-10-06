@@ -59,11 +59,14 @@ test("Dashboard smoke tests: verify core API endpoints and CORS", async () => {
     assert.equal(health.workers.totalCount, 0);
     assert.equal(health.workers.busyCount, 0);
 
-    // Test 2: CORS headers on OPTIONS
-    const optionsReq = await fetch(`${baseUrl}/health`, { method: "OPTIONS" });
+    // Test 2: no cross-origin grant by default — the dashboard is same-origin
+    // through the Vite proxy, so an arbitrary page must not be let in.
+    const optionsReq = await fetch(`${baseUrl}/health`, {
+      method: "OPTIONS",
+      headers: { Origin: "https://attacker.example" }
+    });
     assert.equal(optionsReq.status, 204);
-    assert.equal(optionsReq.headers.get("access-control-allow-origin"), "*");
-    assert.ok(optionsReq.headers.get("access-control-allow-methods")?.includes("GET"));
+    assert.equal(optionsReq.headers.get("access-control-allow-origin"), null);
 
     // Test 3: List Jobs (Dashboard View)
     const jobsList = await requestJson(baseUrl, "GET", `/jobs?cwd=${encodeURIComponent(repoRoot)}`, undefined, 200);

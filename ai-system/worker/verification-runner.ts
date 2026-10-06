@@ -36,13 +36,13 @@ export interface WorkerVerificationResult {
 export async function runWorkerVerification(input: WorkerVerificationInput): Promise<WorkerVerificationResult> {
   const { rules } = await loadRules(input.repoRoot);
   const changedFiles = await readChangedFiles(input.worktreePath, input.changedFiles);
-  const summary = await runToolChecks({
+  const summary = redactToolSummary(await runToolChecks({
     repoRoot: input.worktreePath,
     changedFiles,
     rules,
     logger: input.logger,
     signal: input.signal
-  });
+  }));
 
   const ok = summary.results.filter((result) => !result.skipped).every((result) => result.ok) && summary.issues.every((issue) => issue.severity !== "high");
   const resultSummary = ok
@@ -56,6 +56,24 @@ export async function runWorkerVerification(input: WorkerVerificationInput): Pro
     summary: resultSummary,
     summaryData: summary,
     results: summary.results
+  };
+}
+
+/**
+ * Check output is written to artifacts and reported to the server, which
+ * serves both through its API — and a failing check's output is exactly where
+ * a dumped environment lands. Scrub it once, here, before any of it leaves.
+ */
+function redactToolSummary(summary: ToolExecutionSummary): ToolExecutionSummary {
+  return {
+    ...summary,
+    results: summary.results.map((result) => ({
+      ...result,
+      summary: redactWorkerLogLine(result.summary),
+      stdout: result.stdout === undefined ? undefined : redactWorkerLogLine(result.stdout),
+      stderr: result.stderr === undefined ? undefined : redactWorkerLogLine(result.stderr)
+    })),
+    issues: summary.issues.map((issue) => ({ ...issue, description: redactWorkerLogLine(issue.description) }))
   };
 }
 

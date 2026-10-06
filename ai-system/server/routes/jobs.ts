@@ -20,6 +20,11 @@ import { readJsonBody } from "../read-json-body.js";
 export const jobsRoute: RouteHandler = {
   async handle(req: http.IncomingMessage, res: http.ServerResponse, url: URL, ctx: ServerRouteContext): Promise<boolean> {
     if (url.pathname === "/run" && req.method === "POST") {
+      // Same gate as POST /jobs: a synchronous run executes just the same.
+      if (!roleCan(ctx.actor, "operator") || !canPerformAction(ctx.actor, ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules, "work_item.create")) {
+        ctx.respondJson(res, 403, { ok: false, error: "Operator role required" });
+        return true;
+      }
       const payload = await readJsonBody(req);
       const task = typeof payload?.task === "string" ? payload.task.trim() : "";
       if (!task) {
@@ -38,15 +43,23 @@ export const jobsRoute: RouteHandler = {
         rules: ctx.currentGlobalRules ?? (await ctx.globalRulesPromise).rules,
         runNow: ctx.runNow
       };
-      const result = await createSyncRun(serviceCtx, {
-        task,
-        cwd,
-        dryRun: payload?.dryRun !== false,
-        workflowMode: parseWorkflowMode(payload?.workflowMode) ?? "standard",
-        workflowProfile: payload?.workflowProfile
-      });
-      ctx.respondJson(res, 200, result);
-      return true;
+      try {
+        const result = await createSyncRun(serviceCtx, {
+          task,
+          cwd,
+          dryRun: payload?.dryRun !== false,
+          workflowMode: parseWorkflowMode(payload?.workflowMode) ?? "standard",
+          workflowProfile: payload?.workflowProfile
+        });
+        ctx.respondJson(res, 200, result);
+        return true;
+      } catch (err) {
+        if (err instanceof JobServiceError) {
+          ctx.respondJson(res, err.statusCode, { ok: false, error: err.message });
+          return true;
+        }
+        throw err;
+      }
     }
 
     if (url.pathname === "/jobs" && req.method === "POST") {

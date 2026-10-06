@@ -7,6 +7,49 @@ import { checkCommand } from "../security/command-policy.js";
 import type { CliCommandError, CommandRetryOptions, CommandRunOptions, CommandRunResult } from "../types.js";
 
 const DEFAULT_KILL_GRACE_MS = 5000;
+/** Per-stream ceiling on captured command output, in characters. */
+const DEFAULT_MAX_OUTPUT_CHARS = 10 * 1024 * 1024;
+
+/**
+ * Capture a child stream without unbounded growth. A command that floods its
+ * output — a verbose test run, a runaway loop — was buffered in full until the
+ * string hit V8's length limit, and that throw took the whole process down.
+ * Only the tail is kept: failures and summaries land at the end, and the exit
+ * code still decides success.
+ */
+export class OutputTail {
+  private text = "";
+  private totalBytes = 0;
+  private dropped = false;
+
+  constructor(private readonly maxChars: number) {}
+
+  /** Characters held in memory right now — never more than twice the cap. */
+  get retainedChars(): number {
+    return this.text.length;
+  }
+
+  append(chunk: Buffer): void {
+    this.totalBytes += chunk.length;
+    this.text += chunk.toString();
+    // Trim in batches rather than per chunk, so capture stays linear.
+    if (this.text.length > this.maxChars * 2) {
+      this.text = this.text.slice(-this.maxChars);
+      this.dropped = true;
+    }
+  }
+
+  get bytesSeen(): number {
+    return this.totalBytes;
+  }
+
+  toString(): string {
+    if (!this.dropped && this.text.length <= this.maxChars) {
+      return this.text;
+    }
+    return `[output truncated: kept the last ${this.maxChars} characters of ${this.totalBytes} bytes]\n${this.text.slice(-this.maxChars)}`;
+  }
+}
 
 export async function loadEnvironment(repoRoot = process.cwd()) {
   const envPath = path.join(repoRoot, ".env");
@@ -90,19 +133,16 @@ export function parseEnvFileContent(raw: string): Record<string, string> {
 }
 
 export async function runCommandWithRetry({
-  command,
-  args,
-  cwd,
-  input,
-  timeoutMs = 60000,
-  killGraceMs = DEFAULT_KILL_GRACE_MS,
   retries = 3,
   baseDelayMs = 500,
-  label = command,
-  monitorIntervalMs = 0,
+  label,
   onMonitor,
-  signal
+  ...runOptions
 }: CommandRetryOptions): Promise<CommandRunResult> {
+  // Forward every run option rather than re-listing them: a hand-copied list
+  // once dropped `env`, which silently turned the clean-env sandbox into a
+  // full inheritance of the server's secrets.
+  const { signal } = runOptions;
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -112,15 +152,8 @@ export async function runCommandWithRetry({
 
     try {
       return await runCommand({
-        command,
-        args,
-        cwd,
-        input,
-        timeoutMs,
-        killGraceMs,
-        monitorIntervalMs,
-        onMonitor: typeof onMonitor === "function" ? (event) => onMonitor({ ...event, attempt }) : undefined,
-        signal
+        ...runOptions,
+        onMonitor: typeof onMonitor === "function" ? (event) => onMonitor({ ...event, attempt }) : undefined
       });
     } catch (error) {
       lastError = error;
@@ -136,7 +169,7 @@ export async function runCommandWithRetry({
   }
 
   const error = lastError as CliCommandError | undefined;
-  const wrapped: CliCommandError = new Error(`${label} failed after ${retries + 1} attempt(s): ${error?.message ?? "Unknown error"}`);
+  const wrapped: CliCommandError = new Error(`${label ?? runOptions.command} failed after ${retries + 1} attempt(s): ${error?.message ?? "Unknown error"}`);
   wrapped.code = error?.code;
   wrapped.stdout = error?.stdout;
   wrapped.stderr = error?.stderr;
@@ -154,7 +187,8 @@ export async function runCommand({
   killGraceMs = DEFAULT_KILL_GRACE_MS,
   monitorIntervalMs = 0,
   onMonitor,
-  signal
+  signal,
+  maxOutputChars = DEFAULT_MAX_OUTPUT_CHARS
 }: CommandRunOptions): Promise<CommandRunResult> {
   if (signal?.aborted) {
     return Promise.reject(new Error('AbortError'));
@@ -175,8 +209,8 @@ export async function runCommand({
       detached: process.platform !== 'win32' // Use detached to kill process group if needed
     });
 
-    let stdout = "";
-    let stderr = "";
+    const stdoutTail = new OutputTail(maxOutputChars);
+    const stderrTail = new OutputTail(maxOutputChars);
     let settled = false;
     let nextMonitorId = 1;
     let forceKillTimeout: NodeJS.Timeout | null = null;
@@ -232,20 +266,20 @@ export async function runCommand({
               args,
               cwd,
               elapsedMs: Date.now() - startedAt,
-              stdoutBytes: Buffer.byteLength(stdout, "utf8"),
-              stderrBytes: Buffer.byteLength(stderr, "utf8"),
+              stdoutBytes: stdoutTail.bytesSeen,
+              stderrBytes: stderrTail.bytesSeen,
               monitorId: nextMonitorId
             });
             nextMonitorId += 1;
           }, monitorIntervalMs)
         : null;
 
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdoutTail.append(chunk);
     });
 
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderrTail.append(chunk);
     });
 
     child.on("error", (error) => {
@@ -258,6 +292,8 @@ export async function runCommand({
         return;
       }
 
+      const stdout = stdoutTail.toString();
+      const stderr = stderrTail.toString();
       if (code === 0) {
         settled = true;
         resolve({ stdout, stderr, code });

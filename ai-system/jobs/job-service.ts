@@ -35,14 +35,35 @@ export async function createSyncRun(
   input: { task: string; cwd: string; dryRun?: boolean; workflowMode?: WorkflowMode; workflowProfile?: unknown }
 ): Promise<OrchestratorResult> {
   const workflowProfile = parseWorkflowProfileId(input.workflowProfile);
-  return ctx.runNow({
-    jobId: `sync-${Date.now().toString(36)}`,
-    task: applyWorkflowProfileToTask(input.task, workflowProfile),
-    cwd: input.cwd,
-    dryRun: input.dryRun !== false,
-    workflowMode: input.workflowMode ?? "standard",
+  const task = applyWorkflowProfileToTask(input.task, workflowProfile);
+  const workflowMode = input.workflowMode ?? "standard";
+  const dryRun = input.dryRun !== false;
+
+  // A synchronous run has no job record, so nothing can approve it: a task
+  // that needs a human used to park the request — and its workspace — forever.
+  const { rules } = await loadRules(input.cwd);
+  const approvalPolicy = tightenApprovalPolicyForProfile(
+    resolveApprovalPolicy(task, rules, [], { workflowMode }),
     workflowProfile
-  });
+  );
+  if (approvalPolicy.interactive) {
+    throw new JobServiceError("This task needs approval; queue it with POST /jobs instead.", 409);
+  }
+
+  const jobId = `sync-${Date.now().toString(36)}`;
+  const outcome = await ctx.queue.runExclusive(input.cwd, () =>
+    ctx.runNow({ jobId, task, cwd: input.cwd, dryRun, workflowMode, workflowProfile, approvalPolicy })
+  );
+  if (!outcome.ok) {
+    throw new JobServiceError(
+      outcome.reason === "paused"
+        ? "The queue is paused or delegated to workers; synchronous runs are not accepted. Use POST /jobs."
+        : "Another job is running in this workspace; queue this one with POST /jobs.",
+      409
+    );
+  }
+  await ctx.auditLog.append({ actor: ctx.actor, action: "job.run_sync", cwd: input.cwd, jobId, details: { dryRun } });
+  return outcome.value;
 }
 
 export async function createJob(
@@ -219,8 +240,18 @@ export async function getJobFileContent(
       ? latestIterationPath
       : path.join(artifactPath, latestIterationPath);
     const subDir = type === "original" ? "files-original" : "files";
-    const fullPath = path.join(iterationDir, subDir, filePath);
-    const content = await fs.readFile(fullPath, "utf8");
+    const snapshotDir = path.join(iterationDir, subDir);
+    const fullPath = path.join(snapshotDir, filePath);
+    // `filePath` comes straight from the query string. Keep it inside the
+    // snapshot, and compare real paths too so a symlink cannot point back out.
+    if (!isPathWithinRoot(snapshotDir, fullPath)) {
+      return { ok: false, statusCode: 400, error: "File path is outside the job artifact snapshot" };
+    }
+    const realFullPath = await fs.realpath(fullPath);
+    if (!isPathWithinRoot(await fs.realpath(snapshotDir), realFullPath)) {
+      return { ok: false, statusCode: 400, error: "File path is outside the job artifact snapshot" };
+    }
+    const content = await fs.readFile(realFullPath, "utf8");
     return { ok: true, content };
   } catch (err) {
     const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code?: unknown }).code) : "";
