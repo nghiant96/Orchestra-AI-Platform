@@ -379,6 +379,45 @@ export async function parseArgs(args: string[]): Promise<CliOptions> {
         index += 1;
         continue;
       }
+      if (subCommand === "dispatch") {
+        // `args[index]` is "work" and `args[index + 1]` is "dispatch", so flags
+        // start two tokens along.
+        let cursor = index + 2;
+        let maxParallel: number | undefined;
+        let write = false;
+        let serverUrl: string | undefined;
+        while (cursor < args.length) {
+          const flag = args[cursor];
+          if (flag === "--max-parallel") {
+            const parsed = Number(args[cursor + 1]);
+            if (!Number.isInteger(parsed) || parsed < 1) {
+              throw new Error("`--max-parallel` needs a positive integer.");
+            }
+            maxParallel = parsed;
+            cursor += 2;
+            continue;
+          }
+          if (flag === "--write") {
+            write = true;
+            cursor += 1;
+            continue;
+          }
+          if (flag === "--server") {
+            const raw = args[cursor + 1];
+            if (!raw) {
+              throw new Error("`--server` needs a URL.");
+            }
+            serverUrl = raw;
+            cursor += 2;
+            continue;
+          }
+          break;
+        }
+        command = { kind: "work-dispatch", maxParallel, write, serverUrl };
+        // The enclosing loop advances one more, covering the "work" token.
+        index = cursor - 1;
+        continue;
+      }
       if (subCommand === "metrics") {
         command = { kind: "work-metrics" };
         index += 1;

@@ -5,6 +5,7 @@ import type { RulesConfig } from "../types.js";
 import type { WorkItem, WorkItemType, WorkItemSource, ExpectedOutput, LinkedJobSummary, WorkItemEvent } from "./work-item.js";
 import { WorkStore } from "./work-store.js";
 import { WorkEngine } from "./work-engine.js";
+import { scheduleWorkItems } from "./scheduler.js";
 import { resolveApprovalPolicy } from "../core/risk-policy.js";
 import {
   parseWorkflowProfileId,
@@ -158,7 +159,11 @@ export async function runWorkItem(
         workflowMode: request.workflowMode,
         workflowProfile: request.workflowProfile,
         approvalMode: approvalPolicy.approvalMode,
-        approvalPolicy
+        approvalPolicy,
+        // Carrying the origin makes the job traceable back to its node, and
+        // tells the worker this task was already decomposed by the graph.
+        workItemId,
+        graphNodeId: request.nodeId
       })
     );
   }
@@ -183,6 +188,93 @@ export async function runWorkItem(
   });
 
   return { ok: true, workItem: updated, job: jobs[0], jobs };
+}
+
+export interface DispatchedWorkItem {
+  workItemId: string;
+  title: string;
+  jobIds: string[];
+}
+
+export interface BlockedWorkItem {
+  workItemId: string;
+  title: string;
+  reasons: string[];
+}
+
+export interface DispatchResult {
+  ok: boolean;
+  dispatched: DispatchedWorkItem[];
+  blocked: BlockedWorkItem[];
+  failed: Array<{ workItemId: string; error: string }>;
+}
+
+/**
+ * Dispatch every work item the scheduler considers ready.
+ *
+ * The scheduler decides *which* items may run together — it rejects items that
+ * share a branch or worktree, drops terminal ones, and honours a parallel cap.
+ * Each survivor then goes through `runWorkItem`, so a dispatched item gets the
+ * same treatment as a hand-started one: graph nodes expanded into one job each,
+ * approval policy resolved per node, run ids attached back to the graph, audit
+ * written.
+ *
+ * This is the piece that was missing. `scheduleWorkItems` could always compute
+ * the plan, but the only caller printed the counts and threw it away, so no
+ * multi-item dispatch ever happened.
+ */
+export async function dispatchReadyWorkItems(
+  ctx: WorkItemServiceContext,
+  cwd: string,
+  options: { dryRun?: boolean; maxParallel?: number } = {}
+): Promise<DispatchResult> {
+  const { rules } = await loadRules(cwd);
+  const store = new WorkStore(cwd, rules);
+  const workItems = await store.list();
+  const plan = scheduleWorkItems(workItems, { maxParallel: options.maxParallel });
+
+  const dispatched: DispatchedWorkItem[] = [];
+  const failed: Array<{ workItemId: string; error: string }> = [];
+
+  for (const item of plan.ready) {
+    // One item failing to start is not a reason to abandon the rest of the
+    // batch; record it and keep dispatching.
+    try {
+      const result = await runWorkItem(ctx, cwd, item.id, { dryRun: options.dryRun });
+      if (!result.ok) {
+        failed.push({ workItemId: item.id, error: result.error ?? "Work item did not start" });
+        continue;
+      }
+      dispatched.push({
+        workItemId: item.id,
+        title: item.title,
+        jobIds: (result.jobs ?? []).map((job) => job.jobId)
+      });
+    } catch (error) {
+      failed.push({ workItemId: item.id, error: (error as Error).message });
+    }
+  }
+
+  const blocked: BlockedWorkItem[] = plan.blocked.map((entry) => ({
+    workItemId: entry.workItem.id,
+    title: entry.workItem.title,
+    reasons: entry.conflicts.map((conflict) => conflict.reason)
+  }));
+
+  await ctx.auditLog.append({
+    actor: ctx.actor,
+    action: "work_item.dispatch",
+    cwd,
+    details: {
+      dispatchedCount: dispatched.length,
+      blockedCount: blocked.length,
+      failedCount: failed.length,
+      jobIds: dispatched.flatMap((entry) => entry.jobIds),
+      maxParallel: options.maxParallel ?? null
+    }
+  });
+
+  return { ok: failed.length === 0, dispatched, blocked, failed };
 }
 
 export async function handoffWorkItem(

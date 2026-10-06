@@ -28,7 +28,8 @@ export class ReviewerAgent {
     diffSummaries: DiffSummary[],
     cwd: string,
     memoryContext = "",
-    blastRadius?: import("../core/blast-radius.js").BlastRadiusContext
+    blastRadius?: import("../core/blast-radius.js").BlastRadiusContext,
+    lens?: { id: string; instruction: string }
   ): Promise<ReviewResult> {
     const promptOptions = { repoRoot: cwd, rules: this.rules };
     const template = await loadPromptTemplate("reviewer", promptOptions);
@@ -43,6 +44,12 @@ export class ReviewerAgent {
     }
 
     systemPrompt += "\n\nStaff-Level Review Instructions:\n1. Findings First: Lead with concrete technical observations.\n2. Severity/Risk Ordering: Prioritize blocking issues (high/medium) and high-risk behavioral gaps.\n3. File/Line Grounding: Reference specific line numbers when possible.\n4. Behavioral Risk: For each finding, explain the potential behavioral or operational risk.\n5. Refactor Batching: For refactor tasks, ensure mechanical and behavioral changes are separated. Reject broad 'mixed' batches that combine many unrelated logic changes.";
+
+    if (lens) {
+      // A panel is only worth its cost if the members actually look at
+      // different things, so narrow this member and say so explicitly.
+      systemPrompt += `\n\nPANEL MEMBER — ${lens.id.toUpperCase()}\nYou are one member of a review panel; other members cover other concerns.\n${lens.instruction}\nStay inside your assigned concern. Reporting nothing is a valid answer when your concern is clean.\nAlways set the "category" of each issue to "${lens.id}" so findings can be reconciled across the panel.`;
+    }
 
     const prompt = JSON.stringify(
       {
@@ -62,7 +69,7 @@ export class ReviewerAgent {
 
     const rawResult = await this.provider.runJson({
       cwd,
-      label: "reviewer output",
+      label: lens ? `reviewer output (${lens.id})` : "reviewer output",
       systemPrompt,
       prompt,
       schema: REVIEW_SCHEMA,

@@ -192,4 +192,42 @@ describe("CLI Arg Parser", () => {
   it("normalizeRetryStage throws on invalid stage", () => {
     assert.throws(() => normalizeRetryStage("invalid"), /Unsupported retry stage/);
   });
+
+  describe("work dispatch", () => {
+    it("parses without flags", async () => {
+      const options = await parseArgs(["work", "dispatch"]);
+      assert.deepEqual(options.command, { kind: "work-dispatch", maxParallel: undefined, write: false, serverUrl: undefined });
+    });
+
+    it("captures every flag, in any combination", async () => {
+      // The flag cursor has to start past both "work" and "dispatch"; starting
+      // it on the subcommand made the loop exit immediately and silently drop
+      // --max-parallel, so the cap was accepted and then ignored.
+      const capped = await parseArgs(["work", "dispatch", "--max-parallel", "2"]);
+      assert.equal((capped.command as { maxParallel?: number }).maxParallel, 2);
+
+      const written = await parseArgs(["work", "dispatch", "--write"]);
+      assert.equal((written.command as { write?: boolean }).write, true);
+
+      const all = await parseArgs([
+        "work", "dispatch", "--max-parallel", "3", "--write", "--server", "http://example:1"
+      ]);
+      assert.deepEqual(all.command, {
+        kind: "work-dispatch",
+        maxParallel: 3,
+        write: true,
+        serverUrl: "http://example:1"
+      });
+    });
+
+    it("rejects a non-positive parallel cap", async () => {
+      await assert.rejects(() => parseArgs(["work", "dispatch", "--max-parallel", "0"]), /positive integer/);
+      await assert.rejects(() => parseArgs(["work", "dispatch", "--max-parallel", "abc"]), /positive integer/);
+    });
+
+    it("leaves work schedule alone", async () => {
+      const options = await parseArgs(["work", "schedule"]);
+      assert.deepEqual(options.command, { kind: "work-schedule" });
+    });
+  });
 });

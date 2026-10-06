@@ -5,6 +5,17 @@ import type { ChecklistItem, ExecutionGraph, TaskAssessment, WorkItem } from "./
 import type { RulesConfig } from "../types.js";
 
 const WORK_ITEM_ID_PATTERN = /^work-[A-Za-z0-9][A-Za-z0-9-]{0,160}$/;
+
+/**
+ * Whether an id is even shaped like a work item id.
+ *
+ * The store throws on a malformed id because it guards path traversal, which is
+ * the right behaviour there. Callers at an HTTP boundary should check first, so
+ * a client typo answers 400 instead of surfacing as a server error.
+ */
+export function isValidWorkItemId(id: string): boolean {
+  return WORK_ITEM_ID_PATTERN.test(id);
+}
 const EMPTY_GRAPH: ExecutionGraph = { nodes: [], edges: [] };
 
 interface AssessmentRecord {

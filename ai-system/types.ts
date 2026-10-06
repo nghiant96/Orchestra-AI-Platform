@@ -562,6 +562,12 @@ export interface ReviewIssue {
   suggestedFix: string;
   verificationCommand?: string;
   affectedFiles?: string[];
+  /** Set when a review panel produced this finding; absent for single reviews. */
+  agreement?: {
+    count: number;
+    lenses: string[];
+    quorumMet: boolean;
+  };
 }
 
 export interface ReviewResult {

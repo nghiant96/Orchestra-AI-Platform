@@ -7,9 +7,6 @@ import type { ApprovalArtifactBinding } from "../approvals/approval-proof.js";
 import type { JobRepository } from "./repository-contracts.js";
 import type { JobRecordRepository } from "./job-repository.js";
 import { createJobRecordRepository } from "./job-repositories.js";
-import { scheduleWorkItems } from "../work/scheduler.js";
-import type { SchedulerOptions, SchedulerPlan } from "../work/scheduler.js";
-import type { WorkItem } from "../work/work-item.js";
 
 export type QueueJobStatus = "queued" | "assigned" | "running" | "waiting_for_approval" | "completed" | "failed" | "cancel_requested" | "cancelled" | "stalled";
 
@@ -76,6 +73,9 @@ export interface QueueJob {
     retryHint?: RetryHint | null;
   };
   externalTask?: import("../types.js").ExternalTaskRef;
+  /** Set when the job came from a work item graph node, for traceability and phase planning. */
+  workItemId?: string;
+  graphNodeId?: string;
   lease?: JobLease;
   attempt?: number;
   workerSelector?: {
@@ -98,6 +98,8 @@ export interface JobQueueRunInput {
   approvalMode?: QueueApprovalMode;
   approvalPolicy?: ApprovalPolicyDecision;
   externalTask?: import("../types.js").ExternalTaskRef;
+  workItemId?: string;
+  graphNodeId?: string;
   signal?: AbortSignal;
 }
 
@@ -158,6 +160,8 @@ export class FileBackedJobQueue implements JobRepository {
       approvalPolicy: input.approvalPolicy,
       approvalArtifact: null,
       externalTask: input.externalTask,
+      workItemId: input.workItemId,
+      graphNodeId: input.graphNodeId,
       createdAt: now,
       updatedAt: now,
       artifactPath: null,
@@ -168,45 +172,6 @@ export class FileBackedJobQueue implements JobRepository {
     this.scheduleDrain();
     void this.cleanupOldJobs();
     return job;
-  }
-
-  /**
-   * Enqueue work items in batch, running them through the scheduler first.
-   * Only ready items are enqueued; blocked items are logged and skipped.
-   * Returns the scheduler plan for diagnostics.
-   */
-  async enqueueBatch(
-    workItems: WorkItem[],
-    baseInput: Omit<JobQueueRunInput, "jobId">,
-    schedulerOptions: SchedulerOptions = {}
-  ): Promise<{ plan: SchedulerPlan; jobs: QueueJob[] }> {
-    const plan = scheduleWorkItems(workItems, schedulerOptions);
-
-    if (plan.blocked.length > 0) {
-      this.options.logger?.info(
-        `Scheduler blocked ${plan.blocked.length} work item(s): ${plan.blocked
-          .map((b) => `${b.workItem.id} (${b.conflicts.map((c) => c.reason).join("; ")})`)
-          .join(", ")}`
-      );
-    }
-
-    const jobs: QueueJob[] = [];
-    for (const item of plan.ready) {
-      const job = await this.enqueue({
-        task: `[${item.id}] ${item.title}`,
-        cwd: baseInput.cwd,
-        dryRun: baseInput.dryRun,
-        resume: baseInput.resume,
-        workflowMode: baseInput.workflowMode,
-        workflowProfile: baseInput.workflowProfile,
-        approvalMode: baseInput.approvalMode,
-        approvalPolicy: baseInput.approvalPolicy,
-        externalTask: item.externalTask ?? baseInput.externalTask
-      });
-      jobs.push(job);
-    }
-
-    return { plan, jobs };
   }
 
   async get(jobId: string): Promise<QueueJob | null> {

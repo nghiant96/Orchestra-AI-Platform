@@ -20,6 +20,49 @@ describe("Worker phase planning", () => {
     assert.match(plan.phases[0]?.prompt ?? "", /phase 1\//i);
     assert.match(plan.phases[plan.phases.length - 1]?.prompt ?? "", /verification/i);
   });
+
+  test("an already-decomposed node is one implementation phase, not one per framing line", () => {
+    // This is the shape work-engine emits for a graph node. Every `Label: value`
+    // line used to be read as another slice to implement, so a five-node work
+    // item planned 35 provider invocations instead of ten.
+    const nodePrompt = [
+      "Workspace Work Item: Add login rate limit",
+      "Description: Throttle repeated login attempts",
+      "Work item id: work-2026-08-02-example",
+      "Graph node: implement-3 (implement)",
+      "Node goal: Apply the requested change.",
+      "Expected output: patch",
+      "Risk: low",
+      "Execute only this graph node. Do not skip existing approval, review, or tool-check gates."
+    ].join("\n");
+
+    const naive = buildWorkerTaskPhasePlan(nodePrompt, { contextPackMode: "off" });
+    const decomposed = buildWorkerTaskPhasePlan(nodePrompt, { contextPackMode: "off", preDecomposed: true });
+
+    assert.ok(
+      naive.phases.length > decomposed.phases.length,
+      "the regression only matters if the naive split really does inflate"
+    );
+    assert.deepEqual(
+      decomposed.phases.map((phase) => phase.kind),
+      ["implementation", "verification"],
+      "a graph node is already one unit of work"
+    );
+    // The full prompt still reaches the provider; only the slicing changed.
+    assert.equal(decomposed.task, nodePrompt);
+    assert.match(decomposed.phases[0]?.prompt ?? "", /Add login rate limit/);
+  });
+
+  test("free-form tasks still get split, so the fix does not disable phasing", () => {
+    const plan = buildWorkerTaskPhasePlan(
+      "Add rate limiting to the login endpoint and write integration tests for the throttle behaviour.",
+      { contextPackMode: "off" }
+    );
+    assert.ok(
+      plan.phases.filter((phase) => phase.kind === "implementation").length >= 2,
+      "a genuine multi-clause task should still produce multiple implementation phases"
+    );
+  });
 });
 
 describe("Worker phase execution", () => {
